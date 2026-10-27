@@ -1,0 +1,11 @@
+{
+  "suite": "memory-v1",
+  "total": 4,
+  "metrics": {
+    "episodic_recall": 1.0,
+    "intent_filtered_recall": 1.0,
+    "unrelated_injection_rate": 0.0,
+    "preference_hit": 1.0
+  },
+  "status": "passed"
+}

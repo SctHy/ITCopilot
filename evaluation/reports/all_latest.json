@@ -1,0 +1,37 @@
+{
+  "suite": "it-copilot-evaluation-gate",
+  "status": "passed",
+  "all_passed": true,
+  "suites": [
+    {
+      "suite": "evaluate_intents",
+      "exit_code": 0,
+      "status": "passed",
+      "report": "evaluation/reports/intent_latest.json"
+    },
+    {
+      "suite": "evaluate_memory",
+      "exit_code": 0,
+      "status": "passed",
+      "report": "evaluation/reports/memory_latest.json"
+    },
+    {
+      "suite": "evaluate_rag",
+      "exit_code": 0,
+      "status": "passed",
+      "report": "evaluation/reports/rag_latest.json"
+    },
+    {
+      "suite": "evaluate_planner",
+      "exit_code": 0,
+      "status": "passed",
+      "report": "evaluation/reports/planner_latest.json"
+    },
+    {
+      "suite": "evaluate_phase6",
+      "exit_code": 0,
+      "status": "passed",
+      "report": "evaluation/reports/phase6_latest.json"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[
+  {"query":"VPN 连接失败应该先检查什么","relevant_titles":["VPN 连接排障 SOP"]},
+  {"query":"VPN 错误码怎么处理","relevant_titles":["VPN 连接排障 SOP"]},
+  {"query":"企业 VPN 客户端排障","relevant_titles":["VPN 连接排障 SOP"]},
+  {"query":"密码重置需要 MFA 吗","relevant_titles":["密码重置与 MFA"]},
+  {"query":"忘记密码的安全流程","relevant_titles":["密码重置与 MFA"]},
+  {"query":"OTP 能发给客服吗","relevant_titles":["密码重置与 MFA"]},
+  {"query":"如何申请 GitLab 权限","relevant_titles":["权限申请流程"]},
+  {"query":"权限申请需要哪些信息","relevant_titles":["权限申请流程"]},
+  {"query":"最小权限和审批人要求","relevant_titles":["权限申请流程"]},
+  {"query":"办公室 Wi-Fi 不能上网","relevant_titles":["Wi-Fi 与网络排障"]},
+  {"query":"网络问题需要收集哪些信息","relevant_titles":["Wi-Fi 与网络排障"]},
+  {"query":"DNS 和路由排查顺序","relevant_titles":["Wi-Fi 与网络排障"]},
+  {"query":"办公软件从哪里安装","relevant_titles":["软件安装与许可证"]},
+  {"query":"软件许可证如何核对","relevant_titles":["软件安装与许可证"]},
+  {"query":"能否安装破解软件","relevant_titles":["软件安装与许可证"]},
+  {"query":"P1 P2 P3 工单优先级","relevant_titles":["工单优先级与 SLA"]},
+  {"query":"工单 SLA 怎么看","relevant_titles":["工单优先级与 SLA"]},
+  {"query":"如何升级 IT 工单","relevant_titles":["工单优先级与 SLA"]},
+  {"query":"关键员工无法工作应该建什么级别工单","relevant_titles":["工单优先级与 SLA"]},
+  {"query":"创建工单后需要保留什么","relevant_titles":["工单优先级与 SLA"]}
+]

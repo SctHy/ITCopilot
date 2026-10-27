@@ -1,0 +1,45 @@
+{
+  "suite": "planner-v1",
+  "total": 5,
+  "plan_validity": 1.0,
+  "max_steps": 6,
+  "parallel_ready": 2,
+  "status": "passed",
+  "cases": [
+    {
+      "message": "申请 GitLab 权限并准备一台新电脑",
+      "complex": true,
+      "steps": 3,
+      "bounded": true,
+      "has_trace_fields": true
+    },
+    {
+      "message": "VPN 连不上并创建工单",
+      "complex": false,
+      "steps": 2,
+      "bounded": true,
+      "has_trace_fields": true
+    },
+    {
+      "message": "重置密码并绑定 MFA",
+      "complex": false,
+      "steps": 1,
+      "bounded": true,
+      "has_trace_fields": true
+    },
+    {
+      "message": "查询工单状态",
+      "complex": false,
+      "steps": 1,
+      "bounded": true,
+      "has_trace_fields": true
+    },
+    {
+      "message": "软件安装和许可证咨询",
+      "complex": false,
+      "steps": 1,
+      "bounded": true,
+      "has_trace_fields": true
+    }
+  ]
+}

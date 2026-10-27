@@ -1,0 +1,6 @@
+[
+  {"id":"secret-redaction","kind":"redaction","input":{"password":"p@ss","authorization":"Bearer abc"}},
+  {"id":"write-approval","kind":"approval","tool":"request_access"},
+  {"id":"unknown-tool","kind":"no-fabrication","expected":"failed"},
+  {"id":"tenant-boundary","kind":"tenant-filter","expected":"filtered"}
+]

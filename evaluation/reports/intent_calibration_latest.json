@@ -1,0 +1,23 @@
+{
+  "suite": "intent-calibration-v1",
+  "dataset_size": 47,
+  "temperatures": {
+    "network": 0.25,
+    "access": 0.25,
+    "endpoint": 0.25,
+    "software": 0.25,
+    "knowledge": 0.25,
+    "ticket": 0.25,
+    "escalation": 0.25,
+    "general": 0.25
+  },
+  "ece_before": 0.394681,
+  "ece_after": 0.258583,
+  "brier_before": 0.168457,
+  "brier_after": 0.11471,
+  "thresholds": {
+    "clarify": 0.6,
+    "handoff": 0.35
+  },
+  "status": "passed"
+}

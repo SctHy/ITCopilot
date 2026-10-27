@@ -1,0 +1,549 @@
+{
+  "accuracy": 1.0,
+  "macro_f1": 1.0,
+  "per_class": {
+    "access_review": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "account_unlock": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "chitchat": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "device_failure": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "device_provisioning": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "email_collab_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "greeting": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "howto": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "human_handoff": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "mfa_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "network_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "out_of_scope": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "password_reset": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "permission_request": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "software_install": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "software_license": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "ticket_cancel": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "ticket_create": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "ticket_status": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "vpn_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "wifi_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    }
+  },
+  "total": 47,
+  "correct": 47,
+  "cases": [
+    {
+      "message": "VPN 连不上",
+      "expected": "vpn_issue",
+      "predicted": "vpn_issue",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "公司 VPN 一直连接超时",
+      "expected": "vpn_issue",
+      "predicted": "vpn_issue",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "虚拟专网断了",
+      "expected": "vpn_issue",
+      "predicted": "vpn_issue",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "Wi-Fi 一直断开",
+      "expected": "wifi_issue",
+      "predicted": "wifi_issue",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "无线网络搜不到",
+      "expected": "wifi_issue",
+      "predicted": "wifi_issue",
+      "confidence": 0.9961,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "网络很慢，访问不了内网",
+      "expected": "network_issue",
+      "predicted": "network_issue",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "办公室网络故障",
+      "expected": "network_issue",
+      "predicted": "network_issue",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "帮我重置密码",
+      "expected": "password_reset",
+      "predicted": "password_reset",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "忘记域账号密码了",
+      "expected": "password_reset",
+      "predicted": "password_reset",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "我的账号被锁定了",
+      "expected": "account_unlock",
+      "predicted": "account_unlock",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "请帮我解锁企业账号",
+      "expected": "account_unlock",
+      "predicted": "account_unlock",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "MFA 验证失败",
+      "expected": "mfa_issue",
+      "predicted": "mfa_issue",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "收不到二次验证码",
+      "expected": "mfa_issue",
+      "predicted": "mfa_issue",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "申请 GitLab 权限",
+      "expected": "permission_request",
+      "predicted": "permission_request",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "开通生产系统访问权限",
+      "expected": "permission_request",
+      "predicted": "permission_request",
+      "confidence": 0.9961,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "我需要申请应用权限",
+      "expected": "permission_request",
+      "predicted": "permission_request",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "检查一下我的系统权限",
+      "expected": "access_review",
+      "predicted": "access_review",
+      "confidence": 0.9961,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "电脑蓝屏了",
+      "expected": "device_failure",
+      "predicted": "device_failure",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "显示器黑屏",
+      "expected": "device_failure",
+      "predicted": "device_failure",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "键盘无法使用",
+      "expected": "device_failure",
+      "predicted": "device_failure",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "申请一台新电脑",
+      "expected": "device_provisioning",
+      "predicted": "device_provisioning",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "入职需要领取办公设备",
+      "expected": "device_provisioning",
+      "predicted": "device_provisioning",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "帮我安装办公软件",
+      "expected": "software_install",
+      "predicted": "software_install",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "安装开发工具",
+      "expected": "software_install",
+      "predicted": "software_install",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "软件许可证过期了",
+      "expected": "software_license",
+      "predicted": "software_license",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "申请软件 license",
+      "expected": "software_license",
+      "predicted": "software_license",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "邮箱收不到邮件",
+      "expected": "email_collab_issue",
+      "predicted": "email_collab_issue",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "会议协作工具异常",
+      "expected": "email_collab_issue",
+      "predicted": "email_collab_issue",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "怎么配置公司代理",
+      "expected": "howto",
+      "predicted": "howto",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "请告诉我 VPN 使用教程",
+      "expected": "howto",
+      "predicted": "howto",
+      "confidence": 0.9961,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "帮我创建 IT 工单",
+      "expected": "ticket_create",
+      "predicted": "ticket_create",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "提交一个服务台请求",
+      "expected": "ticket_create",
+      "predicted": "ticket_create",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "查询工单状态",
+      "expected": "ticket_status",
+      "predicted": "ticket_status",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "我的工单处理到哪了",
+      "expected": "ticket_status",
+      "predicted": "ticket_status",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "取消我的工单",
+      "expected": "ticket_cancel",
+      "predicted": "ticket_cancel",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "我要转人工",
+      "expected": "human_handoff",
+      "predicted": "human_handoff",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "升级给 IT 服务台处理",
+      "expected": "human_handoff",
+      "predicted": "human_handoff",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "你好",
+      "expected": "greeting",
+      "predicted": "greeting",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "早上好，有人可以帮忙吗",
+      "expected": "greeting",
+      "predicted": "greeting",
+      "confidence": 0.5,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "你是谁",
+      "expected": "chitchat",
+      "predicted": "chitchat",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "谢谢你的帮助",
+      "expected": "chitchat",
+      "predicted": "chitchat",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "你能做什么",
+      "expected": "chitchat",
+      "predicted": "chitchat",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "帮我写一首诗",
+      "expected": "out_of_scope",
+      "predicted": "out_of_scope",
+      "confidence": 0.9998,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "今天上海天气怎么样",
+      "expected": "out_of_scope",
+      "predicted": "out_of_scope",
+      "confidence": 0.9998,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "还是不行",
+      "expected": "network_issue",
+      "predicted": "network_issue",
+      "confidence": 0.6,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "那个权限呢",
+      "expected": "permission_request",
+      "predicted": "permission_request",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    },
+    {
+      "message": "第二个怎么处理",
+      "expected": "ticket_status",
+      "predicted": "ticket_status",
+      "confidence": 0.9225,
+      "reasoning": "local fallback",
+      "llm_used": false,
+      "recognition_source": "fallback_disabled"
+    }
+  ],
+  "llm_calls": 0,
+  "llm_success": 0,
+  "fallback_calls": 47,
+  "fallback_disabled": 47,
+  "fallback_errors": 0,
+  "last_error": null,
+  "llm_only_accuracy": null,
+  "llm_only_total": 0,
+  "fallback_accuracy": 1.0,
+  "fallback_total": 47,
+  "status": "passed"
+}
