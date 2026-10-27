@@ -22,7 +22,6 @@ import math
 import os
 import pathlib
 import statistics
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -32,7 +31,7 @@ from pydantic_ai.models import Model
 
 from core.llm import build_model, complete_text, model_base_url
 
-from core.intent_recognizer import IntentCategory, IntentRecognizer
+from core.intent_recognizer import IntentRecognizer
 from evaluation.few_shot import JUDGE_FEW_SHOT_EXAMPLES, JUDGE_FEW_SHOT_VERSION
 
 logger = logging.getLogger(__name__)
@@ -567,9 +566,9 @@ class EndToEndEvaluator:
                                               for key, values in case["expected_entities"].items())
 
             judge_context = context
-            for label, field in [("参考答案", "reference_answer"), ("核验资料", "evidence")]:
-                if case.get(field):
-                    judge_context += f"\n[{label}]\n{case[field]}"
+            for label, case_key in [("参考答案", "reference_answer"), ("核验资料", "evidence")]:
+                if case.get(case_key):
+                    judge_context += f"\n[{label}]\n{case[case_key]}"
             scores = (QualityScores(0.0, 0.0, 0.0, 0.0) if agent_status == "failed" else
                       await self._judge.judge(question, actual_answer, context=judge_context or None))
             passed = (agent_status == "success" and all(checks.values()) and

@@ -7,7 +7,6 @@ import json, pathlib, sys
 ROOT=pathlib.Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT))
 from core.redaction import redact
 from core.approval import approval_summary
-from agents.tools import request_access
 
 def main():
     checks=[]

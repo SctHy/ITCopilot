@@ -1,5 +1,14 @@
 # Changelog
 
+## Phase 9 — 代码体检与修复
+
+- 意图识别：去掉针对评测集三条追问用例写死的特判，改为通用追问继承规则（同组保留具体意图、非领域意图继承上一轮组、跨领域视为换话题）。
+- 本地 n-gram embedding 由进程随机加盐的 `hash()` 改为 `zlib.crc32`，意图投票与校准指标跨进程可复现。
+- LLM 不可用时紧急度改由规则判定（此前恒为 normal）。
+- 修复 `/trace/tools` 被 `/trace/{request_id}` 遮蔽而不可达；后台任务保存引用并记录异常；并行 Agent 全部失败时返回明确的 failed 状态。
+- 重写 Agent 编排、意图识别、工具定义与 API 入口的分号压行代码；路由由 `INTENT_GROUPS` 推导，消除重复映射；API 不再访问其他模块私有成员。
+- 用 17 个真实断言替换 7 个不调用项目代码的空测试；后端离线测试共 92 项。
+
 ## Phase 8 — 迁移到 PydanticAI 与 Python 3.14
 
 - Agent 运行时从手写 AsyncAnthropic tool_use 循环迁移到 PydanticAI `Agent`；白名单、Schema 校验、写操作守卫、trace、3 轮上限与错误分类保持不变。

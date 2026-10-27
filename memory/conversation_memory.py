@@ -19,7 +19,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -207,7 +207,7 @@ class MemoryManager:
 
     async def create_approval(self, approval_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Persist a pending write-action approval and its audit metadata."""
-        body = dict(payload); body.update({"approval_id": approval_id, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat()})
+        body = {**payload, "approval_id": approval_id, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat()}
         await self._redis.set(self.approval_key(approval_id), json.dumps(body, ensure_ascii=False), ex=7 * 86400)
         return body
 
@@ -216,13 +216,19 @@ class MemoryManager:
         return json.loads(raw) if raw else None
 
     async def decide_approval(self, approval_id: str, decision: str, actor: str) -> Optional[Dict[str, Any]]:
-        if decision not in {"approved", "rejected"}: raise ValueError("decision 必须为 approved 或 rejected")
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision 必须为 approved 或 rejected")
         body = await self.get_approval(approval_id)
-        if not body: return None
-        if body.get("status") != "pending": return body
+        if not body:
+            return None
+        if body.get("status") != "pending":
+            # 已决策的审批不可再次变更，直接返回当前状态（幂等）。
+            return body
         body.update({"status": decision, "decided_by": self._safe_text(actor)[:120], "decided_at": datetime.now(timezone.utc).isoformat()})
-        if decision == "approved": body.update({"execution": "mock_executed", "result": "已按审批结果执行 mock 操作；生产环境需替换为受控 ITSM/身份系统适配器。"})
-        else: body.update({"execution": "not_executed", "result": "审批已拒绝，未执行任何写操作。"})
+        if decision == "approved":
+            body.update({"execution": "mock_executed", "result": "已按审批结果执行 mock 操作；生产环境需替换为受控 ITSM/身份系统适配器。"})
+        else:
+            body.update({"execution": "not_executed", "result": "审批已拒绝，未执行任何写操作。"})
         await self._redis.set(self.approval_key(approval_id), json.dumps(body, ensure_ascii=False), ex=7 * 86400)
         return body
 
@@ -557,6 +563,10 @@ class MemoryManager:
         except Exception:
             pass
         return {}
+
+    async def ping(self) -> None:
+        """确认 Redis 可达；锁和幂等依赖它，不可达时调用方应拒绝启动。"""
+        await self._redis.ping()
 
     async def close(self) -> None:
         """关闭异步 Redis 连接。"""

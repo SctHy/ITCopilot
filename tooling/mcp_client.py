@@ -9,7 +9,7 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urlsplit
 
 import httpx
@@ -117,7 +117,7 @@ class StandardMCPClient:
             async def wait_ready(c):
                 try:
                     await asyncio.wait_for(c.ready.wait(), c.config.timeout_s + 5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     c.error = "startup_timeout"
             await asyncio.gather(*(wait_ready(c) for c in self.connections.values()))
 
@@ -219,7 +219,7 @@ class StandardMCPClient:
             if not connection.stop.is_set():
                 try:
                     await asyncio.wait_for(connection.stop.wait(), delay)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 delay = min(delay * 2, 30)
         connection.state = "closed"
@@ -327,7 +327,7 @@ class StandardMCPClient:
         if tasks:
             try:
                 await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 10)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)

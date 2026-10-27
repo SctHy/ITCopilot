@@ -1,18 +1,20 @@
 """Offline Phase 7 boundary tests; no network or real model calls."""
 import asyncio
 import os
+import subprocess
+import sys
 import tempfile
-from types import SimpleNamespace
 
 import pytest
 from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request, RoutingDecision
 from core.approval import approval_summary
 from core.intent_calibration import calibrate, ece, brier
 from core.intent_recognizer import IntentCategory, IntentRecognizer
-from core.planner import PlanStep, build_plan
+from core.planner import ExecutionPlan, PlanStep, build_plan
 from core.redaction import redact
 from memory.conversation_memory import MemoryManager
 from tooling.knowledge_base import KnowledgeBase
@@ -123,9 +125,14 @@ def test_planner_step_limit():
     assert len(build_plan("权限、设备、VPN、软件、工单", "p").steps) <= 6
 
 
-def test_planner_cycle_is_detectable_from_dependencies():
-    steps = [PlanStep("a", "a", "triage", ["b"]), PlanStep("b", "b", "triage", ["a"])]
-    assert not any(all(dep in set() for dep in step.depends_on) for step in steps)
+def test_planner_dependency_cycle_stops_without_running_agents():
+    async def run():
+        orchestrator = AgentOrchestrator("sk-local")
+        plan = ExecutionPlan("p", "goal", [PlanStep("a", "a", "triage", ["b"]), PlanStep("b", "b", "triage", ["a"])])
+        result = await orchestrator._run_plan(Request("x"), plan)
+        assert result.status == "failed" and result.error_code == "plan_dependency_cycle" and result.escalated
+        assert all(a.stats.total == 0 for agents in orchestrator._pool.values() for a in agents)
+    asyncio.run(run())
 
 
 def test_orchestrator_routes_ticket():
@@ -196,15 +203,65 @@ def test_trace_route_is_registered():
     assert any(route.path == "/trace/{request_id}" for route in api.main.app.routes)
 
 
-@pytest.mark.parametrize("source", ["llm_tool_use", "fallback_disabled", "fallback_exception"])
-def test_intent_source_is_exposed(source):
-    result = SimpleNamespace(recognition_source=source)
-    assert result.recognition_source in {"llm_tool_use", "fallback_disabled", "fallback_exception"}
+def _classifier_model(mode):
+    async def respond(messages, info):
+        if mode == "error":
+            raise ValueError("bad payload")
+        return ModelResponse(parts=[ToolCallPart("classify_it_request", {"intent": "vpn_issue", "confidence": 0.9})])
+    return FunctionModel(respond)
 
 
-@pytest.mark.parametrize("message", ["还是不行", "那个权限呢", "第二个怎么处理"])
-def test_followup_patterns_are_detected(message):
-    assert any(token in message for token in ("还是不行", "那个", "第二个"))
+@pytest.mark.parametrize("llm_enabled,mode,source", [("true", "ok", "llm_tool_use"), ("false", "ok", "fallback_disabled"), ("true", "error", "fallback_exception")])
+def test_intent_recognition_source_reflects_llm_path(monkeypatch, llm_enabled, mode, source):
+    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", llm_enabled)
+    recognizer = IntentRecognizer("sk-local")
+    recognizer.llm = _classifier_model(mode)
+    result = asyncio.run(recognizer.recognize("VPN 连不上"))
+    assert result.recognition_source == source and result.llm_used is (source == "llm_tool_use")
+
+
+@pytest.mark.parametrize("message,previous_group,expected,inherited", [
+    ("还是不行", "network", "network_issue", True),
+    ("它怎么用", "network", "network_issue", True),
+    ("那个账号被锁了", "access", "account_unlock", True),
+    ("第二个怎么处理", "ticket", "ticket_status", True),
+    ("这个 VPN 怎么配置", "access", "vpn_issue", False),
+    ("还是不行", None, "other", False),
+])
+def test_followup_inherits_previous_group_only_without_topic_switch(monkeypatch, message, previous_group, expected, inherited):
+    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
+    result = asyncio.run(IntentRecognizer("sk-local").recognize(message, previous_intent_group=previous_group))
+    assert result.intent.value == expected and result.inherited_from_previous is inherited
+
+
+@pytest.mark.parametrize("message,urgency", [("全员无法上网，生产中断", "critical"), ("紧急！VPN 完全不能用", "high"), ("账号被锁定了", "high"), ("VPN 连不上", "normal")])
+def test_urgency_rules_apply_when_llm_unavailable(monkeypatch, message, urgency):
+    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
+    assert asyncio.run(IntentRecognizer("sk-local").recognize(message)).urgency.value == urgency
+
+
+def test_local_embedding_is_stable_across_processes():
+    code = "from core.intent_recognizer import IntentRecognizer as R; print(R._local_embed('VPN 连不上'))"
+    runs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env={**os.environ, "PYTHONHASHSEED": seed}).stdout for seed in ("1", "2")}
+    assert len(runs) == 1
+
+
+def test_trace_tools_route_is_not_shadowed_by_request_id_route():
+    import api.main
+    from fastapi.testclient import TestClient
+    assert TestClient(api.main.app).get("/trace/tools").json() == {"items": []}
+
+
+def test_parallel_run_reports_failure_when_every_agent_crashes():
+    async def run():
+        orchestrator = AgentOrchestrator("sk-local")
+        async def crash(req, agent_type):
+            raise RuntimeError("boom")
+        orchestrator._execute = crash
+        decision = RoutingDecision(AgentType.NETWORK_SOFTWARE, [AgentType.TRIAGE])
+        result = await orchestrator.run_parallel(Request("VPN 和权限"), decision)
+        assert result.status == "failed" and result.error_code == "agent_failed" and result.response and result.agent_types == []
+    asyncio.run(run())
 
 
 def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():

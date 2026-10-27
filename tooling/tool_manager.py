@@ -251,7 +251,7 @@ class MCPToolManager:
             if tool.breaker.state == CircuitState.HALF_OPEN:
                 tool.breaker.record_failure(generation)
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             tool.stats.failed += 1
             tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
@@ -492,6 +492,20 @@ class MCPToolManager:
         return value.encode("utf-8", errors="ignore").decode("utf-8")
 
     # ── 统计 ──────────────────────────────────────────────────────────────────
+
+    def monitor_snapshot(self) -> Dict[str, Any]:
+        """/monitor 使用的原始计数与熔断状态。"""
+        return {
+            name: {
+                "total": t.stats.total,
+                "success": t.stats.success,
+                "failed": t.stats.failed,
+                "success_rate": t.stats.success_rate,
+                "avg_latency_ms": t.stats.avg_latency_ms,
+                "circuit_state": t.breaker.state.value,
+            }
+            for name, t in self._tools.items()
+        }
 
     def get_stats(self) -> Dict[str, Any]:
         return {

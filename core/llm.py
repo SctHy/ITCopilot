@@ -41,8 +41,10 @@ def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = 
 
 
 def model_base_url(model: Any) -> str:
-    try: return str(getattr(model, "base_url", "") or "")
-    except Exception: return ""
+    try:
+        return str(getattr(model, "base_url", "") or "")
+    except Exception:
+        return ""
 
 
 async def close_model(model: Any) -> None:
@@ -58,8 +60,10 @@ def is_gateway_failure(exc: BaseException) -> bool:
         return True
     status = getattr(exc, "status_code", None)
     if isinstance(exc, ModelHTTPError) or status is not None:
-        try: return int(status) >= 500
-        except (TypeError, ValueError): return False
+        try:
+            return int(status) >= 500
+        except (TypeError, ValueError):
+            return False
     name = type(exc).__name__.lower()
     return any(token in name for token in ("apiconnection", "connecterror", "timeouterror", "timeoutexception", "readtimeout", "connecttimeout"))
 
@@ -74,10 +78,12 @@ class TextCompletion:
         return self.finish_reason == "length"
 
 
-async def complete_text(model: Model, prompt: str, *, max_tokens: int, temperature: float = 0.0, timeout: Optional[float] = None, max_retries: Optional[int] = None) -> TextCompletion:
+async def complete_text(model: Model, prompt: str, *, max_tokens: int, temperature: float = 0.0, request_timeout: Optional[float] = None, max_retries: Optional[int] = None) -> TextCompletion:
     """单轮纯文本补全（无工具、无重试循环），用于摘要、评测裁判等场景。"""
     settings = ModelSettings(max_tokens=max_tokens, temperature=temperature)
-    if timeout is not None: settings["request_timeout"] = timeout
-    if max_retries is not None: settings["max_retries"] = max_retries
+    if request_timeout is not None:
+        settings["request_timeout"] = request_timeout
+    if max_retries is not None:
+        settings["max_retries"] = max_retries
     response = await model_request(model, [ModelRequest.user_text_prompt(prompt)], model_settings=settings)
     return TextCompletion(response.text or "", response.finish_reason)

@@ -142,7 +142,7 @@ def convert_messages(
             assistant_msg: Dict[str, Any] = {"role": "assistant"}
             joined_text = "\n".join(p for p in text_parts if p)
             # 用空字符串而非 null，兼容更严格的 OpenAI 兼容服务
-            assistant_msg["content"] = joined_text if joined_text else ("" if tool_calls else "")
+            assistant_msg["content"] = joined_text
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
             out.append(assistant_msg)
@@ -150,28 +150,28 @@ def convert_messages(
 
         # role == user：文本块聚合成 user 消息，tool_result 块转成 tool 消息
         text_buf: List[str] = []
-
-        def _flush_text() -> None:
-            if text_buf:
-                joined = "\n".join(p for p in text_buf if p)
-                if joined.strip():
-                    out.append({"role": "user", "content": joined})
-                text_buf.clear()
-
         for block in content:
             btype = block.get("type", "text")
             if btype == "text":
                 text_buf.append(block.get("text", ""))
             elif btype == "tool_result":
-                _flush_text()
+                _flush_text(out, text_buf)
                 out.append({
                     "role": "tool",
                     "tool_call_id": block.get("tool_use_id"),
                     "content": _tool_result_content(block.get("content")),
                 })
-        _flush_text()
+        _flush_text(out, text_buf)
 
     return out
+
+
+def _flush_text(out: List[Dict[str, Any]], text_buf: List[str]) -> None:
+    """把累积的 user 文本块合并成一条 user 消息（空白内容丢弃）。"""
+    joined = "\n".join(p for p in text_buf if p)
+    if joined.strip():
+        out.append({"role": "user", "content": joined})
+    text_buf.clear()
 
 
 def convert_tools(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
@@ -392,7 +392,7 @@ async def messages(request: Request) -> JSONResponse:
     except httpx.TimeoutException:
         status, err = _error_body(504, "上游模型服务请求超时")
         return JSONResponse(status_code=status, content=err)
-    except Exception as ex:  # noqa: BLE001
+    except Exception as ex:
         logger.exception("gateway error")
         status, err = _error_body(500, f"网关内部错误: {ex}")
         return JSONResponse(status_code=status, content=err)

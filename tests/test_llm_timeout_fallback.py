@@ -28,7 +28,7 @@ def _agent(exc: Exception):
 
 def test_timeout_error_is_classified_as_gateway_unavailable():
     async def run():
-        agent = _agent(asyncio.TimeoutError("upstream turn timed out"))
+        agent = _agent(TimeoutError("upstream turn timed out"))
         with pytest.raises(GatewayUnavailableError):
             await agent._call_llm(Request(message="帮我重置密码", request_id="t1"))
 

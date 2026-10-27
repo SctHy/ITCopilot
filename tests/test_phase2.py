@@ -1,5 +1,4 @@
 import asyncio
-from types import SimpleNamespace
 
 from core.conversation_state import merge_state
 from core.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
