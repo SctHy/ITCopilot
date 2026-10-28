@@ -18,7 +18,11 @@ flowchart LR
   T --> H{写操作审批门}
   H -->|approved| E[可替换企业适配器]
   H -->|pending/rejected| O[可解释结果]
-  API --> X[/trace/request_id + /metrics]
+  A -.-> MCP[外部 MCP 工具 / 只读白名单]
+  API --> X[/trace + /metrics + /monitor]
+  X --> MON[监控闭环 / SLO 燃烧率 / 告警 / 降级与探针恢复]
+  MON -.路由降权.-> P
+  API --> MS[/mcp 对外暴露知识库]
 ```
 
 ## 核心能力
@@ -29,7 +33,9 @@ flowchart LR
 - 有界 Planner：依赖波次、并行执行、最多 6 步，工具结果进入统一 trace。
 - Redis 分布式锁、`client_request_id` 幂等回执、工作/情景/画像三级记忆。
 - 写操作默认 dry-run，经过 HITL 审批后才调用 mock 适配器。
-- SSE 状态流、Prometheus 指标、可回放请求 trace、离线评测与安全回归。
+- SSE 状态流、可回放请求 trace、离线评测与安全回归。
+- 可观测性闭环：事件处埋点的 Prometheus 指标、PydanticAI → OpenTelemetry 链路追踪、SLO 多窗口燃烧率告警，Agent 持续失败时自动降级到 Triage 兜底并以单探针恢复。
+- 标准 MCP（2.x SDK）双向接入：外部 MCP 工具经治理层（Schema/缓存/熔断/指标）按白名单下发给指定 Agent；本地知识库以 `/mcp/` 端点对外提供。
 
 ## 技术栈
 
@@ -41,7 +47,10 @@ flowchart LR
 | 存储 | Redis（锁/幂等/工作记忆）、Chroma PersistentClient（向量记忆） |
 | RAG | BM25、向量检索、RRF、部门过滤 |
 | 前端 | Vue 3、Vite、原生 SSE |
-| 质量与观测 | pytest、node:test、Prometheus、LLM-as-Judge 框架、离线评测脚本 |
+| 工具协议 | MCP Python SDK 2.x（Streamable HTTP / stdio 客户端，MCPServer 服务端） |
+| 可观测性 | Prometheus 指标、OpenTelemetry（OTLP → Jaeger）、进程内 SLO 告警、Grafana 仪表盘 |
+| 部署 | Docker Compose：redis / gateway / api / frontend，`observability` profile 加 Prometheus / Grafana / Jaeger |
+| 质量 | pytest、node:test、LLM-as-Judge 框架、离线评测脚本 |
 
 ## 可复现指标
 
@@ -56,8 +65,8 @@ flowchart LR
 | RAG hybrid Recall@5 / MRR | 1.00 / 0.8417 | BM25 + vector + RRF |
 | 记忆召回 / 偏好命中 | 1.00 / 1.00 | 4 条离线用例 |
 | 无关注入率 | 0.00 | 记忆评测 |
-| 安全回归通过率 | 4/4 | 脱敏、审批、失败不编造、部门边界 |
-| 后端 / 前端测试 | 92 / 18 | 离线 pytest（LLM 用 PydanticAI FunctionModel 替身）/ node:test |
+| 安全回归通过率 | 4/4 | 脱敏、审批门、越权写工具不执行、知识库部门隔离（均为真实代码路径检查） |
+| 后端 / 前端测试 | 148 / 14 | 离线 pytest（LLM 用 PydanticAI FunctionModel 替身，MCP 走本机真实 HTTP 往返）/ node:test |
 
 ## 快速开始
 
@@ -71,6 +80,17 @@ cp gateway/.env.gateway.example gateway/.env.gateway  # 填入未提交的兼容
 
 脚本会确保 Redis 容器 `it-copilot-redis`、8082 网关、8001 API 和 5173 前端就绪。若在 `.env` 中设置 `IT_COPILOT_LLM_PROVIDER=openai` 并填写 `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL`，PydanticAI 会直连上游，脚本跳过网关。浏览器打开 <http://127.0.0.1:5173>，可尝试：`VPN 连不上`、`申请 GitLab 只读权限`、`查询我的工单`。API 文档：<http://127.0.0.1:8001/docs>。
 
+### Docker Compose
+
+```bash
+cp .env.example .env
+cp gateway/.env.gateway.example gateway/.env.gateway   # 填入上游模型配置
+docker compose up -d --build                           # 前端 http://127.0.0.1:8080 · API http://127.0.0.1:8001/docs
+docker compose --profile observability up -d           # Grafana :3000（admin / it-copilot）· Prometheus :9090 · Jaeger :16686
+```
+
+开启链路追踪：在 `.env` 中设置 `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` 后重启 api。对外部署前务必设置 `IT_COPILOT_ADMIN_TOKEN`。
+
 分步启动可使用 `./gateway/run_gateway.sh`、`./run_local.sh` 与 `cd frontend && npm ci && npm run dev -- --host 127.0.0.1 --port 5173`。真实密钥只允许出现在未被 Git 跟踪的 `gateway/.env.gateway`。
 
 ## 评测与观测
@@ -78,24 +98,43 @@ cp gateway/.env.gateway.example gateway/.env.gateway  # 填入未提交的兼容
 ```bash
 python -m pytest -q
 cd frontend && npm test && npm run build
-cd .. && python scripts/evaluate_all.py
-python scripts/calibrate_intents.py
+cd .. && python scripts/evaluate_all.py     # 离线门禁：意图 / 记忆 / RAG / Planner / 安全，不调用模型
+python scripts/calibrate_intents.py         # 重新拟合意图置信度温度
+python scripts/evaluate_dialogs.py          # 可选：在线端到端对话评测（LLM-as-Judge，消耗 token，保存基线做回归检测）
 ```
 
-运行时入口：`GET /metrics`、`GET /monitor`、`GET /trace/{request_id}`；流式接口：`POST /chat/stream`。SSE 先发送计划、步骤、工具与审批状态，再发送正文片段，仍复用原有锁、幂等和 trace。
+运行时入口：`GET /metrics`、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`。SSE 先发送计划、步骤、工具与审批状态，再发送正文片段，仍复用原有锁、幂等和 trace。前端“运行与评测”页每 15 秒刷新上述状态。
+
+### 监控设计
+
+| 层 | 做法 |
+|---|---|
+| 采集 | 在事件发生处埋点（`monitor/metrics.py`）：Agent 结果与失败原因、token、工具调用结果与熔断状态、意图来源/澄清/继承、知识库命中、审批事件、MCP 连接；低基数标签，不含 user_id |
+| 追踪 | 每次 `/chat` 一个根 span，PydanticAI 自动生成模型调用与工具调用子 span；默认不记录 prompt 内容 |
+| 判断 | 可用性 / 延迟两个 SLO（默认 95%），按 Google SRE 多窗口多燃烧率告警：1h&5m > 14.4x 为 critical，6h&30m > 6x 为 warning；Agent / 工具用近 5 分钟窗口，不用累计值 |
+| 告警 | 状态机：触发、升级、恢复各通知一次（可配 Webhook），连续两个周期正常才恢复；同一套规则也以 PromQL 形式提供给 Prometheus（`config/prometheus/alerts/`） |
+| 反馈 | 近期表现转为路由降权；超阈值的专职 Agent 进入冷却，请求由 Triage 兜底；冷却结束只放行一个探针，成功即恢复 |
+
+### 外部 MCP 工具
+
+在 `.env` 中设置 `IT_COPILOT_MCP_ENABLED=true` 后，API 启动时后台连接 `config/mcp_servers.json` 中的服务（默认：微软 Learn 文档检索，适合 Windows / Office / Entra ID 类问题）。只接收服务端标注 `readOnlyHint` 且在 `allowed_tools` 白名单内的工具，按 `agents` 字段下发；连接断开时工具自动从 Agent 移除。默认关闭，因为开启后员工问题可能被发送到第三方。
+
+本地知识库同时以 MCP 服务对外提供：`http://127.0.0.1:8001/mcp/`（工具 `search_local_knowledge`、资源 `it-copilot://knowledge/stats`），可直接配置到 Claude Desktop / Cursor 等客户端。
 
 ## 项目结构
 
 ```text
-api/          FastAPI 路由、SSE、审批与 trace
+api/          FastAPI 路由、SSE、审批、trace、知识库写入与 /mcp 挂载
 agents/       Agent profile、池化、路由、并行协作（PydanticAI Agent + 工具包装）
 core/         意图、Planner、记忆/RAG 编排；core/llm.py 为 PydanticAI 模型工厂
 memory/       Redis 锁、幂等、三级记忆
-tooling/      Schema、TTL、超时、熔断、fallback
+tooling/      Schema、TTL、超时、熔断、fallback；MCP 客户端与服务端
+monitor/      Prometheus 指标定义、SLO 燃烧率与告警状态机、路由反馈
 gateway/      本地协议转换网关
 frontend/     Vue + Vite 前端
 evaluation/   固定数据集与可复现报告
-tests/        后端离线回归（当前 92 项）
+tests/        后端离线回归（当前 148 项）
+config/       MCP 服务、Prometheus 规则、Grafana 仪表盘
 docs/         设计取舍、截图与变更记录
 ```
 

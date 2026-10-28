@@ -1,5 +1,26 @@
 # Changelog
 
+## Phase 11 — 清理与二次体检
+
+- 修复 Skills 从未生效：手写 front matter 解析把 `[a, b]` 解析成带方括号的字符串，Agent 名永远不匹配，4 个 Skill 从未注入任何提示词；改用 YAML 解析并补测试。
+- 修复多轮补槽：缺失字段只看本轮消息，上一轮已给出的工号仍会阻断写操作并被重复追问；现按跨轮累积实体计算，Agent 也会收到累积实体。
+- 安全回归门禁中“失败不编造”“部门边界”两项原为硬编码通过，改为调用真实代码路径的检查（并验证违规时会失败）。
+- 知识库：检索不再每次全量重建 BM25 索引（按片段数变化与 30s 周期刷新）；RRF 合并去掉线性查找；修复 bm25 模式 `score` 实为向量分、同批次同名文档元数据取自旧版本。
+- 删除死代码与过期文件：`core/access.py`、无引用脚本 3 个、过期 Redis 键迁移（每请求多 8 次 Redis 往返）、若干无调用方法、前端 Java 残留配置、冗余 ignore 规则；本地缓存清理。
+- 评测脚本抽出公共 `evaluation/reporting.py` 并展开压行；新增 `scripts/evaluate_dialogs.py` 作为 LLM-as-Judge 评测入口；校准报告去掉从未生效的 handoff 阈值。
+- 后端离线测试 148 项。
+
+## Phase 10 — 监控闭环、MCP 接入与容器化
+
+- 监控：事件处埋点的 Prometheus 指标（`monitor/metrics.py`）；`PerformanceMonitor` 重写为近期窗口规则 + SLO 多窗口燃烧率 + 告警状态机（迁移时通知、防抖恢复、Webhook）；补全 Agent 降级状态机（冷却 → 半开单探针 → 恢复），降级时由 Triage 兜底。
+- 链路追踪：PydanticAI 接入 OpenTelemetry，`/chat` 根 span 下挂模型与工具子 span，默认不记录内容。
+- 记忆：接入 `ProfileUpdater`，修复 `/chat` 写入路径下会话压缩从未触发的问题；同一用户的后台维护合并执行。
+- MCP：客户端与服务端迁移到 MCP SDK 2.x（此前在 2.x 下无法运行）；外部工具经治理层按白名单动态下发，断开即下线；本地知识库挂载为 `/mcp/`；修正配置中不存在的 Agent 类型。
+- API：新增 `/knowledge/add`、`/knowledge/upload`、`/eval/reports`；写操作接口支持 `IT_COPILOT_ADMIN_TOKEN` 鉴权；CORS 来源可配置。
+- 前端：移除不存在的 Java 后端与依赖已删除接口的在线评测；“评测”页改为“运行与评测”（实时 SLO、告警、组件健康度 + 离线评测报告）；修复运行状态面板读取旧字段始终为空。
+- 部署：新增根目录 `Dockerfile` 与 `docker-compose.yml`（redis / gateway / api / frontend，`observability` profile 含 Prometheus / Grafana / Jaeger），Prometheus 告警规则与 Grafana 仪表盘；删除引用 Java 服务的旧 compose 与 nginx 配置。
+- 依赖升级到 pydantic-ai-slim 2.63、pytest 9.2 等最新版本；后端离线测试 130 项，前端 14 项。
+
 ## Phase 9 — 代码体检与修复
 
 - 意图识别：去掉针对评测集三条追问用例写死的特判，改为通用追问继承规则（同组保留具体意图、非领域意图继承上一轮组、跨领域视为换话题）。

@@ -12,6 +12,16 @@ Triage 负责分类与澄清，Endpoint、Access、Network/Software、Ticket 各
 
 `core/llm.py` 是唯一的模型工厂：默认 `AnthropicModel` 指向 8082 协议网关，保留“业务代码不绑定厂商”的边界；`IT_COPILOT_LLM_PROVIDER=openai` 时直接用 `OpenAIChatModel` 连接 OpenAI-compatible 服务，可去掉网关这一跳。网关会如实转发 `tool_choice`（any→required、tool→指定函数），结构化输出依赖这一点。真实密钥只在本地未提交环境变量中。
 
+## 监控：为什么是“燃烧率 + 状态机 + 反馈闭环”
+
+阈值告警直接看累计成功率会失灵：服务跑一周后，最近一小时全挂也几乎拉不动累计值；而每次采样都超阈值就通知又会刷屏。因此判断层只用近期窗口：Agent 用 5 分钟滑动样本，工具用 5 分钟前快照的差分，对话入口用 SLO 时间桶。SLO 告警采用 Google SRE Workbook 的多窗口多燃烧率：长窗口（1h / 6h）确认是持续问题，短窗口（5m / 30m）保证故障消失后很快消警。告警是状态机，只在触发、升级、恢复时通知，恢复要求连续两个周期正常。
+
+反馈闭环要说清楚边界：每类 Agent 目前只有一个实例，所以降权的实际效果不是“在实例间切流”，而是专职 Agent 持续失败时进入冷却，请求由 Triage 兜底；冷却结束只放行一个探针请求，避免恢复瞬间的流量冲击。同一套 SLO 也以 PromQL 规则提供，部署了 Prometheus 时可以交给 Alertmanager。
+
+## 为什么保留自研 MCP 客户端，而不用 PydanticAI 自带的 MCP toolset
+
+PydanticAI 可以直接把 MCP 服务挂成 toolset，但那样外部工具会绕过项目的工具治理层。自研客户端把每个外部工具注册进 `MCPToolManager`，与本地工具共享 Schema 校验、TTL 缓存、超时、熔断、fallback 和指标；另外只接收 `allowed_tools` 白名单内且服务端标注 `readOnlyHint` 的工具，按 `allowed_agents` 下发，返回结果按字段裁剪到上限，断线时工具自动从 Agent 移除并指数退避重连。外部 MCP 默认关闭，因为开启后员工的问题会发送给第三方服务。
+
 ## 可靠性边界
 
 工具调用经过 JSON Schema、TTL 缓存、超时、三态熔断和 fallback。缓存只用于明确可缓存的只读工具；写工具禁止重复副作用。Redis 锁和 `client_request_id` 共同保证同一会话的并发与幂等，Redis 不可用时 API 拒绝启动，避免无锁运行。
