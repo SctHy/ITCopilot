@@ -2,13 +2,15 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
-build/
-frontend/dist/
-node_modules/
-.pytest_cache/
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 前端
+node_modules/
+dist/
 .npm-cache/
 .vite/
 
@@ -16,28 +18,19 @@ venv/
 .env
 gateway/.env.gateway
 
-# 数据目录
+# 运行时数据与日志（ChromaDB、Redis 导出等）
 data/
 logs/
+*.log
+*.sqlite3
+*.db
 
-# IDE
+# IDE / OS
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Docker 构建产物
-build-image*.sh
-
-# ChromaDB 本地数据
-*.sqlite3
-*.db
-
-# 备份文件
 *~
 *.bak
-docker-compose(1).yml
+.DS_Store
+Thumbs.db

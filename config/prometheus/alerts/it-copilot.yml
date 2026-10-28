@@ -1,0 +1,93 @@
+# 与 monitor/performance_monitor.py 相同的 SLO 与阈值：
+#   可用性 SLO 95%（status ∈ success/partial 视为好事件），延迟 SLO 95% 请求 ≤ 10s。
+#   多窗口多燃烧率（Google SRE Workbook）：1h&5m > 14.4x → critical；6h&30m > 6x → warning。
+groups:
+  - name: it-copilot-slo-recording
+    rules:
+      - record: it_copilot:chat_error_ratio:rate5m
+        expr: sum(rate(it_copilot_chat_requests_total{status!~"success|partial"}[5m])) / sum(rate(it_copilot_chat_requests_total[5m]))
+      - record: it_copilot:chat_error_ratio:rate30m
+        expr: sum(rate(it_copilot_chat_requests_total{status!~"success|partial"}[30m])) / sum(rate(it_copilot_chat_requests_total[30m]))
+      - record: it_copilot:chat_error_ratio:rate1h
+        expr: sum(rate(it_copilot_chat_requests_total{status!~"success|partial"}[1h])) / sum(rate(it_copilot_chat_requests_total[1h]))
+      - record: it_copilot:chat_error_ratio:rate6h
+        expr: sum(rate(it_copilot_chat_requests_total{status!~"success|partial"}[6h])) / sum(rate(it_copilot_chat_requests_total[6h]))
+      - record: it_copilot:chat_slow_ratio:rate5m
+        expr: 1 - sum(rate(it_copilot_chat_latency_seconds_bucket{le="10.0"}[5m])) / sum(rate(it_copilot_chat_latency_seconds_count[5m]))
+      - record: it_copilot:chat_slow_ratio:rate1h
+        expr: 1 - sum(rate(it_copilot_chat_latency_seconds_bucket{le="10.0"}[1h])) / sum(rate(it_copilot_chat_latency_seconds_count[1h]))
+
+  - name: it-copilot-alerts
+    rules:
+      - alert: ITCopilotApiDown
+        expr: up{job="it-copilot-api"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: IT-Copilot API 无法抓取指标
+          description: "{{ $labels.instance }} 连续 1 分钟不可达，检查容器状态与 /health。"
+
+      - alert: ITCopilotErrorBudgetFastBurn
+        expr: it_copilot:chat_error_ratio:rate1h > (14.4 * 0.05) and it_copilot:chat_error_ratio:rate5m > (14.4 * 0.05)
+        for: 2m
+        labels: {severity: critical, slo: chat_availability}
+        annotations:
+          summary: 对话可用性错误预算快速燃烧
+          description: "1h 错误率 {{ $value | humanizePercentage }}，超过预算 14.4 倍；用 /trace 回放失败请求定位错误码。"
+
+      - alert: ITCopilotErrorBudgetSlowBurn
+        expr: it_copilot:chat_error_ratio:rate6h > (6 * 0.05) and it_copilot:chat_error_ratio:rate30m > (6 * 0.05)
+        for: 15m
+        labels: {severity: warning, slo: chat_availability}
+        annotations:
+          summary: 对话可用性错误预算持续燃烧
+          description: "6h 错误率 {{ $value | humanizePercentage }}，超过预算 6 倍。"
+
+      - alert: ITCopilotLatencyBudgetFastBurn
+        expr: it_copilot:chat_slow_ratio:rate1h > (14.4 * 0.05) and it_copilot:chat_slow_ratio:rate5m > (14.4 * 0.05)
+        for: 2m
+        labels: {severity: critical, slo: chat_latency}
+        annotations:
+          summary: 对话延迟 SLO 快速燃烧
+          description: "超过 10s 的请求占比 {{ $value | humanizePercentage }}；检查上游模型延迟与工具耗时。"
+
+      - alert: ITCopilotAgentFailureRateHigh
+        expr: |
+          sum by (agent) (rate(it_copilot_agent_requests_total{status="failed",error_code!="agent_busy"}[5m]))
+            / sum by (agent) (rate(it_copilot_agent_requests_total{error_code!="agent_busy"}[5m])) > 0.10
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Agent {{ $labels.agent }} 失败率偏高"
+          description: "近 5 分钟失败率 {{ $value | humanizePercentage }}；按 it_copilot_agent_failures_total 的 reason 拆分根因。"
+
+      - alert: ITCopilotAgentDegraded
+        expr: it_copilot_agent_degraded == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Agent {{ $labels.agent }} 持续降级"
+          description: 请求由 Triage 兜底；探针持续失败说明根因未消除。
+
+      - alert: ITCopilotGatewayErrors
+        expr: sum(increase(it_copilot_agent_failures_total{reason="gateway"}[5m])) > 3
+        labels: {severity: critical}
+        annotations:
+          summary: 模型网关故障
+          description: 5 分钟内超过 3 次网关连接失败/超时/5xx，检查 8082 网关与上游服务。
+
+      - alert: ITCopilotToolCircuitOpen
+        expr: it_copilot_tool_circuit_state == 2
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "工具 {{ $labels.tool }} 熔断"
+          description: 熔断期间返回 fallback 结果；恢复后半开探测自动闭合。
+
+      - alert: ITCopilotMCPServerDown
+        expr: it_copilot_mcp_server_up == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "外部 MCP 服务 {{ $labels.server }} 未连接"
+          description: 外部工具已自动下线，Agent 仅使用本地工具。

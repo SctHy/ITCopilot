@@ -1,0 +1,113 @@
+# IT-Copilot 一键部署
+#
+#   cp .env.example .env && cp gateway/.env.gateway.example gateway/.env.gateway   # 填写上游模型配置
+#   docker compose up -d --build                                                  # 前端 http://127.0.0.1:8080
+#   docker compose --profile observability up -d                                  # 另起 Prometheus / Grafana / Jaeger
+#
+# 只在本机回环地址暴露端口；对外发布前请设置 IT_COPILOT_ADMIN_TOKEN 并在前面加 TLS 反向代理。
+
+x-backend: &backend
+  build: .
+  image: it-copilot-backend:local
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:8.10.3-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-it-copilot123}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-it-copilot123}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-it-copilot123}
+    restart: unless-stopped
+
+  gateway:
+    <<: *backend
+    command: ["python", "gateway/anthropic_to_openai.py"]
+    env_file:
+      - path: gateway/.env.gateway
+        required: true
+    environment:
+      GATEWAY_PORT: "8082"
+      HEALTH_PORT: "8082"
+
+  api:
+    <<: *backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ANTHROPIC_BASE_URL: http://gateway:8082
+      REDIS_URL: redis://:${REDIS_PASSWORD:-it-copilot123}@redis:6379/0
+      CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+      IT_COPILOT_SKILLS_DIR: /app/skills
+      IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: it-copilot-api
+    ports:
+      - "127.0.0.1:8001:8001"   # API 文档 /docs、/metrics，以及供 Claude Desktop 等客户端连接的 MCP 端点 /mcp/
+    volumes:
+      - api-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    image: it-copilot-frontend:local
+    environment:
+      PYTHON_API_URL: /api
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── 可观测性（--profile observability） ─────────────────────────────────────
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.15.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./config/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:13.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-it-copilot}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  jaeger:
+    profiles: ["observability"]
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686"   # UI；OTLP gRPC 4317 只在 compose 网络内供 api 使用
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  api-data:
+  prometheus-data:
+  grafana-data:
