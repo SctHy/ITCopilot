@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 
@@ -275,32 +277,16 @@ class SkillManager:
         )
 
     def _split_front_matter(self, raw: str) -> tuple[Dict[str, Any], str]:
-        """
-        解析 Markdown 顶部的简单 front matter。
-
-        这里刻意不用 PyYAML，避免为一个轻量配置格式新增运行时依赖。
-        """
-        text = raw.lstrip()
-        if not text.startswith("---"):
-            return {}, raw
-
-        lines = text.splitlines()
+        """解析 Markdown 顶部 `---` 包围的 YAML front matter（支持 `[a, b]` 列表、布尔值等标准 YAML 写法）。"""
+        lines = raw.lstrip().splitlines()
         if not lines or lines[0].strip() != "---":
             return {}, raw
-
-        meta: Dict[str, Any] = {}
-        end_idx: Optional[int] = None
-        for idx, line in enumerate(lines[1:], start=1):
-            if line.strip() == "---":
-                end_idx = idx
-                break
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            meta[key.strip()] = value.strip().strip("\"'")
-
+        end_idx = next((i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"), None)
         if end_idx is None:
             return {}, raw
+        meta = yaml.safe_load("\n".join(lines[1:end_idx])) or {}
+        if not isinstance(meta, dict):
+            raise ValueError("front matter 必须是 YAML 映射")
         return meta, "\n".join(lines[end_idx + 1:])
 
     @staticmethod

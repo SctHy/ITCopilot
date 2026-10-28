@@ -23,6 +23,7 @@ from agents.tools import access_tools, build_shared_rag_tools, endpoint_tools, n
 from core.intent_recognizer import INTENT_GROUPS, IntentCategory, IntentRecognizer, UrgencyLevel
 from core.llm import build_model, is_gateway_failure
 from core.planner import build_plan, is_complex_request
+from monitor import metrics
 
 logger = logging.getLogger(__name__)
 MAX_MODEL_ROUNDS = 3
@@ -76,7 +77,11 @@ class AgentProfile:
 
 @dataclass
 class AgentStats:
-    """累计统计 + 5 分钟滑动窗口，用于性能路由、监控降权和单探针恢复。"""
+    """累计统计 + 5 分钟滑动窗口，用于性能路由、监控降权和单探针恢复。
+
+    降级状态机：healthy（retry_at=0）→ 监控降权超阈值进入 cooling（retry_at 未到，拒绝请求）
+    → 冷却结束为 half-open，只放行一个探针请求 → 探针成功回到 healthy，失败重新 cooling。
+    """
     total: int = 0
     success: int = 0
     total_ms: float = 0.
@@ -85,7 +90,6 @@ class AgentStats:
     retry_at: float = 0.
     probe_running: bool = False
     probe_owner: Optional[str] = None
-    observer: Any = field(default=None, repr=False)
 
     def recent(self):
         cutoff = time.monotonic() - 300
@@ -98,6 +102,26 @@ class AgentStats:
 
     def available(self) -> bool:
         return not self.probe_running and (not self.retry_at or time.monotonic() >= self.retry_at)
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.retry_at)
+
+    def state(self) -> str:
+        if not self.retry_at:
+            return "healthy"
+        if self.probe_running:
+            return "probing"
+        return "cooling" if time.monotonic() < self.retry_at else "half_open"
+
+    def try_acquire(self, request_id: Optional[str]) -> bool:
+        """健康时直接放行；half-open 时把本请求登记为唯一探针；其余情况拒绝。"""
+        if not self.retry_at:
+            return True
+        if self.probe_running or time.monotonic() < self.retry_at:
+            return False
+        self.probe_running, self.probe_owner = True, request_id
+        return True
 
     def set_penalty(self, penalty: float) -> None:
         self.monitor_penalty = max(0., min(.9, float(penalty)))
@@ -115,8 +139,6 @@ class AgentStats:
             else:
                 self.retry_at = time.monotonic() + max(1, _env_float("IT_COPILOT_MONITOR_COOLDOWN_SECONDS", 60))
         self.samples.append((time.monotonic(), int(success), ms))
-        if self.observer:
-            self.observer(ms)
 
     @property
     def success_rate(self) -> float:
@@ -175,15 +197,17 @@ class AgentCallResult:
 
 
 class AgentCallError(RuntimeError):
-    def __init__(self, message, tools_used, tool_traces):
+    """reason 为低基数失败分类，进入 it_copilot_agent_failures_total 指标。"""
+    def __init__(self, message, tools_used, tool_traces, reason="exception"):
         super().__init__(message)
         self.tools_used = list(tools_used)
         self.tool_traces = list(tool_traces)
+        self.reason = reason
 
 
 class GatewayUnavailableError(AgentCallError):
     def __init__(self, message, tools_used, tool_traces, gateway_url):
-        super().__init__(message, tools_used, tool_traces)
+        super().__init__(message, tools_used, tool_traces, reason="gateway")
         self.gateway_url = gateway_url
 
 
@@ -276,13 +300,16 @@ class BaseAgent:
         return Tool.from_schema(call, spec.name, spec.description, spec.input_schema, takes_ctx=True, sequential=not spec.retry_safe)
 
     async def handle(self, req: Request) -> AgentResponse:
+        if not self.stats.try_acquire(req.request_id):
+            # 降级冷却中或已有探针在跑：不计入 total，由编排器改派 Triage 兜底。
+            return self._observe(AgentResponse(self.agent_type, "当前 Agent 正在恢复探测，请稍后重试。", False, status="failed", error_code="agent_busy"), "busy")
         t0 = time.monotonic()
         self.stats.total += 1
-        if not self.stats.available():
-            return AgentResponse(self.agent_type, "当前 Agent 正在恢复探测，请稍后重试。", False, status="failed", error_code="agent_busy")
         try:
             result = await self._call_llm(req)
         except asyncio.CancelledError:
+            if self.stats.probe_owner == req.request_id:
+                self.stats.probe_running, self.stats.probe_owner = False, None
             raise
         except Exception as ex:
             ms = self._record(False, t0, req)
@@ -290,16 +317,31 @@ class BaseAgent:
             tools_used, tool_traces = getattr(ex, "tools_used", []), getattr(ex, "tool_traces", [])
             if isinstance(ex, GatewayUnavailableError):
                 logger.error("LLM gateway unavailable: url=%s error_type=%s detail=%s", ex.gateway_url, type(ex.__cause__ or ex).__name__, ex)
-                return AgentResponse(self.agent_type, "模型网关未启动或不可用，请先启动网关后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="gateway_unavailable")
-            return AgentResponse(self.agent_type, "抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
+                response = AgentResponse(self.agent_type, "模型网关未启动或不可用，请先启动网关后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="gateway_unavailable")
+            else:
+                response = AgentResponse(self.agent_type, "抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
+            return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
         self.stats.success += int(ok)
         ms = self._record(ok, t0, req)
-        return AgentResponse(
+        return self._observe(AgentResponse(
             agent_type=self.agent_type, content=result.content, success=ok, confidence=req.intent_confidence, latency_ms=ms,
             escalate=self._needs_escalation(result.content), tools_used=result.tools_used, tool_traces=result.tool_traces,
             status=result.status, token_usage=result.token_usage,
-        )
+        ))
+
+    def _observe(self, response: AgentResponse, failure_reason: Optional[str] = None) -> AgentResponse:
+        agent = self.agent_type.value
+        metrics.AGENT_REQUESTS.labels(agent=agent, status=response.status, error_code=response.error_code or "none").inc()
+        if failure_reason:
+            metrics.AGENT_FAILURES.labels(agent=agent, reason=failure_reason).inc()
+        if failure_reason != "busy":
+            metrics.AGENT_LATENCY.labels(agent=agent).observe(response.latency_ms / 1000)
+        for direction in ("input", "output"):
+            tokens = response.token_usage.get(f"{direction}_tokens", 0)
+            if tokens:
+                metrics.LLM_TOKENS.labels(agent=agent, model=self._model or "unknown", direction=direction).inc(tokens)
+        return response
 
     def _record(self, success: bool, started: float, req: Request) -> float:
         ms = (time.monotonic() - started) * 1000
@@ -320,9 +362,9 @@ class BaseAgent:
         except asyncio.CancelledError:
             raise
         except UsageLimitExceeded:
-            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces) from None
+            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit") from None
         except UnexpectedModelBehavior as exc:
-            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces) from exc
+            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output") from exc
         except Exception as exc:
             if is_gateway_failure(exc):
                 gateway_url = os.getenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8082")
@@ -330,7 +372,7 @@ class BaseAgent:
             raise
         content = (result.output or "").strip()
         if not content:
-            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces)
+            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output")
         usage = result.usage
         status = "partial" if result.response.finish_reason == "length" else "success"
         return AgentCallResult(content, deps.used, deps.traces, status, {"input_tokens": int(usage.input_tokens or 0), "output_tokens": int(usage.output_tokens or 0)})
@@ -356,6 +398,7 @@ class BaseAgent:
             success, error = False, str(ex)
             result = {"success": False, "error": error}
             logger.warning("tool %s failed: %s", spec.name, ex)
+        metrics.AGENT_TOOL_CALLS.labels(agent=self.agent_type.value, tool=spec.name, outcome="success" if success else "error").inc()
         deps.traces.append({
             "agent_type": self.agent_type.value, "tool_name": spec.name, "tool_use_id": tool_id, "input": args, "success": success,
             "latency_ms": round((time.monotonic() - started) * 1000, 1), "error": error, "retry_safe": spec.retry_safe,
@@ -454,32 +497,37 @@ class AgentOrchestrator:
         self._skill_manager = skill_manager
         self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model)
         self._recent_tool_traces = deque(maxlen=200)
+        # 工具分三层，每次变更都从这三层重新组装，保证下线的外部工具会真正从 Agent 移除。
         self._shared_tools = build_shared_rag_tools(rag_tool_manager) if rag_tool_manager else {}
+        self._external_tools = {}
+        self._local_tools: Dict[AgentType, Dict[str, Any]] = {}
         self._pool: Dict[AgentType, List[BaseAgent]] = {}
         for agent_type, cls, tool_factory, role, mission in AGENT_SPECS:
-            local_tools = tool_factory()
-            prof = profile(role, mission, local_tools)
+            self._local_tools[agent_type] = tool_factory()
+            prof = profile(role, mission, self._local_tools[agent_type])
             llm = build_model(api_key, base_url, prof.model) if prof.model else self._llm
             agent = cls(llm, model, skill_manager, profile=prof)
             agent.agent_type = agent_type
-            agent.set_shared_tools({**self._shared_tools, **local_tools})
             self._pool[agent_type] = [agent]
+        self._rebuild_tools()
 
     def agent_types(self) -> List[AgentType]:
         return list(self._pool)
 
+    def _rebuild_tools(self) -> None:
+        for agent_type, agents in self._pool.items():
+            for agent in agents:
+                # 本地白名单工具优先于同名的共享/外部工具。
+                agent.set_shared_tools({**self._shared_tools, **self._external_tools, **self._local_tools[agent_type]})
+
     def set_shared_tools(self, tools):
         self._shared_tools = dict(tools or {})
-        for agent in self._agents():
-            agent.set_shared_tools({**self._shared_tools, **agent.get_tools()})
+        self._rebuild_tools()
 
-    def set_skill_manager(self, manager):
-        self._skill_manager = manager
-        for agent in self._agents():
-            agent._skill_manager = manager
-
-    def _agents(self):
-        return [agent for agents in self._pool.values() for agent in agents]
+    def set_external_tools(self, tools):
+        """外部 MCP 工具集合整体替换（连接/断开/工具列表变化时由 MCP 客户端回调）。"""
+        self._external_tools = dict(tools or {})
+        self._rebuild_tools()
 
     async def recognize_intent(self, message, history=None, previous_intent_group=None):
         return await self._intent_recognizer.recognize(message, history=history, previous_intent_group=previous_intent_group)
@@ -498,7 +546,13 @@ class AgentOrchestrator:
         agent = self._best_agent(agent_type) or self._best_agent(AgentType.TRIAGE)
         if agent is None:
             return AgentResponse(AgentType.TRIAGE, "服务暂时不可用。", False, status="failed", error_code="agent_unavailable")
-        return await agent.handle(req)
+        response = await agent.handle(req)
+        if response.error_code == "agent_busy" and agent.agent_type != AgentType.TRIAGE:
+            # 专职 Agent 处于降级冷却：由 Triage 接住请求，而不是直接让用户重试。
+            fallback = self._best_agent(AgentType.TRIAGE)
+            if fallback is not None:
+                return await fallback.handle(req)
+        return response
 
     async def run(self, req: Request) -> OrchestratorResult:
         started = time.monotonic()
@@ -600,7 +654,7 @@ class AgentOrchestrator:
                 out[f"{agent_type.value}_{i}"] = {
                     "total": a.stats.total, "success_rate": round(a.stats.success_rate, 3), "avg_ms": round(a.stats.avg_ms, 1),
                     "recent_total": recent_total, "recent_success_rate": round(recent_success, 3), "recent_avg_ms": round(recent_ms, 1),
-                    "routing_score": round(a.stats.routing_score(), 3), "monitor_penalty": a.stats.monitor_penalty,
+                    "routing_score": round(a.stats.routing_score(), 3), "monitor_penalty": a.stats.monitor_penalty, "state": a.stats.state(),
                     "model": a._model, "tool_scope": list(a.get_tools()),
                 }
         return out

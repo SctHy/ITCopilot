@@ -20,11 +20,15 @@ import re
 import math
 from datetime import datetime, timezone
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 import chromadb
 
 logger = logging.getLogger(__name__)
+
+# BM25 索引的兜底刷新周期（秒）：覆盖共享 Chroma 服务时其他进程写入、片段数不变的更新。
+LEXICAL_INDEX_TTL_S = 30
 
 
 class KnowledgeBase:
@@ -47,17 +51,16 @@ class KnowledgeBase:
         # 优先连接独立 ChromaDB 服务；默认 embedding_function 在客户端生成向量。
         self._write_lock = threading.RLock()
         self._index_lock = threading.RLock()
-        self._lexical_index = []
-        self._use_server = False
+        self._lexical_index: Dict[str, Dict[str, Any]] = {}
+        self._indexed_count, self._indexed_at = -1, 0.
         try:
-            # HttpClient 默认也会初始化 ChromaDB telemetry；显式关闭避免 posthog 兼容性错误日志。
+            # 显式关闭 ChromaDB 匿名遥测，避免把使用数据发送到外部。
             self._client = chromadb.HttpClient(
                 host=chroma_host,
                 port=chroma_port,
                 settings=chromadb.Settings(anonymized_telemetry=False),
             )
             self._client.heartbeat()
-            self._use_server = True
             logger.info(f"知识库 ChromaDB 已连接: {chroma_host}:{chroma_port}")
         except Exception as ex:
             if os.getenv("IT_COPILOT_ENV", "development").lower() == "production":
@@ -87,11 +90,11 @@ class KnowledgeBase:
         """
         批量导入文档到知识库。
 
-        documents 格式: [{"title": "...", "content": "..."}, ...]
-        长文档会自动切片（每片 500 字）。
+        documents 格式: [{"title": "...", "content": "...", "department"?, "source"?, "updated_at"?, "document_id"?}, ...]
+        长文档会自动切片（每片 500 字）。同一文档重复导入时整体替换旧片段。
         """
-        # 相同文档身份在同一批次只采用最后一个版本，避免重复 ID。
-        prepared = {}
+        # 相同文档身份在同一批次只采用最后一个版本（内容与元数据一致地取自该版本），避免重复 ID。
+        prepared: Dict[str, Dict[str, Any]] = {}
         for doc in documents:
             title, content = doc.get("title", ""), doc.get("content", "")
             if not isinstance(title, str) or not isinstance(content, str):
@@ -102,54 +105,46 @@ class KnowledgeBase:
             if explicit_id is not None and (not isinstance(explicit_id, str) or not explicit_id.strip()):
                 raise ValueError("document_id 必须是非空字符串")
             identity = json.dumps(["explicit", explicit_id] if explicit_id else ["title", title], ensure_ascii=True)
-            if not isinstance(identity, str):
-                raise ValueError("document_id 必须是字符串")
-            prepared[identity] = (title, content, bool(doc.get("document_id")))
+            prepared[identity] = doc
 
         count = 0
         with self._write_lock:
-            for identity, (title, content, explicit) in prepared.items():
-                document_id = hashlib.sha256(identity.encode()).hexdigest()
-                chunks = self._chunk_text(content, chunk_size=500)
-                version = hashlib.sha256(content.encode()).hexdigest()
-                ids = [f"{document_id}:{i}" for i in range(len(chunks))]
-                existing = self._collection.get(where={"document_id": document_id}, include=["metadatas"])
-                old_ids = set(existing["ids"])
-                # 仅迁移归属可验证的旧身份；旧显式 ID 与 title: 前缀冲突时保留旧记录供核验。
-                kind, value = json.loads(identity)
-                legacy_identity = value if explicit else f"title:{title}"
-                if not explicit or not value.startswith("title:"):
-                    legacy_id = hashlib.sha256(legacy_identity.encode()).hexdigest()
-                    previous = self._collection.get(where={"document_id": legacy_id}, include=["metadatas"])
-                    old_ids.update(i for i, meta in zip(previous["ids"], previous["metadatas"])
-                                   if (meta or {}).get("title") == title)
-                if not explicit:
-                    # 兼容旧版只有 title/chunk_index 元数据的片段。
-                    legacy = self._collection.get(where={"title": title}, include=["metadatas"])
-                    old_ids.update(i for i, meta in zip(legacy["ids"], legacy["metadatas"])
-                                   if not (meta or {}).get("document_id"))
-                # Metadata is deliberately explicit so hybrid retrieval can enforce
-                # tenant scope and produce traceable citations.
-                department = str(next((d.get("department") for d in documents
-                                       if d.get("title") == title and d.get("department")), "*") or "*")
-                source = str(next((d.get("source") for d in documents
-                                   if d.get("title") == title and d.get("source")), title) or title)
-                updated_at = str(next((d.get("updated_at") for d in documents
-                                       if d.get("title") == title and d.get("updated_at")),
-                                      datetime.now(timezone.utc).isoformat()))
-                self._collection.upsert(ids=ids, documents=chunks, metadatas=[
-                    {"title": title, "document_id": document_id, "version": version,
-                     "chunk_index": i, "total_chunks": len(chunks), "source": source,
-                     "department": department, "updated_at": updated_at,
-                     "chunk_id": f"{document_id}:{i}"} for i in range(len(chunks))
-                ])
-                stale = old_ids - set(ids)
-                if stale:
-                    self._collection.delete(ids=list(stale))
-                count += len(chunks)
+            for identity, doc in prepared.items():
+                count += self._upsert_document(identity, doc)
             self._rebuild_lexical_index()
         logger.info("知识库写入 %s 个文档片段", count)
         return count
+
+    def _upsert_document(self, identity: str, doc: Dict[str, Any]) -> int:
+        title, content, explicit_id = doc["title"], doc["content"], doc.get("document_id")
+        document_id = hashlib.sha256(identity.encode()).hexdigest()
+        chunks = self._chunk_text(content, chunk_size=500)
+        ids = [f"{document_id}:{i}" for i in range(len(chunks))]
+        stale = self._existing_chunk_ids(document_id, title, explicit_id) - set(ids)
+        # 元数据显式写全：混合检索据此做部门隔离，并生成可追溯的 citation。
+        base = {
+            "title": title, "document_id": document_id, "version": hashlib.sha256(content.encode()).hexdigest(),
+            "total_chunks": len(chunks), "source": str(doc.get("source") or title), "department": str(doc.get("department") or "*"),
+            "updated_at": str(doc.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+        }
+        self._collection.upsert(ids=ids, documents=chunks, metadatas=[{**base, "chunk_index": i, "chunk_id": chunk_id} for i, chunk_id in enumerate(ids)])
+        if stale:
+            self._collection.delete(ids=list(stale))
+        return len(chunks)
+
+    def _existing_chunk_ids(self, document_id: str, title: str, explicit_id: Optional[str]) -> set:
+        """同一文档已有的片段 ID（含旧版 ID 方案写入的片段），用于替换时清理过期片段。"""
+        existing = set(self._collection.get(where={"document_id": document_id}, include=["metadatas"])["ids"])
+        # 仅迁移归属可验证的旧身份；旧显式 ID 与 title: 前缀冲突时保留旧记录供核验。
+        if not explicit_id or not explicit_id.startswith("title:"):
+            legacy_id = hashlib.sha256((explicit_id or f"title:{title}").encode()).hexdigest()
+            previous = self._collection.get(where={"document_id": legacy_id}, include=["metadatas"])
+            existing.update(i for i, meta in zip(previous["ids"], previous["metadatas"]) if (meta or {}).get("title") == title)
+        if not explicit_id:
+            # 兼容旧版只有 title/chunk_index 元数据的片段。
+            legacy = self._collection.get(where={"title": title}, include=["metadatas"])
+            existing.update(i for i, meta in zip(legacy["ids"], legacy["metadatas"]) if not (meta or {}).get("document_id"))
+        return existing
 
     async def add_documents_async(self, documents: List[Dict[str, str]]) -> int:
         """异步导入文档；ChromaDB 客户端为同步实现，因此放入线程池执行。"""
@@ -166,14 +161,20 @@ class KnowledgeBase:
     def _rebuild_lexical_index(self):
         with self._index_lock:
             data = self._collection.get(include=["documents", "metadatas"])
-            self._lexical_index = []
-            for doc_id, document, metadata in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", [])):
-                tokens = self._tokens(document)
-                self._lexical_index.append({"id": doc_id, "document": document, "metadata": metadata or {}, "tokens": tokens})
+            self._lexical_index = {
+                doc_id: {"id": doc_id, "document": document, "metadata": metadata or {}, "tokens": self._tokens(document)}
+                for doc_id, document, metadata in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))
+            }
+            self._indexed_count, self._indexed_at = len(self._lexical_index), time.monotonic()
+
+    def _ensure_lexical_index(self, count: int) -> None:
+        """片段数变化或超过刷新周期时重建 BM25 索引；本进程写入后已立即重建，周期刷新兜底其他写入方（共享 Chroma 服务）。"""
+        if count != self._indexed_count or time.monotonic() - self._indexed_at > LEXICAL_INDEX_TTL_S:
+            self._rebuild_lexical_index()
 
     def _bm25(self, query: str, candidates: Optional[set] = None) -> Dict[str, float]:
         with self._index_lock:
-            rows = [r for r in self._lexical_index if candidates is None or r["id"] in candidates]
+            rows = [r for r in self._lexical_index.values() if candidates is None or r["id"] in candidates]
         q = self._tokens(query)
         if not q or not rows: return {}
         n, avgdl = len(rows), sum(len(r["tokens"]) for r in rows) / max(1, len(rows))
@@ -192,46 +193,60 @@ class KnowledgeBase:
     def search(self, query: str, top_k: int = 5, *, department: Optional[str] = None,
                mode: str = "hybrid", rrf_k: int = 60) -> List[Dict[str, Any]]:
         """
-        语义检索：根据 query 返回最相关的文档片段。
+        检索文档片段：vector（Chroma 语义）、bm25（词法）或 hybrid（两路排名用 RRF 融合）。
 
-        ChromaDB 内部自动将 query 转为向量，与存储的文档向量做余弦相似度匹配。
+        department 给定时只返回该部门与公共（"*"）文档。
         """
         if type(top_k) is not int or not 1 <= top_k <= 20:
             raise ValueError("top_k 必须是 1–20 的整数")
-        if mode not in {"hybrid", "vector", "bm25"}: raise ValueError("mode 必须是 hybrid、vector 或 bm25")
+        if mode not in {"hybrid", "vector", "bm25"}:
+            raise ValueError("mode 必须是 hybrid、vector 或 bm25")
         count = self._collection.count()
         if not count:
             return []
-        self._rebuild_lexical_index()
-        allowed = {r["id"] for r in self._lexical_index if not department or r["metadata"].get("department", "*") in {"*", department}}
-        vector_rows = []
-        # Chroma's where syntax is intentionally avoided here: older and newer
-        # Chroma servers differ in metadata filter behavior, so the tenant gate
-        # is applied after the vector query as a defense-in-depth check.
-        results = self._collection.query(query_texts=[query], n_results=min(max(top_k * 4, top_k), count), include=["documents", "metadatas", "distances"])
-        for rank, (doc_id, doc, meta, dist) in enumerate(zip(results.get("ids", [[]])[0], results.get("documents", [[]])[0], results.get("metadatas", [[]])[0], results.get("distances", [[]])[0]), 1):
-            if doc_id in allowed: vector_rows.append((doc_id, rank, doc, meta or {}, max(0.0, 1.0 - float(dist))))
+        self._ensure_lexical_index(count)
+        with self._index_lock:
+            index = dict(self._lexical_index)
+        allowed = {doc_id for doc_id, row in index.items() if not department or row["metadata"].get("department", "*") in {"*", department}}
+
+        merged: Dict[str, Dict[str, Any]] = {}
+
+        def add(doc_id, rank, document, metadata, vector_score, bm25_score):
+            entry = merged.setdefault(doc_id, {"doc": document, "meta": metadata, "vector_score": vector_score, "bm25_score": bm25_score, "rrf": 0.})
+            entry["rrf"] += 1 / (rrf_k + rank)
+
+        # 不用 Chroma 的 where 过滤：不同版本服务端的元数据过滤行为不一致，部门隔离在查询后统一校验（纵深防御）。
+        results = self._collection.query(query_texts=[query], n_results=min(top_k * 4, count), include=["documents", "metadatas", "distances"])
         lexical_scores = self._bm25(query, allowed)
-        lexical_rows = sorted(lexical_scores.items(), key=lambda item: item[1], reverse=True)
-        rank_map = {doc_id: rank for rank, (doc_id, score) in enumerate(lexical_rows, 1) if score > 0}
-        merged = {}
-        for doc_id, rank, doc, meta, vector_score in vector_rows:
-            merged.setdefault(doc_id, {"doc": doc, "meta": meta, "vector_score": vector_score, "bm25_score": lexical_scores.get(doc_id, 0.0)})["rrf"] = merged.get(doc_id, {}).get("rrf", 0) + (1 / (rrf_k + rank))
-        for doc_id, rank in rank_map.items():
-            row = next((r for r in self._lexical_index if r["id"] == doc_id), None)
-            if row: merged.setdefault(doc_id, {"doc": row["document"], "meta": row["metadata"], "vector_score": 0., "bm25_score": lexical_scores[doc_id]})["rrf"] = merged.get(doc_id, {}).get("rrf", 0) + (1 / (rrf_k + rank))
-        ranked = sorted(merged.items(), key=lambda item: item[1].get("rrf", 0), reverse=True)
-        if mode == "vector": ranked = sorted(((i, v) for i, v in merged.items() if v.get("vector_score", 0) > 0), key=lambda item: item[1]["vector_score"], reverse=True)
-        elif mode == "bm25": ranked = sorted(((i, v) for i, v in merged.items() if v.get("bm25_score", 0) > 0), key=lambda item: item[1]["bm25_score"], reverse=True)
-        return [{"title": v["meta"].get("title", ""), "content": v["doc"], "score": round(v.get("rrf", 0), 6) if mode == "hybrid" else round(v.get("vector_score", v.get("bm25_score", 0)), 6), "vector_score": round(v.get("vector_score", 0), 6), "bm25_score": round(v.get("bm25_score", 0), 6), "chunk": v["meta"].get("chunk_index", 0), "chunk_id": v["meta"].get("chunk_id", i), "document_id": v["meta"].get("document_id", ""), "version": v["meta"].get("version", ""), "source": v["meta"].get("source", v["meta"].get("title", "")), "department": v["meta"].get("department", "*"), "updated_at": v["meta"].get("updated_at", ""), "citation": f"{v['meta'].get('title', '')} · {v['meta'].get('chunk_id', i)}"} for i, (doc_id, v) in enumerate(ranked[:top_k])]
+        vector_hits = zip(results.get("ids", [[]])[0], results.get("documents", [[]])[0], results.get("metadatas", [[]])[0], results.get("distances", [[]])[0])
+        for rank, (doc_id, document, metadata, distance) in enumerate(vector_hits, 1):
+            if doc_id in allowed:
+                add(doc_id, rank, document, metadata or {}, max(0.0, 1.0 - float(distance)), lexical_scores.get(doc_id, 0.0))
+        lexical_ranked = [(doc_id, score) for doc_id, score in sorted(lexical_scores.items(), key=lambda item: item[1], reverse=True) if score > 0]
+        for rank, (doc_id, score) in enumerate(lexical_ranked, 1):
+            row = index[doc_id]
+            add(doc_id, rank, row["document"], row["metadata"], 0., score)
+
+        score_key = {"hybrid": "rrf", "vector": "vector_score", "bm25": "bm25_score"}[mode]
+        ranked = sorted((item for item in merged.items() if mode == "hybrid" or item[1][score_key] > 0), key=lambda item: item[1][score_key], reverse=True)
+        return [self._to_result(i, entry, mode) for i, (_, entry) in enumerate(ranked[:top_k])]
+
+    @staticmethod
+    def _to_result(position: int, entry: Dict[str, Any], mode: str) -> Dict[str, Any]:
+        meta = entry["meta"]
+        chunk_id = meta.get("chunk_id", position)
+        score = entry["rrf"] if mode == "hybrid" else entry["vector_score"] if mode == "vector" else entry["bm25_score"]
+        return {
+            "title": meta.get("title", ""), "content": entry["doc"], "score": round(score, 6),
+            "vector_score": round(entry["vector_score"], 6), "bm25_score": round(entry["bm25_score"], 6),
+            "chunk": meta.get("chunk_index", 0), "chunk_id": chunk_id, "document_id": meta.get("document_id", ""),
+            "version": meta.get("version", ""), "source": meta.get("source", meta.get("title", "")), "department": meta.get("department", "*"),
+            "updated_at": meta.get("updated_at", ""), "citation": f"{meta.get('title', '')} · {chunk_id}",
+        }
 
     async def search_async(self, query: str, top_k: int = 5, **kwargs) -> List[Dict[str, Any]]:
         """异步检索；ChromaDB 客户端为同步实现，因此放入线程池执行。"""
         return await asyncio.to_thread(self.search, query, top_k, **kwargs)
-
-    @property
-    def doc_count(self) -> int:
-        return self._collection.count()
 
     async def doc_count_async(self) -> int:
         """异步获取文档片段数量。"""

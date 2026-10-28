@@ -6,9 +6,9 @@ from memory.conversation_memory import MemoryManager
 from evaluation.evaluator import load_intent_cases
 
 
-def test_state_v2_tracks_entities_and_missing_slots():
+def test_state_tracks_entities_and_missing_slots():
     state = merge_state({}, "access", {"system": ["GitLab"]}, "申请权限")
-    assert state["schema_version"] == 2
+    assert state["schema_version"] == 3
     assert state["entities"]["system"] == ["GitLab"]
     assert "employee_id" in state["missing_fields"]
     assert state["turn_count"] == 1
@@ -65,3 +65,17 @@ def test_intent_result_merges_llm_entities():
         assert result.intent == IntentCategory.PERMISSION_REQUEST
         assert result.entities["system"] == ["GitLab"]
     asyncio.run(run())
+
+
+def test_slot_given_in_earlier_turn_is_not_asked_again():
+    turn1 = merge_state({}, "access", {"employee_id": ["E1001"]}, "我的工号是 E1001")
+    turn2 = merge_state(turn1, "access", {}, "帮我重置密码", missing_slots=["employee_id"])
+    assert turn2["missing_fields"] == [] and turn2["entities"]["employee_id"] == ["E1001"]
+    turn3 = merge_state(turn2, "access", {"system": ["GitLab"]}, "申请 GitLab 权限", missing_slots=["employee_id", "system", "请补充具体 IT 问题或上下文"])
+    assert turn3["missing_fields"] == ["请补充具体 IT 问题或上下文"]   # 非实体类澄清项保留
+
+
+def test_agent_receives_accumulated_entities_current_turn_wins():
+    from core.conversation_state import known_entities
+    state = {"entities": {"employee_id": ["E1001"], "system": ["Jira"]}}
+    assert known_entities(state, {"system": ["GitLab"], "device_id": []}) == {"employee_id": ["E1001"], "system": ["GitLab"]}

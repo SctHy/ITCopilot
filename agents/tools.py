@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
+from monitor import metrics
+
 if TYPE_CHECKING:
     from agents.agent_orchestrator import Request
 
@@ -134,6 +136,7 @@ def build_shared_rag_tools(tool_manager) -> ToolSet:
         if tool_manager is None:
             return {"success": False, "error": "RAG 工具未初始化", "results": []}
         result = await tool_manager.search_with_rewrite("knowledge_search", query, top_k=top_k, department=getattr(req, "department", None))
+        metrics.KNOWLEDGE_SEARCHES.labels(outcome="hit" if result.success else result.outcome).inc()
         return {
             "success": bool(result.success), "query": query, "top_k": top_k, "results": result.data if result.success else [],
             "error": result.error if not result.success else "", "reranked": bool(result.reranked),

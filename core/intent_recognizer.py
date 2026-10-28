@@ -19,6 +19,7 @@ from pydantic_ai.settings import ModelSettings
 from core.intent_calibration import calibrate, load_temperatures
 from core.intent_embedding import IntentEmbedding
 from core.llm import build_model
+from monitor import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +263,11 @@ class IntentRecognizer:
             llm_used=bool(llm.get("_llm_used")),
             recognition_source=llm.get("_source", "fallback"),
         )
+        metrics.INTENT_RECOGNITIONS.labels(source=result.recognition_source, intent_group=group).inc()
+        if result.clarification_needed:
+            metrics.INTENT_CLARIFICATIONS.labels(intent_group=group).inc()
+        if result.inherited_from_previous:
+            metrics.INTENT_INHERITED.labels(intent_group=group).inc()
         self._cache[key] = result
         if len(self._cache) > self._cache_limit:
             self._cache.pop(next(iter(self._cache)))
@@ -283,10 +289,6 @@ class IntentRecognizer:
         if pattern_group in NON_DOMAIN_GROUPS:
             return REPRESENTATIVE_INTENTS.get(previous_group, IntentCategory.OTHER)
         return None
-
-    @staticmethod
-    def _representative_intent(group: str) -> IntentCategory:
-        return REPRESENTATIVE_INTENTS.get(group, IntentCategory.OTHER)
 
     @staticmethod
     def _missing_slots(intent: IntentCategory, entities: Dict[str, List[str]]) -> List[str]:

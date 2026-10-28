@@ -1,4 +1,8 @@
-"""官方 MCP SDK 客户端：工具发现、会话生命周期、白名单和 Agent 适配。"""
+"""官方 MCP SDK（2.x）客户端：工具发现、会话生命周期、白名单和 Agent 适配。
+
+外部 MCP 工具注册进 MCPToolManager（Schema 校验、TTL 缓存、超时、熔断、指标），
+再包装为 AgentToolSpec 交给 allowed_agents 中的 Agent；默认只接收带 readOnlyHint 的只读工具。
+"""
 import asyncio
 import hashlib
 import json
@@ -8,17 +12,17 @@ import pathlib
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Dict, List
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.types import Implementation
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import CallToolResult, Implementation, PaginatedRequestParams
 
 from agents.tools import AgentToolSpec
+from monitor import metrics
 from tooling.tool_manager import MCPToolManager, Tool
 
 logger = logging.getLogger(__name__)
@@ -110,10 +114,11 @@ class StandardMCPClient:
         self._origins = {}
         self._on_change = on_change
 
-    async def start(self):
+    async def start(self, wait: bool = True):
+        """启动各服务的连接任务；wait=False 时后台连接，工具在连上后经 on_change 动态加入 Agent。"""
         for connection in self.connections.values():
             connection.task = asyncio.create_task(self._serve(connection))
-        if self.connections:
+        if self.connections and wait:
             async def wait_ready(c):
                 try:
                     await asyncio.wait_for(c.ready.wait(), c.config.timeout_s + 5)
@@ -121,22 +126,8 @@ class StandardMCPClient:
                     c.error = "startup_timeout"
             await asyncio.gather(*(wait_ready(c) for c in self.connections.values()))
 
-    def agent_tools(self, manager=None):
-        if manager is None:
-            return dict(self._agent_tools)
-        from dataclasses import replace
-        result = {}
-        for alias, spec in self._agent_tools.items():
-            server, name = self._origins[alias]
-            async def handler(req, args, alias=alias, server=server, name=name):
-                response = await manager.call(alias, args, context={"user_id": req.user_id})
-                return {"success": response.success, "data": response.data, "error": response.error,
-                        "cached": response.cached, "source": "external_mcp", "mcp_server": server, "mcp_tool": name}
-            result[alias] = replace(spec, handler=handler)
-        return result
-
-    def owns_tool(self, alias):
-        return alias in self._origins
+    def agent_tools(self):
+        return dict(self._agent_tools)
 
     def summary(self):
         return {"servers": [{
@@ -160,10 +151,10 @@ class StandardMCPClient:
                             if not value:
                                 raise ValueError(f"MCP 认证环境变量未配置: {variable}")
                             headers[header] = value
-                        http = await stack.enter_async_context(httpx.AsyncClient(
-                            headers=headers, timeout=httpx.Timeout(config.timeout_s, connect=min(10, config.timeout_s)),
+                        http = await stack.enter_async_context(httpx2.AsyncClient(
+                            headers=headers, timeout=httpx2.Timeout(config.timeout_s, connect=min(10, config.timeout_s)),
                             follow_redirects=False))
-                        read, write, _ = await stack.enter_async_context(streamable_http_client(config.url, http_client=http))
+                        read, write = await stack.enter_async_context(streamable_http_client(config.url, http_client=http))
                     else:
                         # 默认不把应用模型 Key 等环境变量传入外部子进程。
                         env = {k: os.environ[k] for k in {"PATH", "SYSTEMROOT", "HOME", *config.env_vars} if k in os.environ}
@@ -174,13 +165,13 @@ class StandardMCPClient:
                         if getattr(notification, "method", None) == "notifications/tools/list_changed":
                             connection.refresh.set()
                     session = await stack.enter_async_context(ClientSession(read, write,
-                        read_timeout_seconds=timedelta(seconds=config.timeout_s), message_handler=on_message,
+                        read_timeout_seconds=config.timeout_s, message_handler=on_message,
                         client_info=Implementation(name="IT-Copilot", version="2.0")))
                     initialized = await asyncio.wait_for(session.initialize(), config.timeout_s)
                     connection.refresh.clear()
                     catalog = await self._discover(session, config.timeout_s)
                     connection.session = session
-                    connection.protocol_version = initialized.protocolVersion
+                    connection.protocol_version = initialized.protocol_version
                     connection.state, connection.error = "connected", None
                     connection.reconnect.clear()
                     self._register_catalog(connection, catalog)
@@ -228,9 +219,10 @@ class StandardMCPClient:
     async def _discover(session, timeout):
         catalog, cursor = [], None
         for _ in range(8):
-            page = await asyncio.wait_for(session.list_tools(cursor=cursor), timeout)
+            params = PaginatedRequestParams(cursor=cursor) if cursor else None
+            page = await asyncio.wait_for(session.list_tools(params=params), timeout)
             catalog.extend(page.tools)
-            cursor = page.nextCursor
+            cursor = page.next_cursor
             if not cursor:
                 return catalog
         raise ValueError("MCP tools/list 分页超过上限")
@@ -241,10 +233,10 @@ class StandardMCPClient:
             if remote.name not in config.allowed_tools:
                 continue
             annotations = getattr(remote, "annotations", None)
-            if config.read_only and (annotations is None or annotations.readOnlyHint is not True or annotations.destructiveHint is True):
+            if config.read_only and (annotations is None or annotations.read_only_hint is not True or annotations.destructive_hint is True):
                 continue
             from jsonschema import validators
-            validators.validator_for(remote.inputSchema).check_schema(remote.inputSchema)
+            validators.validator_for(remote.input_schema).check_schema(remote.input_schema)
             alias = tool_alias(config.name, remote.name)
             self._origins[alias] = (config.name, remote.name)
 
@@ -252,7 +244,7 @@ class StandardMCPClient:
                 return await self._call_remote(server, name, params)
 
             self.manager.register(Tool(name=alias, description=remote.description or remote.name,
-                                       handler=handler, schema=remote.inputSchema,
+                                       handler=handler, schema=remote.input_schema,
                                        cache_ttl=config.cache_ttl if config.read_only else 0,
                                        timeout_s=config.timeout_s))
 
@@ -263,8 +255,9 @@ class StandardMCPClient:
 
             self._agent_tools[alias] = AgentToolSpec(
                 name=alias, description="外部 MCP 资料工具：" + (remote.description or remote.name)[:1500],
-                input_schema=remote.inputSchema, handler=agent_handler, allowed_agents=tuple(config.agents),
-                retry_safe=config.read_only or bool(annotations and annotations.readOnlyHint is True and annotations.destructiveHint is not True))
+                input_schema=remote.input_schema, handler=agent_handler, allowed_agents=tuple(config.agents),
+                retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True))
+        self._update_metrics(config.name)
         if self._on_change:
             self._on_change()
 
@@ -274,8 +267,14 @@ class StandardMCPClient:
                 self.manager.unregister(alias)
                 self._origins.pop(alias, None)
                 self._agent_tools.pop(alias, None)
+        self._update_metrics(name)
         if self._on_change:
             self._on_change()
+
+    def _update_metrics(self, name):
+        connection = self.connections.get(name)
+        metrics.MCP_SERVER_UP.labels(server=name).set(int(connection is not None and connection.state == "connected"))
+        metrics.MCP_TOOLS.labels(server=name).set(sum(origin[0] == name for origin in self._origins.values()))
 
     async def _call_remote(self, server, name, arguments):
         connection = self.connections[server]
@@ -286,7 +285,10 @@ class StandardMCPClient:
         except Exception:
             connection.reconnect.set()
             raise
-        if result.isError:
+        if not isinstance(result, CallToolResult):
+            # 需要交互输入（elicitation）等非常规结果：服务台场景不支持，按失败处理。
+            raise MCPRemoteError(f"MCP 服务 {server} 工具 {name} 返回了不支持的结果类型")
+        if result.is_error:
             raise MCPRemoteError(f"MCP 服务 {server} 工具 {name} 返回执行错误")
         content = []
         for block in result.content:
@@ -296,7 +298,7 @@ class StandardMCPClient:
                 content.append({"type": "resource", "uri": str(block.resource.uri), "text": getattr(block.resource, "text", "")})
             else:
                 content.append({"type": block.type})
-        structured = getattr(result, "structuredContent", None)
+        structured = result.structured_content
         if structured is None and len(content) == 1 and content[0]["type"] == "text":
             try:
                 decoded = json.loads(content[0]["text"], parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))

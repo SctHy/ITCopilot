@@ -1,340 +1,380 @@
-"""
-亮点：利用 Monitor 监控 Agent 在线表现
+"""Agent 在线表现监控：近期窗口规则 + SLO 燃烧率告警 + 告警状态机 + 路由反馈闭环。
 
-核心问题：如何利用 Monitor 监控 Agent 的在线表现？
+数据来源（无需额外埋点）：
+  - Orchestrator.get_stats() 的 5 分钟滑动窗口（recent_*）
+  - MCPToolManager.get_stats() 的累计计数，按快照差分得到近期成功率
+  - API 每次 /chat 结束时调用 record_chat()，驱动 SLO 时间窗
+  - StandardMCPClient.summary() 的外部 MCP 连接状态（可选）
 
-本模块的答案：
-  1. 实时采集 —— 每隔 N 秒从 Orchestrator 和 ToolManager 拉取最新统计
-  2. 异常检测 —— Z-score 统计方法，自动发现指标突变
-  3. 路由反馈 —— 将 Agent 成功率/延迟写回 Orchestrator，
-     Orchestrator 的 _best_agent() 会据此动态调整路由权重
-  4. 优化建议 —— 基于规则生成可操作的优化建议（不是空话）
-  5. 告警 —— 超阈值时打日志 + 可选 Webhook
+闭环：近期成功率/延迟恶化 → update_routing_penalties() 降权 → 超阈值的专职 Agent 进入冷却，
+请求改由 Triage 兜底 → 冷却结束放行单个探针 → 成功即恢复。
+
+告警按“状态迁移”通知（触发 / 升级 / 恢复各一次），连续 RESOLVE_TICKS 个周期正常才恢复，避免抖动刷屏。
 """
+from __future__ import annotations
+
 import asyncio
 import logging
-import statistics
-from collections import defaultdict, deque
+import math
+import os
+import time
+from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Deque, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import httpx
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY, start_http_server
+
+from monitor import metrics
 
 logger = logging.getLogger(__name__)
 
+SEVERITY_ORDER = {"warning": 1, "critical": 2}
 
-# ── 数据结构 ──────────────────────────────────────────────────────────────────
 
-class Severity(Enum):
-    INFO     = "info"
-    WARNING  = "warning"
-    ERROR    = "error"
-    CRITICAL = "critical"
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ── SLO 与错误预算 ────────────────────────────────────────────────────────────
+
+class SLOTracker:
+    """按固定宽度时间桶累计好/坏事件，计算任意窗口内的错误率与燃烧率。
+
+    燃烧率 = 窗口错误率 / 错误预算（1 - target）；燃烧率 1 表示恰好在 SLO 周期末用完预算。
+    """
+
+    def __init__(self, name: str, target: float, bucket_s: float = 10, horizon_s: float = 6 * 3600):
+        if not 0 < target < 1:
+            raise ValueError("SLO target 必须在 (0, 1) 之间")
+        self.name, self.target, self.bucket_s = name, target, bucket_s
+        self._buckets: Deque[List[float]] = deque(maxlen=math.ceil(horizon_s / bucket_s) + 1)  # [bucket_start, total, bad]
+
+    def record(self, good: bool, now: Optional[float] = None) -> None:
+        start = (now if now is not None else time.monotonic()) // self.bucket_s * self.bucket_s
+        if not self._buckets or start > self._buckets[-1][0]:
+            self._buckets.append([start, 0, 0])
+        # 时钟回退或乱序到达的事件并入最新桶，保持桶按时间单调递增。
+        self._buckets[-1][1] += 1
+        self._buckets[-1][2] += 0 if good else 1
+
+    def window(self, seconds: float, now: Optional[float] = None) -> Tuple[int, int]:
+        cutoff = (now if now is not None else time.monotonic()) - seconds
+        total = bad = 0
+        for start, count, failed in reversed(self._buckets):
+            if start + self.bucket_s <= cutoff:
+                break
+            total, bad = total + count, bad + failed
+        return int(total), int(bad)
+
+    def burn_rate(self, seconds: float, now: Optional[float] = None) -> float:
+        total, bad = self.window(seconds, now)
+        return (bad / total) / (1 - self.target) if total else 0.
+
+
+# Google SRE Workbook 推荐的多窗口多燃烧率组合：长窗口确认趋势，短窗口保证恢复后尽快消警。
+BURN_RATE_RULES = (
+    ("critical", 3600, 300, 14.4),   # 1h 内消耗 2% 月度预算
+    ("warning", 6 * 3600, 1800, 6.0),
+)
+WINDOW_LABELS = {300: "5m", 1800: "30m", 3600: "1h", 6 * 3600: "6h"}
+
+
+# ── 告警状态机 ────────────────────────────────────────────────────────────────
+
+@dataclass
+class Condition:
+    rule: str
+    severity: str
+    message: str
+    value: float
+    threshold: float
+    action: str = ""
 
 
 @dataclass
 class Alert:
-    severity:    Severity
-    metric:      str
-    message:     str
-    value:       float
-    threshold:   float
-    ts:          str = field(default_factory=lambda: datetime.now().isoformat())
-    resolved:    bool = False
+    key: str
+    rule: str
+    severity: str
+    message: str
+    value: float
+    threshold: float
+    action: str = ""
+    state: str = "firing"
+    started_at: str = field(default_factory=_now_iso)
+    resolved_at: Optional[str] = None
+    clear_ticks: int = 0
 
+
+class AlertManager:
+    RESOLVE_TICKS = 2
+
+    def __init__(self, notify: Optional[Callable[[str, Alert], None]] = None, history: int = 200):
+        self.firing: Dict[str, Alert] = {}
+        self.history: Deque[Alert] = deque(maxlen=history)
+        self._notify = notify or (lambda event, alert: None)
+
+    def evaluate(self, active: Dict[str, Condition]) -> None:
+        for key, cond in active.items():
+            alert = self.firing.get(key)
+            if alert is None:
+                alert = Alert(key, cond.rule, cond.severity, cond.message, cond.value, cond.threshold, cond.action)
+                self.firing[key] = alert
+                self._emit("firing", alert)
+                continue
+            escalated = SEVERITY_ORDER[cond.severity] > SEVERITY_ORDER[alert.severity]
+            alert.severity, alert.message, alert.value, alert.threshold, alert.action = cond.severity, cond.message, cond.value, cond.threshold, cond.action
+            alert.clear_ticks = 0
+            self._set_gauge(alert)
+            if escalated:
+                self._emit("escalated", alert)
+        for key, alert in list(self.firing.items()):
+            if key in active:
+                continue
+            alert.clear_ticks += 1
+            if alert.clear_ticks >= self.RESOLVE_TICKS:
+                alert.state, alert.resolved_at = "resolved", _now_iso()
+                del self.firing[key]
+                self.history.append(alert)
+                self._set_gauge(alert)
+                self._emit("resolved", alert)
+
+    @staticmethod
+    def _set_gauge(alert: Alert) -> None:
+        for severity in SEVERITY_ORDER:
+            metrics.ALERTS_FIRING.labels(alert=alert.key, severity=severity).set(int(alert.state == "firing" and severity == alert.severity))
+
+    def _emit(self, event: str, alert: Alert) -> None:
+        if event == "firing":
+            self._set_gauge(alert)
+        log = logger.warning if event != "resolved" else logger.info
+        log("[alert %s] %s %s", event, alert.severity.upper(), alert.message)
+        self._notify(event, alert)
+
+
+# ── 监控器 ────────────────────────────────────────────────────────────────────
 
 @dataclass
-class Suggestion:
-    """可操作的优化建议。"""
-    title:       str
-    detail:      str
-    action:      str    # 具体操作步骤
-    priority:    int    # 1-10
+class Thresholds:
+    min_samples: int = 5
+    agent_success_warning: float = .90
+    agent_success_critical: float = .70
+    agent_latency_ms: float = 8000
+    tool_success_warning: float = .95
+    tool_window_s: float = 300
+    routing_success: float = .90
+    routing_latency_ms: float = 8000
 
+    @classmethod
+    def from_env(cls) -> "Thresholds":
+        return cls(
+            agent_latency_ms=_env_float("IT_COPILOT_ALERT_AGENT_LATENCY_MS", 8000),
+            routing_latency_ms=_env_float("IT_COPILOT_ROUTING_LATENCY_MS", 8000),
+        )
 
-# ── 异常检测 ──────────────────────────────────────────────────────────────────
-
-class AnomalyDetector:
-    """
-    基于滑动窗口 Z-score 的异常检测。
-
-    Z-score = |当前值 - 均值| / 标准差
-    超过 sensitivity 倍标准差则判定为异常。
-    """
-
-    def __init__(self, window: int = 60, sensitivity: float = 2.5):
-        self._window      = window
-        self._sensitivity = sensitivity
-        self._history: Dict[str, Deque[float]] = defaultdict(lambda: deque(maxlen=window))
-
-    def record(self, metric: str, value: float) -> Optional[Dict[str, Any]]:
-        """记录一个数据点，如果异常则返回异常信息，否则返回 None。"""
-        buf = self._history[metric]
-        buf.append(value)
-
-        if len(buf) < self._window // 2:
-            return None  # 数据不足，不检测
-
-        mean  = statistics.mean(buf)
-        stdev = statistics.stdev(buf) if len(buf) > 1 else 0.0
-        if stdev == 0:
-            return None
-
-        z = abs(value - mean) / stdev
-        if z > self._sensitivity:
-            return {
-                "metric":   metric,
-                "value":    value,
-                "mean":     mean,
-                "z_score":  round(z, 2),
-                "severity": "high" if z > self._sensitivity * 1.5 else "medium",
-            }
-        return None
-
-
-# ── 性能监控器 ────────────────────────────────────────────────────────────────
 
 class PerformanceMonitor:
-    """
-    Agent 在线表现监控。
-
-    与 Orchestrator 的联动：
-      Monitor 采集 → 发现某 Agent 成功率下降 →
-      Orchestrator.get_stats() 中该 Agent 的 routing_score 自动降低 →
-      _best_agent() 路由时自动绕开该 Agent
-
-    这就是"利用 Monitor 监控在线表现"的闭环。
-    """
-
-    # 告警阈值
-    THRESHOLDS = {
-        "agent_success_rate":  (0.90, Severity.ERROR,   "less_than"),
-        "tool_success_rate":   (0.95, Severity.WARNING,  "less_than"),
-        "agent_avg_ms":        (3000, Severity.WARNING,  "greater_than"),
-        "tool_avg_ms":         (5000, Severity.ERROR,    "greater_than"),
-    }
-
-    def __init__(
-        self,
-        orchestrator,
-        tool_manager,
-        interval_s:       float = 10.0,
-        webhook_url:      Optional[str] = None,
-        prometheus_port:  Optional[int] = None,   # None = 不启动
-        registry=None,
-    ):
+    def __init__(self, orchestrator, tool_manager, mcp_client=None, *, interval_s: Optional[float] = None, webhook_url: Optional[str] = None,
+                 availability_target: Optional[float] = None, latency_target: Optional[float] = None, latency_threshold_s: Optional[float] = None,
+                 thresholds: Optional[Thresholds] = None):
         self._orchestrator = orchestrator
         self._tool_manager = tool_manager
-        self._interval     = interval_s
-        self._webhook      = webhook_url
-        self._detector     = AnomalyDetector()
-
-        self._alerts:      List[Alert]      = []
-        self._suggestions: List[Suggestion] = []
-        self._active       = False
-        self._task:        Optional[asyncio.Task] = None
-
-        # Prometheus 指标（可选）
-        self._registry = registry if registry is not None else REGISTRY
-        self._prometheus_port = prometheus_port
-        self._http_server = None
-        self._registered = True
-        self._setup_prometheus()
-        for kind, agents in self._orchestrator._pool.items():
-            for i, agent in enumerate(agents):
-                agent.stats.observer = self._prom["agent_latency_ms"].labels(agent=f"{kind.value}_{i}").observe
-
-    def _setup_prometheus(self) -> None:
-        self._prom = {
-            "agent_success_rate": Gauge("agent_success_rate", "Agent 成功率", ["agent"], registry=self._registry),
-            "agent_latency_ms": Histogram("agent_latency_ms", "Agent 延迟（毫秒）", ["agent"],
-                buckets=(10, 50, 100, 250, 500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000), registry=self._registry),
-            "chat_latency_ms": Histogram("chat_latency_ms", "聊天 HTTP 请求总耗时（毫秒）", ["status"],
-                buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 30000, 50000), registry=self._registry),
-            "tool_success_rate": Gauge("tool_success_rate", "工具成功率", ["tool"], registry=self._registry),
-            "requests_total": Counter("requests_total", "总请求数", registry=self._registry),
+        self._mcp_client = mcp_client
+        self._interval = interval_s if interval_s is not None else _env_float("IT_COPILOT_MONITOR_INTERVAL_S", 10)
+        self._webhook = webhook_url if webhook_url is not None else os.getenv("IT_COPILOT_ALERT_WEBHOOK") or None
+        self._latency_threshold_s = latency_threshold_s if latency_threshold_s is not None else _env_float("IT_COPILOT_SLO_LATENCY_S", 10)
+        self.thresholds = thresholds or Thresholds.from_env()
+        self.slos = {
+            "chat_availability": SLOTracker("chat_availability", availability_target or _env_float("IT_COPILOT_SLO_AVAILABILITY", .95)),
+            "chat_latency": SLOTracker("chat_latency", latency_target or _env_float("IT_COPILOT_SLO_LATENCY_TARGET", .95)),
         }
+        self.alerts = AlertManager(self._notify)
+        self._tool_snapshots: Deque[Tuple[float, Dict[str, Tuple[int, int]]]] = deque(maxlen=512)
+        self._tasks: set = set()
+        self._loop_task: Optional[asyncio.Task] = None
+        self.last_tick: Optional[str] = None
 
     # ── 生命周期 ──────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        if self._active:
-            return
-        if not self._registered:
-            for metric in self._prom.values():
-                self._registry.register(metric)
-            self._registered = True
-        if self._prometheus_port:
-            self._http_server, _ = start_http_server(self._prometheus_port, registry=self._registry)
-            logger.info(f"Prometheus 已启动: :{self._prometheus_port}")
-        self._active = True
-        self._task   = asyncio.create_task(self._loop())
-        logger.info(f"Monitor 已启动，采集间隔 {self._interval}s")
+        if self._loop_task is None:
+            self._loop_task = asyncio.create_task(self._loop())
+            logger.info("Monitor 已启动，采集间隔 %ss", self._interval)
 
     async def stop(self) -> None:
-        self._active = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-        if self._http_server is not None:
-            await asyncio.to_thread(self._http_server.shutdown)
-            self._http_server.server_close()
-            self._http_server = None
-        if self._registered:
-            for metric in self._prom.values():
-                self._registry.unregister(metric)
-            self._registered = False
-
-    # ── 采集循环 ──────────────────────────────────────────────────────────────
+        if self._loop_task is not None:
+            self._loop_task.cancel()
+            await asyncio.gather(self._loop_task, return_exceptions=True)
+            self._loop_task = None
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
     async def _loop(self) -> None:
-        while self._active:
+        while True:
             try:
-                await self._collect()
-            except Exception as ex:
-                logger.error(f"Monitor 采集异常: {ex}")
+                self.tick()
+            except Exception:
+                logger.exception("Monitor 采集异常")
             await asyncio.sleep(self._interval)
 
-    async def _collect(self) -> None:
-        """
-        采集 Agent 和工具的实时统计，检测异常，生成建议。
+    # ── 事件输入 ──────────────────────────────────────────────────────────────
 
-        关键：这里读取的 stats 就是 Orchestrator/ToolManager 在处理请求时
-        实时更新的数据，Monitor 不需要额外埋点。
-        """
-        agent_stats = self._orchestrator.get_stats()
-        tool_stats  = self._tool_manager.get_stats()
-        routing_penalties: Dict[str, float] = {}
+    def record_chat(self, status: str, latency_s: float, now: Optional[float] = None) -> None:
+        self.slos["chat_availability"].record(status in {"success", "partial"}, now)
+        self.slos["chat_latency"].record(latency_s <= self._latency_threshold_s, now)
 
-        # ── Agent 指标 ────────────────────────────────────────────────────────
-        for agent_key, s in agent_stats.items():
-            sr  = s["success_rate"]
-            ms  = s["avg_ms"]
+    # ── 单次评估 ──────────────────────────────────────────────────────────────
 
-            # 异常检测
-            for metric, value in [("agent_success_rate", sr), ("agent_avg_ms", ms)]:
-                anomaly = self._detector.record(f"{metric}:{agent_key}", value)
-                if anomaly:
-                    logger.warning(f"异常检测 [{agent_key}] {metric}={value:.3f} z={anomaly['z_score']}")
+    def tick(self, now: Optional[float] = None) -> Dict[str, Condition]:
+        now = now if now is not None else time.monotonic()
+        active: Dict[str, Condition] = {}
+        active.update(self._slo_conditions(now))
+        active.update(self._agent_conditions())
+        active.update(self._tool_conditions(now))
+        active.update(self._mcp_conditions())
+        self.alerts.evaluate(active)
+        self.last_tick = _now_iso()
+        return active
 
-            # 阈值告警
-            self._check_threshold("agent_success_rate", sr, agent_key)
-            self._check_threshold("agent_avg_ms", ms, agent_key)
+    def _slo_conditions(self, now: float) -> Dict[str, Condition]:
+        out = {}
+        for name, slo in self.slos.items():
+            for seconds in WINDOW_LABELS:
+                metrics.SLO_BURN_RATE.labels(slo=name, window=WINDOW_LABELS[seconds]).set(slo.burn_rate(seconds, now))
+            for severity, long_s, short_s, factor in BURN_RATE_RULES:
+                long_rate, short_rate = slo.burn_rate(long_s, now), slo.burn_rate(short_s, now)
+                if slo.window(short_s, now)[0] >= self.thresholds.min_samples and long_rate > factor and short_rate > factor:
+                    out[f"slo_burn:{name}"] = Condition(
+                        "slo_burn_rate", severity,
+                        f"{name} 错误预算燃烧率 {WINDOW_LABELS[long_s]}={long_rate:.1f}x / {WINDOW_LABELS[short_s]}={short_rate:.1f}x（阈值 {factor}x，目标 {slo.target:.2%}）",
+                        round(long_rate, 2), factor, "按 /trace 回放最近失败请求定位主要错误码；网关类错误优先检查 8082 网关与上游配额。",
+                    )
+                    break
+        return out
 
-            # Prometheus
-            if "agent_success_rate" in self._prom:
-                self._prom["agent_success_rate"].labels(agent=agent_key).set(sr)
+    def _agent_conditions(self) -> Dict[str, Condition]:
+        t = self.thresholds
+        out, penalties = {}, {}
+        for key, s in self._orchestrator.get_stats().items():
+            n, success, latency = s["recent_total"], s["recent_success_rate"], s["recent_avg_ms"]
+            penalties[key] = self._routing_penalty(success, latency, t.routing_success, t.routing_latency_ms) if n >= t.min_samples else 0.
+            if n >= t.min_samples and success < t.agent_success_warning:
+                severity = "critical" if success < t.agent_success_critical else "warning"
+                out[f"agent_success:{key}"] = Condition(
+                    "agent_success_rate", severity, f"Agent {key} 近 5 分钟成功率 {success:.0%}（{n} 次）", round(success, 3), t.agent_success_warning,
+                    "查看 it_copilot_agent_failures_total 的 reason 分布：gateway 查网关，round_limit 查提示词与工具设计，bad_output 查模型输出格式。",
+                )
+            if n >= t.min_samples and latency > t.agent_latency_ms:
+                out[f"agent_latency:{key}"] = Condition(
+                    "agent_latency", "warning", f"Agent {key} 近 5 分钟平均耗时 {latency:.0f}ms", round(latency), t.agent_latency_ms,
+                    "检查上游模型延迟与工具耗时分布；必要时降低 max_tokens 或为该 Agent 换更快的模型。",
+                )
+        self._orchestrator.update_routing_penalties(penalties)
+        for key, s in self._orchestrator.get_stats().items():
+            degraded = s["state"] != "healthy"
+            metrics.AGENT_DEGRADED.labels(agent=key).set(int(degraded))
+            if degraded:
+                out[f"agent_degraded:{key}"] = Condition(
+                    "agent_degraded", "warning", f"Agent {key} 已降级（{s['state']}），请求由 Triage 兜底", s["monitor_penalty"], 0,
+                    "冷却结束后会自动放行单个探针请求；持续降级说明根因未消除。",
+                )
+        return out
 
+    def _tool_conditions(self, now: float) -> Dict[str, Condition]:
+        t = self.thresholds
+        stats = self._tool_manager.get_stats()
+        current = {name: (s["total"], s["success"]) for name, s in self._tool_manager.monitor_snapshot().items()}
+        self._tool_snapshots.append((now, current))
+        while len(self._tool_snapshots) > 1 and self._tool_snapshots[1][0] <= now - t.tool_window_s:
+            self._tool_snapshots.popleft()
+        baseline = self._tool_snapshots[0][1]
+        out = {}
+        for name, s in stats.items():
+            if s["circuit_state"] != "closed":
+                out[f"tool_circuit:{name}"] = Condition(
+                    "tool_circuit", "critical" if s["circuit_state"] == "open" else "warning", f"工具 {name} 熔断状态 {s['circuit_state']}（连续失败 {s['consecutive_fails']} 次）",
+                    s["consecutive_fails"], 0, "检查工具依赖服务；熔断期间返回 fallback 结果，恢复后半开探测自动闭合。",
+                )
+            base_total, base_ok = baseline.get(name, (0, 0))
+            total, ok = current[name][0] - base_total, current[name][1] - base_ok
+            if total >= t.min_samples and ok / total < t.tool_success_warning:
+                out[f"tool_success:{name}"] = Condition(
+                    "tool_success_rate", "warning", f"工具 {name} 近 {t.tool_window_s:.0f}s 成功率 {ok / total:.0%}（{total} 次）", round(ok / total, 3), t.tool_success_warning,
+                    "查看 it_copilot_tool_calls_total 的 outcome 分布区分超时、参数错误与依赖故障。",
+                )
+        return out
 
-            routing_penalties[agent_key] = (self._routing_penalty(s["recent_success_rate"], s["recent_avg_ms"])
-                                          if s.get("recent_total", 0) >= 5 else 0.0)
-
-        # ── 工具指标 ──────────────────────────────────────────────────────────
-        for tool_name, s in tool_stats.items():
-            sr = s["success_rate"]
-            ms = s["avg_latency_ms"]
-            cf = s["consecutive_fails"]
-
-            self._check_threshold("tool_success_rate", sr, tool_name)
-            self._check_threshold("tool_avg_ms", ms, tool_name)
-
-            if "tool_success_rate" in self._prom:
-                self._prom["tool_success_rate"].labels(tool=tool_name).set(sr)
-
-            # 连续失败 → 生成具体建议
-            if cf >= 3:
-                self._add_suggestion(Suggestion(
-                    title=f"工具 {tool_name} 连续失败 {cf} 次",
-                    detail=f"成功率 {sr:.1%}，平均延迟 {ms:.0f}ms，熔断状态: {s['circuit_state']}",
-                    action="1. 检查工具依赖服务是否正常\n2. 查看错误日志\n3. 考虑增加超时时间或降级策略",
-                    priority=9,
-                ))
-
-        # ── 路由优化建议 ──────────────────────────────────────────────────────
-        updater = getattr(self._orchestrator, "update_routing_penalties", None)
-        if updater:
-            updater(routing_penalties)
-        self._generate_routing_suggestions(agent_stats)
+    def _mcp_conditions(self) -> Dict[str, Condition]:
+        if self._mcp_client is None:
+            return {}
+        out = {}
+        for server in self._mcp_client.summary()["servers"]:
+            if server["state"] != "connected":
+                out[f"mcp_down:{server['name']}"] = Condition(
+                    "mcp_server_down", "warning", f"外部 MCP 服务 {server['name']} 未连接（{server['error'] or server['state']}）", 0, 1,
+                    "外部工具已自动下线，Agent 仅使用本地工具；客户端按指数退避自动重连。",
+                )
+        return out
 
     @staticmethod
-    def _routing_penalty(success_rate: float, avg_ms: float) -> float:
-        """把在线表现转成 0-0.9 的路由降权系数。"""
-        penalty = 0.0
-        if success_rate < 0.90:
-            penalty += min(0.5, (0.90 - success_rate) * 2)
-        if avg_ms > 3000:
-            penalty += min(0.4, (avg_ms - 3000) / 10000)
-        return min(penalty, 0.9)
+    def _routing_penalty(success_rate: float, avg_ms: float, success_floor: float, latency_ms: float) -> float:
+        """把近期表现转成 0–0.9 的路由降权；≥ IT_COPILOT_MONITOR_FALLBACK_PENALTY（默认 0.5）触发降级冷却。"""
+        penalty = 0.
+        if success_rate < success_floor:
+            penalty += min(.6, (success_floor - success_rate) * 2)
+        if avg_ms > latency_ms:
+            penalty += min(.3, (avg_ms - latency_ms) / 20000)
+        return min(penalty, .9)
 
-    def _check_threshold(self, metric: str, value: float, label: str) -> None:
-        if metric not in self.THRESHOLDS:
+    # ── 通知 ──────────────────────────────────────────────────────────────────
+
+    def _notify(self, event: str, alert: Alert) -> None:
+        if not self._webhook:
             return
-        threshold, severity, operator = self.THRESHOLDS[metric]
-        triggered = (operator == "less_than" and value < threshold) or \
-                    (operator == "greater_than" and value > threshold)
-        if triggered:
-            alert = Alert(
-                severity=severity,
-                metric=f"{metric}:{label}",
-                message=f"{label} 的 {metric} = {value:.3f}，阈值 {threshold}",
-                value=value,
-                threshold=threshold,
-            )
-            self._alerts.append(alert)
-            logger.warning(f"[{severity.value.upper()}] {alert.message}")
-            # 异步发送 Webhook（不阻塞采集循环）
-            if self._webhook:
-                asyncio.create_task(self._send_webhook(alert))
-
-    def _generate_routing_suggestions(self, agent_stats: Dict[str, Any]) -> None:
-        """
-        基于 Agent 在线表现生成路由优化建议。
-        这是 Monitor → Orchestrator 反馈闭环的体现。
-        """
-        for agent_key, s in agent_stats.items():
-            if s["success_rate"] < 0.85 and s["total"] > 10:
-                self._add_suggestion(Suggestion(
-                    title=f"Agent {agent_key} 成功率偏低",
-                    detail=f"成功率 {s['success_rate']:.1%}，路由评分 {s['routing_score']:.3f}",
-                    action=(
-                        "Orchestrator 的 _best_agent() 已自动降低该 Agent 的路由权重。\n"
-                        "建议：1. 检查 system_prompt 是否需要优化\n"
-                        "      2. 检查该类型问题的复杂度是否超出 Agent 能力\n"
-                        "      3. 考虑增加同类型 Agent 实例"
-                    ),
-                    priority=8,
-                ))
-
-    def _add_suggestion(self, s: Suggestion) -> None:
-        # 去重：相同 title 不重复添加
-        if not any(x.title == s.title for x in self._suggestions):
-            self._suggestions.append(s)
-            logger.info(f"优化建议 [P{s.priority}]: {s.title}")
-
-    async def _send_webhook(self, alert: Alert) -> None:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as c:
-                await c.post(self._webhook, json=asdict(alert))  # type: ignore
-        except Exception as ex:
-            logger.error(f"Webhook 发送失败: {ex}")
+            task = asyncio.get_running_loop().create_task(self._send_webhook(event, alert))
+        except RuntimeError:
+            return  # 无事件循环（同步测试或脚本调用）时只记日志
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
-    # ── 查询接口 ──────────────────────────────────────────────────────────────
+    async def _send_webhook(self, event: str, alert: Alert) -> None:
+        payload = {"event": event, **{k: v for k, v in asdict(alert).items() if k != "clear_ticks"}}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(self._webhook, json=payload)
+        except Exception as ex:
+            logger.warning("告警 Webhook 发送失败: %s", type(ex).__name__)
+
+    # ── 查询 ──────────────────────────────────────────────────────────────────
 
     def summary(self) -> Dict[str, Any]:
-        """返回当前监控摘要，供 API 层暴露。"""
+        now = time.monotonic()
+        firing = sorted(self.alerts.firing.values(), key=lambda a: (-SEVERITY_ORDER[a.severity], a.started_at))
+        slos = []
+        for name, slo in self.slos.items():
+            total, bad = slo.window(3600, now)
+            slos.append({
+                "name": name, "target": slo.target, "requests_1h": total, "bad_1h": bad,
+                "burn_rate": {WINDOW_LABELS[s]: round(slo.burn_rate(s, now), 2) for s in WINDOW_LABELS},
+            })
         return {
-            "agent_stats":   self._orchestrator.get_stats(),
-            "tool_stats":    self._tool_manager.get_stats(),
-            "active_alerts": [asdict(a) for a in self._alerts if not a.resolved][-10:],
-            "suggestions":   [
-                {"title": s.title, "action": s.action, "priority": s.priority}
-                for s in sorted(self._suggestions, key=lambda x: -x.priority)[:5]
-            ],
+            "last_tick": self.last_tick,
+            "status": "critical" if any(a.severity == "critical" for a in firing) else "degraded" if firing else "ok",
+            "slos": slos,
+            "alerts": [self._alert_view(a) for a in firing],
+            "recent_resolved": [self._alert_view(a) for a in list(self.alerts.history)[-10:]],
+            "suggestions": [{"alert": a.key, "severity": a.severity, "action": a.action} for a in firing if a.action],
         }
+
+    @staticmethod
+    def _alert_view(alert: Alert) -> Dict[str, Any]:
+        return {k: v for k, v in asdict(alert).items() if k != "clear_ticks"}

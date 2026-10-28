@@ -1,7 +1,7 @@
 # IT-Copilot 依赖清单（Python 3.14，uv 管理）
 
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
-pydantic-ai-slim[anthropic,openai]==2.62.0   # Agent/工具循环/结构化输出；anthropic 走 8082 网关，openai 可直连
+pydantic-ai-slim[anthropic,openai]==2.63.0   # Agent/工具循环/结构化输出；anthropic 走 8082 网关，openai 可直连
 
 # ── Web 框架 ──────────────────────────────────────────────────────────────────
 fastapi==0.162.0
@@ -13,14 +13,18 @@ python-multipart==0.0.32    # FastAPI 文件上传支持
 redis==8.1.0
 chromadb==1.5.9            # 向量数据库（长期记忆）
 
-# ── 监控 ──────────────────────────────────────────────────────────────────────
+# ── 监控与链路追踪 ────────────────────────────────────────────────────────────
 prometheus-client==0.26.0
+opentelemetry-sdk==1.45.1                       # PydanticAI 埋点 → OTLP（设置 OTEL_EXPORTER_OTLP_ENDPOINT 时启用）
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
 
 # ── HTTP 客户端 ───────────────────────────────────────────────────────────────
-httpx==0.28.1              # 网关上游转发、monitor/performance_monitor.py webhook 告警
+httpx==0.28.1              # 网关上游转发、告警 Webhook
+httpx2==2.16.0             # MCP 2.x Streamable HTTP 客户端传输
 
 # ── 工具 ──────────────────────────────────────────────────────────────────────
 python-dotenv==1.2.4
+pyyaml==6.0.3              # Skill front matter
 
 # 标准 Model Context Protocol SDK（客户端和服务端）
 mcp==2.3.0

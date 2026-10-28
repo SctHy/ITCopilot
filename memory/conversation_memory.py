@@ -156,7 +156,6 @@ class MemoryManager:
         digest = hashlib.sha256(json.dumps([self._safe_text(user_id), self._safe_text(conv_id)]).encode()).hexdigest()
         async with self._request_locks.hold(digest):
             async with redis_lease(self._redis, f"lock:conversation:{digest}"):
-                await self._migrate_legacy_keys(user_id, conv_id)
                 yield
 
     # ── 写入 ──────────────────────────────────────────────────────────────────
@@ -170,7 +169,6 @@ class MemoryManager:
 
     async def commit_turn(self, user_id, conv_id, request_id, message, response, trace=None, *, state=None):
         """原子保存一整轮及响应回执；由 conversation 锁保护。"""
-        await self._migrate_legacy_keys(user_id, conv_id)
         def raw(role, content):
             return json.dumps({"role": role, "content": self._safe_text(content),
                 "ts": datetime.now().isoformat(), "metadata": {"request_id": request_id}})
@@ -236,38 +234,6 @@ class MemoryManager:
         # _compress 的快照与 WATCH 提交已保护一致性；生成摘要不占聊天锁。
         await asyncio.wait_for(self._compress(user_id, conv_id), 30)
         await self.update_profile(user_id, conv_id)
-
-    async def add_message(
-        self,
-        user_id: str,
-        conv_id: str,
-        role:    MsgRole,
-        content: str,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """将一条消息写入工作记忆，超阈值时自动压缩。"""
-        user_id = self._safe_text(user_id)
-        conv_id = self._safe_text(conv_id)
-        clean_metadata = {
-            self._safe_text(k): self._safe_metadata_value(v)
-            for k, v in (metadata or {}).items()
-        }
-        msg = Message(role=role, content=self._safe_text(content), metadata=clean_metadata)
-        await self._migrate_legacy_keys(user_id, conv_id)
-        key = self._wm_key(user_id, conv_id)
-
-        # 追加到 Redis 列表（左推，最新在前）
-        await self._redis.lpush(key, json.dumps({
-            "role":      msg.role.value,
-            "content":   msg.content,
-            "ts":        msg.timestamp.isoformat(),
-            "metadata":  msg.metadata,
-        }))
-        await self._redis.expire(key, 86400)  # 24h TTL
-
-        # 超过压缩阈值时触发压缩
-        if await self._redis.llen(key) >= self.COMPRESS_AT:
-            await self._compress(user_id, conv_id)
 
     async def update_profile(self, user_id: str, conv_id: str) -> None:
         digest = hashlib.sha256(self._safe_text(user_id).encode()).hexdigest()
@@ -480,7 +446,6 @@ class MemoryManager:
         return msgs
 
     async def _get_working_memory(self, user_id: str, conv_id: str) -> List[Message]:
-        await self._migrate_legacy_keys(user_id, conv_id)
         raws = await self._redis.lrange(self._wm_key(user_id, conv_id), 0, self.WORKING_MAX - 1)
         return self._messages_from_raw(raws)
 
@@ -589,22 +554,6 @@ class MemoryManager:
     def _state_key(cls, user_id: str, conv_id: str) -> str:
         return f"state_v1:{cls._conversation_id(user_id, conv_id)}"
 
-    async def _migrate_legacy_keys(self, user_id: str, conv_id: str) -> None:
-        # 带冒号的旧键无法确定原始归属，保留原数据但禁止自动读取/迁移。
-        user_id, conv_id = self._safe_text(user_id), self._safe_text(conv_id)
-        if ":" in user_id or ":" in conv_id:
-            return
-        # RENAMENX 原子迁移并保留 TTL；已有新数据时不覆盖。
-        script = """
-        if redis.call('EXISTS', KEYS[1]) == 1 and redis.call('EXISTS', KEYS[2]) == 0 then
-            return redis.call('RENAMENX', KEYS[1], KEYS[2])
-        end
-        return 0
-        """
-        for old, new in [(f"wm:{user_id}:{conv_id}", self._wm_key(user_id, conv_id)),
-                         (f"summary:{user_id}:{conv_id}", self._summary_key(user_id, conv_id))]:
-            await self._redis.eval(script, 2, old, new)
-
     @classmethod
     def _profile_doc_id(cls, user_id: str) -> str:
         return f"{cls.PROFILE_DOC_PREFIX}{user_id}"
@@ -617,17 +566,6 @@ class MemoryManager:
         if not isinstance(value, str):
             value = str(value)
         return value.encode("utf-8", errors="ignore").decode("utf-8")
-
-    @classmethod
-    def _safe_metadata_value(cls, value: Any) -> Any:
-        """递归清洗 metadata，避免 Redis/ChromaDB 后续读写遇到非法 UTF-8。"""
-        if isinstance(value, str):
-            return cls._safe_text(value)
-        if isinstance(value, dict):
-            return {cls._safe_text(k): cls._safe_metadata_value(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [cls._safe_metadata_value(v) for v in value]
-        return value
 
     async def _query_episodic(
         self,
@@ -644,14 +582,6 @@ class MemoryManager:
             n_results=min(n_results, count),
             where=where,
         )
-
-    @staticmethod
-    def _extract_docs(results: Dict[str, Any]) -> List[str]:
-        docs = results.get("documents") or []
-        if not docs:
-            return []
-        first = docs[0] if isinstance(docs[0], list) else docs
-        return [doc for doc in first if isinstance(doc, str) and doc.strip()]
 
     @classmethod
     def _rank_memory_rows(cls, results: Dict[str, Any], max_tokens: int, entities: Optional[Dict[str, Any]] = None) -> List[str]:

@@ -4,10 +4,11 @@ import json
 import logging
 import os
 import pathlib
+import secrets
 import sys
 import time
 import uuid
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from typing import Any, Dict, Optional
 
 _ROOT = str(pathlib.Path(__file__).parent.parent.resolve())
@@ -15,11 +16,13 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
+
+from monitor import metrics
 
 load_dotenv(pathlib.Path(_ROOT) / ".env")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -30,11 +33,13 @@ _memory = None
 _tool_manager = None
 _kb = None
 _skills = None
+_profile_updater = None
+_tracing = None
+_monitor = None
+_mcp_client = None
 # 保存后台任务引用：事件循环只持有弱引用，未被引用的任务可能在执行中途被回收。
 _background_tasks: set = set()
 
-CHAT_REQUESTS = Counter("it_copilot_chat_requests_total", "IT-Copilot chat requests", ["status", "intent_group"])
-CHAT_LATENCY = Histogram("it_copilot_chat_latency_seconds", "IT-Copilot chat latency", ["status"], buckets=(.1, .25, .5, 1, 2, 5, 10, 30, 60))
 KNOWLEDGE_SEARCH_SCHEMA = {
     "type": "object",
     "properties": {
@@ -83,6 +88,17 @@ class ChatResponse(BaseModel):
     token_usage: Dict[str, int] = {}
 
 
+class KnowledgeDocument(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=1, max_length=200_000)
+    department: Optional[str] = Field(None, max_length=80)
+    document_id: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class KnowledgeAddRequest(BaseModel):
+    documents: list[KnowledgeDocument] = Field(..., min_length=1, max_length=100)
+
+
 class ApprovalDecision(BaseModel):
     decision: str = Field(..., pattern="^(approved|rejected)$")
     actor: str = Field("it-admin", min_length=1, max_length=120)
@@ -100,6 +116,16 @@ def _on_background_done(task: asyncio.Task) -> None:
         logger.warning("background task failed: %s", type(task.exception()).__name__)
 
 
+def require_admin(authorization: Optional[str] = Header(None)) -> None:
+    """写操作接口鉴权：配置 IT_COPILOT_ADMIN_TOKEN 后必须携带 Bearer token；未配置时为开发模式放行。"""
+    expected = os.getenv("IT_COPILOT_ADMIN_TOKEN", "")
+    if not expected:
+        return
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(401, "需要管理员 token", headers={"WWW-Authenticate": "Bearer"})
+
+
 def _chroma_settings() -> Dict[str, Any]:
     return {
         "chroma_host": os.getenv("CHROMA_HOST", "127.0.0.1"),
@@ -108,15 +134,36 @@ def _chroma_settings() -> Dict[str, Any]:
     }
 
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes"}
+
+
+async def _start_mcp_client():
+    """连接 config/mcp_servers.json 中启用的外部 MCP 服务；后台连接，不阻塞启动。"""
+    if not _env_flag("IT_COPILOT_MCP_ENABLED"):
+        return None
+    from tooling.mcp_client import StandardMCPClient, load_servers
+    configs = load_servers(pathlib.Path(os.getenv("IT_COPILOT_MCP_CONFIG", str(pathlib.Path(_ROOT) / "config/mcp_servers.json"))))
+    client = StandardMCPClient(_tool_manager, configs, on_change=lambda: _orchestrator.set_external_tools(client.agent_tools()))
+    await client.start(wait=False)
+    logger.info("external MCP client started: %s", [c.name for c in configs])
+    return client
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _orchestrator, _memory, _tool_manager, _kb, _skills
+    global _orchestrator, _memory, _tool_manager, _kb, _skills, _profile_updater, _tracing, _monitor, _mcp_client
     from agents.agent_orchestrator import AgentOrchestrator
+    from core.concurrency import ProfileUpdater
     from core.skill_loader import SkillManager
+    from core.telemetry import setup_tracing, shutdown_tracing
     from memory.conversation_memory import MemoryManager
+    from monitor.performance_monitor import PerformanceMonitor
     from tooling.knowledge_base import KnowledgeBase
+    from tooling.mcp_server import create_http_app, create_server
     from tooling.tool_manager import MCPToolManager, Tool
 
+    _tracing = setup_tracing()
     llm = {"api_key": os.getenv("ANTHROPIC_API_KEY", "sk-local"), "base_url": os.getenv("ANTHROPIC_BASE_URL") or None, "model": os.getenv("ANTHROPIC_MODEL", "deepseek-chat")}
     _skills = SkillManager(os.getenv("IT_COPILOT_SKILLS_DIR", str(pathlib.Path(_ROOT) / "skills")))
     _skills.load()
@@ -141,17 +188,58 @@ async def lifespan(app: FastAPI):
             logger.error("Redis is required for safe startup: %s", type(exc).__name__)
             raise RuntimeError("Redis 不可用，拒绝启动：会话锁和幂等保护不能被绕过") from exc
         logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
-    logger.info("IT-Copilot ready on port %s", os.getenv("IT_COPILOT_PORT", "8001"))
-    yield
+    if _memory:
+        # 后台维护（会话压缩 + 画像提炼）走有界 worker，同一用户的积压更新合并为一次。
+        _profile_updater = ProfileUpdater(_memory, workers=int(os.getenv("IT_COPILOT_MEMORY_WORKERS", "2")))
+        _profile_updater.start()
+
+    async with AsyncExitStack() as stack:
+        # 对外 MCP 服务端：/mcp 暴露本地知识库检索。
+        mcp_server = create_server(_kb, _tool_manager)
+        _mcp_mount.app = create_http_app(mcp_server)
+        await stack.enter_async_context(mcp_server.session_manager.run())
+        _mcp_client = await _start_mcp_client()
+        _monitor = PerformanceMonitor(_orchestrator, _tool_manager, _mcp_client)
+        await _monitor.start()
+        if not os.getenv("IT_COPILOT_ADMIN_TOKEN"):
+            logger.warning("IT_COPILOT_ADMIN_TOKEN 未设置：知识库写入、审批决定等接口未鉴权，仅适用于本地开发")
+        logger.info("IT-Copilot ready on port %s", os.getenv("IT_COPILOT_PORT", "8001"))
+        try:
+            yield
+        finally:
+            await _monitor.stop()
+            if _mcp_client:
+                await _mcp_client.close()
+            _mcp_mount.app = None
     if _background_tasks:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
+    if _profile_updater:
+        await _profile_updater.close()
+    shutdown_tracing(_tracing)
     if _memory:
         with suppress(Exception):
             await _memory.close()
 
 
+class _LazyMount:
+    """/mcp 挂载点：lifespan 完成前返回 503，之后转发给 MCP Streamable HTTP 应用。"""
+
+    def __init__(self):
+        self.app = None
+
+    async def __call__(self, scope, receive, send):
+        if self.app is None:
+            response = JSONResponse({"detail": "MCP server not ready"}, status_code=503)
+            return await response(scope, receive, send)
+        await self.app(scope, receive, send)
+
+
+_mcp_mount = _LazyMount()
+
 app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+_cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.mount("/mcp", _mcp_mount)
 
 
 @app.get("/health")
@@ -165,18 +253,24 @@ async def skills():
     return _skills.summary() if _skills else {"count": 0, "skills": []}
 
 
-@app.post("/skills/reload")
+@app.post("/skills/reload", dependencies=[Depends(require_admin)])
 async def reload_skills():
     return _skills.summary() if _skills and _skills.reload() is not None else {"count": 0}
 
 
 @app.get("/monitor")
 async def monitor():
-    return {"agents": _orchestrator.get_stats() if _orchestrator else {}, "tools": _tool_manager.monitor_snapshot() if _tool_manager else {}}
+    """运行状态：Agent/工具实时统计 + 进程内监控（SLO 燃烧率、触发中的告警、处置建议）。"""
+    return {
+        "agents": _orchestrator.get_stats() if _orchestrator else {},
+        "tools": _tool_manager.monitor_snapshot() if _tool_manager else {},
+        "monitor": _monitor.summary() if _monitor else None,
+        "mcp": _mcp_client.summary() if _mcp_client else {"enabled": False, "servers": []},
+    }
 
 
 @app.get("/metrics")
-async def metrics():
+async def prometheus_metrics():  # 不能命名为 metrics：会遮蔽上方导入的 monitor.metrics 模块
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -209,17 +303,107 @@ async def get_approval(approval_id: str):
     return body
 
 
-@app.post("/approvals/{approval_id}")
+@app.post("/approvals/{approval_id}", dependencies=[Depends(require_admin)])
 async def decide_approval(approval_id: str, payload: ApprovalDecision):
     if not _memory:
         raise HTTPException(503, "approval store unavailable")
+    before = await _memory.get_approval(approval_id)
     try:
         body = await _memory.decide_approval(approval_id, payload.decision, payload.actor)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     if not body:
         raise HTTPException(404, "approval not found")
+    if before and before.get("status") == "pending":
+        # 只统计真正发生的状态迁移；重复提交的幂等返回不计数。
+        metrics.APPROVALS.labels(event=body["status"]).inc()
     return body
+
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _add_knowledge(documents: list[Dict[str, Any]]) -> Dict[str, Any]:
+    if not _kb:
+        raise HTTPException(503, "service not ready")
+    try:
+        chunks = await _kb.add_documents_async(documents)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    # 让 Agent 立即检索到新文档，而不是等待 60 秒 TTL 缓存过期。
+    _tool_manager.invalidate_cache("knowledge_search")
+    return {"documents": len(documents), "chunks": chunks, "total_chunks": await _kb.doc_count_async()}
+
+
+@app.post("/knowledge/add", dependencies=[Depends(require_admin)])
+async def knowledge_add(payload: KnowledgeAddRequest):
+    return await _add_knowledge([doc.model_dump(exclude_none=True) for doc in payload.documents])
+
+
+@app.post("/knowledge/upload", dependencies=[Depends(require_admin)])
+async def knowledge_upload(file: UploadFile = File(...)):
+    """导入 .txt / .md（整篇为一个文档，标题取文件名）或 .json（文档数组或 {"documents": [...]})。"""
+    name = pathlib.Path(file.filename or "upload.txt")
+    suffix = name.suffix.lower()
+    if suffix not in {".txt", ".md", ".json"}:
+        raise HTTPException(415, "仅支持 .txt、.md、.json")
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "文件超过 10 MB")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(422, "文件必须是 UTF-8 编码") from exc
+    if suffix != ".json":
+        return await _add_knowledge([{"title": name.stem, "content": text}])
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(422, f"JSON 解析失败：第 {exc.lineno} 行") from exc
+    try:
+        payload = KnowledgeAddRequest.model_validate(data if isinstance(data, dict) else {"documents": data})
+    except Exception as exc:
+        raise HTTPException(422, "JSON 需为文档数组，每项包含 title 与 content") from exc
+    return await _add_knowledge([doc.model_dump(exclude_none=True) for doc in payload.documents])
+
+
+# 离线评测套件 → 前端展示的关键指标（label, 报告中的取值路径, 展示格式）。
+EVAL_SUITES = (
+    ("intent", "意图识别", "intent_latest.json", (("准确率", "accuracy", "percent"), ("Macro-F1", "macro_f1", "percent"), ("用例数", "total", "number"))),
+    ("calibration", "置信度校准", "intent_calibration_latest.json", (("ECE 校准前", "ece_before", "number"), ("ECE 校准后", "ece_after", "number"), ("Brier 校准后", "brier_after", "number"))),
+    ("rag", "混合检索 RAG", "rag_latest.json", (("Hybrid Recall@5", "hybrid.recall_at_5", "percent"), ("Hybrid MRR", "hybrid.mrr", "number"), ("Vector Recall@5", "vector.recall_at_5", "percent"))),
+    ("memory", "三级记忆", "memory_latest.json", (("情景召回", "metrics.episodic_recall", "percent"), ("无关注入率", "metrics.unrelated_injection_rate", "percent"))),
+    ("planner", "有界 Planner", "planner_latest.json", (("计划有效率", "plan_validity", "percent"), ("用例数", "total", "number"))),
+    ("safety", "安全回归", "phase6_latest.json", (("通过率", "safety_pass_rate", "percent"), ("检查项", "total", "number"))),
+)
+
+
+def _dig(data: Any, path: str) -> Any:
+    for key in path.split("."):
+        data = data.get(key) if isinstance(data, dict) else None
+    return data
+
+
+@app.get("/eval/reports")
+async def eval_reports():
+    """最新离线评测报告摘要（scripts/evaluate_all.py 生成）；只读文件，不触发模型调用。"""
+    reports_dir = pathlib.Path(_ROOT) / "evaluation/reports"
+
+    def load(name: str) -> Optional[Dict[str, Any]]:
+        try:
+            return json.loads((reports_dir / name).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    suites = []
+    for suite_id, title, filename, fields in EVAL_SUITES:
+        report = await asyncio.to_thread(load, filename)
+        suites.append({
+            "id": suite_id, "title": title, "status": (report or {}).get("status", "missing"),
+            "metrics": [{"label": label, "value": _dig(report, path), "format": fmt} for label, path, fmt in fields] if report else [],
+        })
+    gate = await asyncio.to_thread(load, "all_latest.json") or {}
+    return {"gate": {"status": gate.get("status", "missing"), "all_passed": bool(gate.get("all_passed"))}, "suites": suites}
 
 
 @app.get("/knowledge/stats")
@@ -238,7 +422,7 @@ async def search(query: str = Query("", min_length=1), top_k: int = Query(5, ge=
 async def _run_turn(payload: ChatRequest, rid: str, conv_id: str):
     """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。"""
     from agents.agent_orchestrator import Request
-    from core.conversation_state import merge_state
+    from core.conversation_state import known_entities, merge_state
 
     mem_ctx = await _memory.get_context(payload.user_id, conv_id, query=payload.message) if _memory else None
     history = [{"role": m.role.value, "content": m.content} for m in mem_ctx.recent_messages[-5:]] if mem_ctx and mem_ctx.recent_messages else None
@@ -251,9 +435,9 @@ async def _run_turn(payload: ChatRequest, rid: str, conv_id: str):
         urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=payload.department, request_id=rid,
     )
     req.context += f"\n[部门]\n{payload.department}"
-    req.conversation_state = merge_state(state, intent_result.intent_group, intent_result.entities, payload.message)
-    if intent_result.missing_slots:
-        req.conversation_state["missing_fields"] = sorted(set(req.conversation_state.get("missing_fields", [])) | set(intent_result.missing_slots))
+    # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
+    req.conversation_state = merge_state(state, intent_result.intent_group, intent_result.entities, payload.message, intent_result.missing_slots)
+    req.entities = known_entities(req.conversation_state, intent_result.entities)
 
     async def before_unsafe_tool(name):
         # 写操作执行前先落“结果未知”回执：进程若在副作用后崩溃，重试不会重复执行。
@@ -284,8 +468,18 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id) -> Dict[
 async def chat(payload: ChatRequest):
     if not _orchestrator:
         raise HTTPException(503, "service not ready")
-    request_started = time.monotonic()
+    from core.telemetry import chat_span
     rid = payload.client_request_id or str(uuid.uuid4())
+    with chat_span(rid) as span:
+        response = await _chat(payload, rid)
+        if isinstance(response, ChatResponse):
+            for key in ("status", "agent_type", "intent", "intent_group"):
+                span.set_attribute(f"it_copilot.{key}", getattr(response, key))
+        return response
+
+
+async def _chat(payload: ChatRequest, rid: str):
+    request_started = time.monotonic()
     conv_id = payload.conv_id or str(uuid.uuid5(uuid.NAMESPACE_URL, payload.user_id + ":" + rid))
     if _memory:
         async with _memory.conversation(payload.user_id, conv_id):
@@ -303,10 +497,11 @@ async def chat(payload: ChatRequest):
     approval_id = rid + ":approval" if approval else None
     if approval and _memory:
         await _memory.create_approval(approval_id, {**approval, "request_id": rid, "user_id": payload.user_id, "conv_id": conv_id})
+        metrics.APPROVALS.labels(event="created").inc()
 
     response = ChatResponse(
         request_id=rid, response=result.response, status=result.status, agent_type=result.agent_type.value,
-        intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
+        intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=intent_result.entities,
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
         intent_source_scores=intent_result.source_scores, clarification_needed=intent_result.clarification_needed,
         missing_slots=intent_result.missing_slots, inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
@@ -317,12 +512,15 @@ async def chat(payload: ChatRequest):
     if _memory:
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id)
         await _memory.commit_turn(payload.user_id, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
-        _spawn(_memory.update_profile(payload.user_id, conv_id))
+        if _profile_updater:
+            _profile_updater.submit(payload.user_id, conv_id)
         if result.intent and result.intent.value not in {"greeting", "chitchat"}:
-            metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "agent_type": result.agent_type.value, "entities": req.entities}
+            metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "agent_type": result.agent_type.value, "entities": intent_result.entities}
             _spawn(_memory.store_episodic_turn(payload.user_id, conv_id, rid, payload.message, response.response, metadata))
-    CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
-    CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
+    metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
+    metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
+    if _monitor:
+        _monitor.record_chat(response.status, time.monotonic() - request_started)
     return response
 
 

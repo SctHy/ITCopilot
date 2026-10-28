@@ -19,7 +19,7 @@ import inspect
 import json
 import logging
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -28,6 +28,7 @@ from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
 from core.llm import build_model
+from monitor import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class ToolResult:
     cached:         bool = False
     latency_ms:     float = 0.0
     reranked:       bool = False   # 是否经过重排
+    outcome:        str = "success"  # success/cached/invalid/unknown/circuit_open/timeout/error，进入指标标签
 
 
 @dataclass
@@ -155,14 +157,6 @@ class MCPToolManager:
         self._cache_versions: Dict[str, int] = {}
         self._cache: Dict[str, tuple] = {}   # key → (result, expire_at, reranked)
 
-    def fork(self):
-        """共享只读依赖和 HTTP 客户端，隔离工具统计、熔断和缓存。"""
-        other = object.__new__(type(self))
-        other._llm, other._model = self._llm, self._model
-        other._cache, other._cache_versions = {}, {}
-        other._tools = {name: replace(tool) for name, tool in self._tools.items()}
-        return other
-
     # ── 注册 / 注销 ───────────────────────────────────────────────────────────
 
     def register(self, tool: Tool) -> None:
@@ -188,16 +182,27 @@ class MCPToolManager:
         """
         调用工具，完整执行链：
           缓存检查 → 熔断检查 → 参数校验 → 执行（含超时）→ 可选重排 → 缓存写入
+        每次调用都记录结果分类、执行耗时与熔断状态指标。
         """
+        result = await self._call(name, params, context, use_cache=use_cache, rerank_top_k=rerank_top_k)
+        metrics.TOOL_CALLS.labels(tool=name, outcome=result.outcome).inc()
+        if result.outcome == "success":
+            metrics.TOOL_LATENCY.labels(tool=name).observe(result.latency_ms / 1000)
+        tool = self._tools.get(name)
+        if tool is not None:
+            metrics.TOOL_CIRCUIT_STATE.labels(tool=name).set(metrics.CIRCUIT_STATE_VALUES[tool.breaker.state.value])
+        return result
+
+    async def _call(self, name, params, context, *, use_cache, rerank_top_k) -> ToolResult:
         tool = self._tools.get(name)
         if not tool:
-            return ToolResult(success=False, data=None, tool_name=name, error=f"工具不存在: {name}")
+            return ToolResult(success=False, data=None, tool_name=name, error=f"工具不存在: {name}", outcome="unknown")
 
         try:
             self._validate_params(tool, params)
         except ValueError as ex:
             # 用户参数错误不应使健康的外部服务被熔断。
-            return ToolResult(success=False, data=None, tool_name=name, error=str(ex))
+            return ToolResult(success=False, data=None, tool_name=name, error=str(ex), outcome="invalid")
         cache_version = self._cache_versions.get(name, 0)
         cache_rerank_top_k = rerank_top_k if rerank_top_k > 0 and tool.supports_rerank else 0
 
@@ -214,12 +219,13 @@ class MCPToolManager:
                     tool_name=name,
                     cached=True,
                     reranked=cached_reranked,
+                    outcome="cached",
                 )
 
         # 熔断检查
         if not tool.breaker.allow():
             error = f"工具熔断中: {name}，请稍后重试"
-            return await self._fallback_result(tool, params, context, error)
+            return await self._fallback_result(tool, params, context, error, "circuit_open")
 
         generation = tool.breaker.generation
         t0 = time.monotonic()
@@ -256,14 +262,14 @@ class MCPToolManager:
             tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
             logger.error(f"工具超时: {name} ({tool.timeout_s}s)")
-            return await self._fallback_result(tool, params, context, "执行超时")
+            return await self._fallback_result(tool, params, context, "执行超时", "timeout")
 
         except Exception as ex:
             tool.stats.failed += 1
             tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
             logger.error(f"工具异常: {name} — {ex}")
-            return await self._fallback_result(tool, params, context, str(ex))
+            return await self._fallback_result(tool, params, context, str(ex), "error")
 
     async def _fallback_result(
         self,
@@ -271,10 +277,11 @@ class MCPToolManager:
         params: Dict[str, Any],
         context: Optional[Dict[str, Any]],
         error: str,
+        outcome: str,
     ) -> ToolResult:
         """工具不可用时返回降级结果，而不是把空错误直接暴露给调用方。"""
         if tool.fallback is None:
-            return ToolResult(success=False, data=None, tool_name=tool.name, error=error)
+            return ToolResult(success=False, data=None, tool_name=tool.name, error=error, outcome=outcome)
         try:
             data = tool.fallback(params, context, error)
             if asyncio.iscoroutine(data):
@@ -284,10 +291,11 @@ class MCPToolManager:
                 data=data,
                 tool_name=tool.name,
                 error=error,
+                outcome=outcome,
             )
         except Exception as ex:
             logger.error(f"工具降级失败: {tool.name} — {ex}")
-            return ToolResult(success=False, data=None, tool_name=tool.name, error=f"{error}; fallback失败: {ex}")
+            return ToolResult(success=False, data=None, tool_name=tool.name, error=f"{error}; fallback失败: {ex}", outcome=outcome)
 
     async def _run_handler(
         self,
@@ -379,17 +387,15 @@ class MCPToolManager:
                         merged.append(item)
 
         if not merged:
-            return ToolResult(success=False, data=[], tool_name=tool_name, error="检索无可用结果：" + "; ".join(dict.fromkeys(r.error for r in results if isinstance(r, ToolResult) and r.error)))
+            errors = list(dict.fromkeys(r.error for r in results if isinstance(r, ToolResult) and r.error))
+            failed = any(not isinstance(r, ToolResult) or not r.success for r in results)
+            return ToolResult(success=False, data=[], tool_name=tool_name, error="检索无可用结果：" + "; ".join(errors), outcome="error" if failed else "empty")
 
         # 4. 重排：用 LLM 对合并结果按相关性打分，取 Top-K
         data, reranked = await self._rerank_with_status(query, merged, top_k)
         return ToolResult(success=True, data=data, tool_name=tool_name, reranked=reranked)
 
     # ── 结果重排（解决召回不好）──────────────────────────────────────────────
-
-    async def _rerank(self, query: str, items: List[Any], top_k: int) -> List[Any]:
-        data, _ = await self._rerank_with_status(query, items, top_k)
-        return data
 
     async def _rerank_with_status(self, query: str, items: List[Any], top_k: int) -> Tuple[List[Any], bool]:
         """
