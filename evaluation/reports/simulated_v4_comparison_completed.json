@@ -1,0 +1,550 @@
+{
+  "modes": [
+    "generalist",
+    "bounded",
+    "bounded_all",
+    "single"
+  ],
+  "strata": {
+    "T1": {
+      "cases": 14,
+      "generalist": {
+        "passed": 10,
+        "rate": 0.714,
+        "wilson95": [
+          0.454,
+          0.883
+        ],
+        "trial_rate": 0.821,
+        "tokens_median": 31894.0,
+        "latency_p50_s": 28.16,
+        "turns_mean": 4.5
+      },
+      "bounded": {
+        "passed": 13,
+        "rate": 0.929,
+        "wilson95": [
+          0.685,
+          0.987
+        ],
+        "trial_rate": 0.964,
+        "tokens_median": 23273.0,
+        "latency_p50_s": 35.66,
+        "turns_mean": 4.71
+      },
+      "bounded_all": {
+        "passed": 13,
+        "rate": 0.929,
+        "wilson95": [
+          0.685,
+          0.987
+        ],
+        "trial_rate": 0.929,
+        "tokens_median": 39128.0,
+        "latency_p50_s": 46.35,
+        "turns_mean": 5.14
+      },
+      "single": {
+        "passed": 10,
+        "rate": 0.714,
+        "wilson95": [
+          0.454,
+          0.883
+        ],
+        "trial_rate": 0.821,
+        "tokens_median": 17982.0,
+        "latency_p50_s": 23.78,
+        "turns_mean": 4.57
+      }
+    },
+    "T2": {
+      "cases": 16,
+      "generalist": {
+        "passed": 10,
+        "rate": 0.625,
+        "wilson95": [
+          0.386,
+          0.815
+        ],
+        "trial_rate": 0.781,
+        "tokens_median": 30912.0,
+        "latency_p50_s": 29.89,
+        "turns_mean": 4.41
+      },
+      "bounded": {
+        "passed": 12,
+        "rate": 0.75,
+        "wilson95": [
+          0.505,
+          0.898
+        ],
+        "trial_rate": 0.844,
+        "tokens_median": 38019.0,
+        "latency_p50_s": 32.33,
+        "turns_mean": 4.03
+      },
+      "bounded_all": {
+        "passed": 10,
+        "rate": 0.625,
+        "wilson95": [
+          0.386,
+          0.815
+        ],
+        "trial_rate": 0.75,
+        "tokens_median": 40904.5,
+        "latency_p50_s": 29.9,
+        "turns_mean": 4.44
+      },
+      "single": {
+        "passed": 6,
+        "rate": 0.375,
+        "wilson95": [
+          0.185,
+          0.614
+        ],
+        "trial_rate": 0.469,
+        "tokens_median": 22861.0,
+        "latency_p50_s": 27.6,
+        "turns_mean": 4.12
+      }
+    },
+    "T3": {
+      "cases": 3,
+      "generalist": {
+        "passed": 2,
+        "rate": 0.667,
+        "wilson95": [
+          0.208,
+          0.939
+        ],
+        "trial_rate": 0.833,
+        "tokens_median": 50715.5,
+        "latency_p50_s": 41.51,
+        "turns_mean": 5.33
+      },
+      "bounded": {
+        "passed": 0,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.562
+        ],
+        "trial_rate": 0.333,
+        "tokens_median": 65417.0,
+        "latency_p50_s": 55.06,
+        "turns_mean": 5.33
+      },
+      "bounded_all": {
+        "passed": 1,
+        "rate": 0.333,
+        "wilson95": [
+          0.061,
+          0.792
+        ],
+        "trial_rate": 0.5,
+        "tokens_median": 69205.5,
+        "latency_p50_s": 42.59,
+        "turns_mean": 4
+      },
+      "single": {
+        "passed": 0,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.562
+        ],
+        "trial_rate": 0.5,
+        "tokens_median": 39194.5,
+        "latency_p50_s": 40.01,
+        "turns_mean": 5.5
+      }
+    },
+    "ALL": {
+      "cases": 33,
+      "generalist": {
+        "passed": 22,
+        "rate": 0.667,
+        "wilson95": [
+          0.496,
+          0.802
+        ],
+        "trial_rate": 0.803,
+        "tokens_median": 33086.5,
+        "latency_p50_s": 30.42,
+        "turns_mean": 4.53
+      },
+      "bounded": {
+        "passed": 25,
+        "rate": 0.758,
+        "wilson95": [
+          0.59,
+          0.872
+        ],
+        "trial_rate": 0.848,
+        "tokens_median": 38019.0,
+        "latency_p50_s": 36.37,
+        "turns_mean": 4.44
+      },
+      "bounded_all": {
+        "passed": 24,
+        "rate": 0.727,
+        "wilson95": [
+          0.558,
+          0.849
+        ],
+        "trial_rate": 0.803,
+        "tokens_median": 42659.0,
+        "latency_p50_s": 38.87,
+        "turns_mean": 4.7
+      },
+      "single": {
+        "passed": 16,
+        "rate": 0.485,
+        "wilson95": [
+          0.325,
+          0.648
+        ],
+        "trial_rate": 0.621,
+        "tokens_median": 21147.0,
+        "latency_p50_s": 27.19,
+        "turns_mean": 4.44
+      }
+    }
+  },
+  "paired": {
+    "generalist_vs_bounded": {
+      "T1": {
+        "only_generalist": [],
+        "only_bounded": [
+          "t1-00",
+          "t1-01",
+          "t1-13"
+        ],
+        "mcnemar_p": 0.25
+      },
+      "T2": {
+        "only_generalist": [],
+        "only_bounded": [
+          "t2-01",
+          "t2-14"
+        ],
+        "mcnemar_p": 0.5
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_bounded": [],
+        "mcnemar_p": 0.5
+      },
+      "ALL": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_bounded": [
+          "t1-00",
+          "t1-01",
+          "t1-13",
+          "t2-01",
+          "t2-14"
+        ],
+        "mcnemar_p": 0.4531
+      }
+    },
+    "generalist_vs_bounded_all": {
+      "T1": {
+        "only_generalist": [],
+        "only_bounded_all": [
+          "t1-01",
+          "t1-12",
+          "t1-13"
+        ],
+        "mcnemar_p": 0.25
+      },
+      "T2": {
+        "only_generalist": [
+          "t2-03",
+          "t2-10"
+        ],
+        "only_bounded_all": [
+          "t2-01",
+          "t2-14"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-01"
+        ],
+        "only_bounded_all": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_generalist": [
+          "t2-03",
+          "t2-10",
+          "t3-01"
+        ],
+        "only_bounded_all": [
+          "t1-01",
+          "t1-12",
+          "t1-13",
+          "t2-01",
+          "t2-14"
+        ],
+        "mcnemar_p": 0.7266
+      }
+    },
+    "generalist_vs_single": {
+      "T1": {
+        "only_generalist": [
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [
+          "t1-12",
+          "t1-13"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "T2": {
+        "only_generalist": [
+          "t2-03",
+          "t2-04",
+          "t2-05",
+          "t2-10"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.125
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "ALL": {
+        "only_generalist": [
+          "t1-05",
+          "t1-09",
+          "t2-03",
+          "t2-04",
+          "t2-05",
+          "t2-10",
+          "t3-00",
+          "t3-01"
+        ],
+        "only_single": [
+          "t1-12",
+          "t1-13"
+        ],
+        "mcnemar_p": 0.1094
+      }
+    },
+    "bounded_vs_bounded_all": {
+      "T1": {
+        "only_bounded": [
+          "t1-00"
+        ],
+        "only_bounded_all": [
+          "t1-12"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "T2": {
+        "only_bounded": [
+          "t2-03",
+          "t2-10"
+        ],
+        "only_bounded_all": [],
+        "mcnemar_p": 0.5
+      },
+      "T3": {
+        "only_bounded": [],
+        "only_bounded_all": [
+          "t3-00"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded": [
+          "t1-00",
+          "t2-03",
+          "t2-10"
+        ],
+        "only_bounded_all": [
+          "t1-12",
+          "t3-00"
+        ],
+        "mcnemar_p": 1.0
+      }
+    },
+    "bounded_vs_single": {
+      "T1": {
+        "only_bounded": [
+          "t1-00",
+          "t1-01",
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [
+          "t1-12"
+        ],
+        "mcnemar_p": 0.375
+      },
+      "T2": {
+        "only_bounded": [
+          "t2-01",
+          "t2-03",
+          "t2-04",
+          "t2-05",
+          "t2-10",
+          "t2-14"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.0312
+      },
+      "T3": {
+        "only_bounded": [],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded": [
+          "t1-00",
+          "t1-01",
+          "t1-05",
+          "t1-09",
+          "t2-01",
+          "t2-03",
+          "t2-04",
+          "t2-05",
+          "t2-10",
+          "t2-14"
+        ],
+        "only_single": [
+          "t1-12"
+        ],
+        "mcnemar_p": 0.0117
+      }
+    },
+    "bounded_all_vs_single": {
+      "T1": {
+        "only_bounded_all": [
+          "t1-01",
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.25
+      },
+      "T2": {
+        "only_bounded_all": [
+          "t2-01",
+          "t2-04",
+          "t2-05",
+          "t2-14"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.125
+      },
+      "T3": {
+        "only_bounded_all": [
+          "t3-00"
+        ],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded_all": [
+          "t1-01",
+          "t1-05",
+          "t1-09",
+          "t2-01",
+          "t2-04",
+          "t2-05",
+          "t2-14",
+          "t3-00"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.0078
+      }
+    }
+  },
+  "evidence": {
+    "generalist": {},
+    "bounded": {},
+    "bounded_all": {},
+    "single": {}
+  },
+  "failures": {
+    "generalist": {
+      "tickets_count": 12,
+      "password": 1
+    },
+    "bounded": {
+      "tickets_count": 8,
+      "tool_lookup_error_code": 1,
+      "cite_打印队列阻塞排障": 1,
+      "cite_邮件退信排障": 1,
+      "password": 1
+    },
+    "bounded_all": {
+      "tickets_count": 12,
+      "grants_exact": 1,
+      "cite_邮件退信排障": 1,
+      "password": 1
+    },
+    "single": {
+      "tickets_count": 12,
+      "tool_lookup_asset": 9,
+      "tool_lookup_error_code": 6,
+      "cite_打印队列阻塞排障": 3,
+      "password": 2,
+      "unlocked": 1,
+      "grants_exact": 1,
+      "tool_check_service_status": 1,
+      "cite_邮件退信排障": 1
+    }
+  },
+  "simulator_flag_rate": 0.193,
+  "excluded_flagged_cases": false,
+  "excluded_errored_cases": [
+    "p-00",
+    "p-01",
+    "p-02",
+    "p-03",
+    "p-04",
+    "p-05",
+    "p-06",
+    "p-07",
+    "t3-03",
+    "t3-04",
+    "t3-05",
+    "t3-06",
+    "t3-07",
+    "t3-08",
+    "t3-09",
+    "t3-10",
+    "t3-11"
+  ],
+  "source": [
+    "simulated_v4_generalist_run1.json",
+    "simulated_v4_generalist_run2.json",
+    "simulated_v4_bounded_run1.json",
+    "simulated_v4_bounded_run2.json",
+    "simulated_v4_bounded_all_run1.json",
+    "simulated_v4_bounded_all_run2.json",
+    "simulated_v4_single_run1.json",
+    "simulated_v4_single_run2.json"
+  ],
+  "runs": 8,
+  "model": {
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-flash"
+  }
+}

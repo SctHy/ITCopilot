@@ -1,0 +1,511 @@
+{
+  "modes": [
+    "single",
+    "bounded",
+    "generalist"
+  ],
+  "strata": {
+    "S": {
+      "cases": 16,
+      "single": {
+        "passed": 13,
+        "rate": 0.812,
+        "wilson95": [
+          0.57,
+          0.934
+        ],
+        "trial_rate": 0.812,
+        "tokens_median": 3267.5,
+        "latency_p50_s": 4.91,
+        "turns_mean": 1
+      },
+      "bounded": {
+        "passed": 13,
+        "rate": 0.812,
+        "wilson95": [
+          0.57,
+          0.934
+        ],
+        "trial_rate": 0.812,
+        "tokens_median": 3064.5,
+        "latency_p50_s": 4.9,
+        "turns_mean": 1
+      },
+      "generalist": {
+        "passed": 16,
+        "rate": 1.0,
+        "wilson95": [
+          0.806,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 4043.5,
+        "latency_p50_s": 4.79,
+        "turns_mean": 1
+      }
+    },
+    "C2": {
+      "cases": 20,
+      "single": {
+        "passed": 9,
+        "rate": 0.45,
+        "wilson95": [
+          0.258,
+          0.658
+        ],
+        "trial_rate": 0.45,
+        "tokens_median": 5586.0,
+        "latency_p50_s": 7.67,
+        "turns_mean": 1
+      },
+      "bounded": {
+        "passed": 12,
+        "rate": 0.6,
+        "wilson95": [
+          0.387,
+          0.781
+        ],
+        "trial_rate": 0.7,
+        "tokens_median": 10945.5,
+        "latency_p50_s": 9.26,
+        "turns_mean": 1
+      },
+      "generalist": {
+        "passed": 20,
+        "rate": 1.0,
+        "wilson95": [
+          0.839,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 6791.0,
+        "latency_p50_s": 7.88,
+        "turns_mean": 1
+      }
+    },
+    "C3": {
+      "cases": 8,
+      "single": {
+        "passed": 0,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.324
+        ],
+        "trial_rate": 0.0,
+        "tokens_median": 9956.0,
+        "latency_p50_s": 9.72,
+        "turns_mean": 1
+      },
+      "bounded": {
+        "passed": 1,
+        "rate": 0.125,
+        "wilson95": [
+          0.022,
+          0.471
+        ],
+        "trial_rate": 0.188,
+        "tokens_median": 10031.5,
+        "latency_p50_s": 10.61,
+        "turns_mean": 1
+      },
+      "generalist": {
+        "passed": 8,
+        "rate": 1.0,
+        "wilson95": [
+          0.676,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 13749.5,
+        "latency_p50_s": 10.18,
+        "turns_mean": 1
+      }
+    },
+    "M": {
+      "cases": 10,
+      "single": {
+        "passed": 9,
+        "rate": 0.9,
+        "wilson95": [
+          0.596,
+          0.982
+        ],
+        "trial_rate": 0.9,
+        "tokens_median": 7830.5,
+        "latency_p50_s": 10.02,
+        "turns_mean": 2
+      },
+      "bounded": {
+        "passed": 9,
+        "rate": 0.9,
+        "wilson95": [
+          0.596,
+          0.982
+        ],
+        "trial_rate": 0.9,
+        "tokens_median": 8649.5,
+        "latency_p50_s": 10.54,
+        "turns_mean": 2
+      },
+      "generalist": {
+        "passed": 9,
+        "rate": 0.9,
+        "wilson95": [
+          0.596,
+          0.982
+        ],
+        "trial_rate": 0.95,
+        "tokens_median": 9599.0,
+        "latency_p50_s": 8.07,
+        "turns_mean": 2
+      }
+    },
+    "N": {
+      "cases": 10,
+      "single": {
+        "passed": 9,
+        "rate": 0.9,
+        "wilson95": [
+          0.596,
+          0.982
+        ],
+        "trial_rate": 0.9,
+        "tokens_median": 2280.0,
+        "latency_p50_s": 3.81,
+        "turns_mean": 1
+      },
+      "bounded": {
+        "passed": 9,
+        "rate": 0.9,
+        "wilson95": [
+          0.596,
+          0.982
+        ],
+        "trial_rate": 0.9,
+        "tokens_median": 3008.0,
+        "latency_p50_s": 3.18,
+        "turns_mean": 1
+      },
+      "generalist": {
+        "passed": 10,
+        "rate": 1.0,
+        "wilson95": [
+          0.722,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 5613.0,
+        "latency_p50_s": 6.69,
+        "turns_mean": 1
+      }
+    },
+    "ALL": {
+      "cases": 64,
+      "single": {
+        "passed": 40,
+        "rate": 0.625,
+        "wilson95": [
+          0.503,
+          0.733
+        ],
+        "trial_rate": 0.625,
+        "tokens_median": 4824.5,
+        "latency_p50_s": 6.76,
+        "turns_mean": 1.16
+      },
+      "bounded": {
+        "passed": 44,
+        "rate": 0.688,
+        "wilson95": [
+          0.566,
+          0.788
+        ],
+        "trial_rate": 0.727,
+        "tokens_median": 5719.5,
+        "latency_p50_s": 7.55,
+        "turns_mean": 1.16
+      },
+      "generalist": {
+        "passed": 63,
+        "rate": 0.984,
+        "wilson95": [
+          0.917,
+          0.997
+        ],
+        "trial_rate": 0.992,
+        "tokens_median": 5718.5,
+        "latency_p50_s": 7.02,
+        "turns_mean": 1.16
+      }
+    }
+  },
+  "paired": {
+    "single_vs_bounded": {
+      "S": {
+        "only_single": [],
+        "only_bounded": [],
+        "mcnemar_p": 1.0
+      },
+      "C2": {
+        "only_single": [
+          "c2-status-ticket"
+        ],
+        "only_bounded": [
+          "c2-asset-status",
+          "c2-grant-asset",
+          "c2-reset-asset",
+          "c2-unlock-vpn"
+        ],
+        "mcnemar_p": 0.375
+      },
+      "C3": {
+        "only_single": [],
+        "only_bounded": [
+          "c3-all-ticket"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "M": {
+        "only_single": [],
+        "only_bounded": [],
+        "mcnemar_p": 1.0
+      },
+      "N": {
+        "only_single": [],
+        "only_bounded": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_single": [
+          "c2-status-ticket"
+        ],
+        "only_bounded": [
+          "c2-asset-status",
+          "c2-grant-asset",
+          "c2-reset-asset",
+          "c2-unlock-vpn",
+          "c3-all-ticket"
+        ],
+        "mcnemar_p": 0.2188
+      }
+    },
+    "single_vs_generalist": {
+      "S": {
+        "only_single": [],
+        "only_generalist": [
+          "s-asset",
+          "s-err403",
+          "s-err500"
+        ],
+        "mcnemar_p": 0.25
+      },
+      "C2": {
+        "only_single": [],
+        "only_generalist": [
+          "c2-403-asset",
+          "c2-500-kb",
+          "c2-asset-grant-jira",
+          "c2-asset-status",
+          "c2-grant-asset",
+          "c2-grant-status",
+          "c2-grant-vpn691",
+          "c2-reset-asset",
+          "c2-status-asset",
+          "c2-unlock-vpn",
+          "c2-vpn-black"
+        ],
+        "mcnemar_p": 0.001
+      },
+      "C3": {
+        "only_single": [],
+        "only_generalist": [
+          "c3-403-asset-ticket",
+          "c3-all-ticket",
+          "c3-grant-asset-ticket",
+          "c3-grant-asset-vpn",
+          "c3-grant-vpn-ticket",
+          "c3-reset-vpn-ticket",
+          "c3-status-asset-kb",
+          "c3-unlock-asset-vpn"
+        ],
+        "mcnemar_p": 0.0078
+      },
+      "M": {
+        "only_single": [
+          "m-unlock-confirm"
+        ],
+        "only_generalist": [
+          "m-cancel-then-ask"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "N": {
+        "only_single": [],
+        "only_generalist": [
+          "n-explain-only"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_single": [
+          "m-unlock-confirm"
+        ],
+        "only_generalist": [
+          "c2-403-asset",
+          "c2-500-kb",
+          "c2-asset-grant-jira",
+          "c2-asset-status",
+          "c2-grant-asset",
+          "c2-grant-status",
+          "c2-grant-vpn691",
+          "c2-reset-asset",
+          "c2-status-asset",
+          "c2-unlock-vpn",
+          "c2-vpn-black",
+          "c3-403-asset-ticket",
+          "c3-all-ticket",
+          "c3-grant-asset-ticket",
+          "c3-grant-asset-vpn",
+          "c3-grant-vpn-ticket",
+          "c3-reset-vpn-ticket",
+          "c3-status-asset-kb",
+          "c3-unlock-asset-vpn",
+          "m-cancel-then-ask",
+          "n-explain-only",
+          "s-asset",
+          "s-err403",
+          "s-err500"
+        ],
+        "mcnemar_p": 0.0
+      }
+    },
+    "bounded_vs_generalist": {
+      "S": {
+        "only_bounded": [],
+        "only_generalist": [
+          "s-asset",
+          "s-err403",
+          "s-err500"
+        ],
+        "mcnemar_p": 0.25
+      },
+      "C2": {
+        "only_bounded": [],
+        "only_generalist": [
+          "c2-403-asset",
+          "c2-500-kb",
+          "c2-asset-grant-jira",
+          "c2-grant-status",
+          "c2-grant-vpn691",
+          "c2-status-asset",
+          "c2-status-ticket",
+          "c2-vpn-black"
+        ],
+        "mcnemar_p": 0.0078
+      },
+      "C3": {
+        "only_bounded": [],
+        "only_generalist": [
+          "c3-403-asset-ticket",
+          "c3-grant-asset-ticket",
+          "c3-grant-asset-vpn",
+          "c3-grant-vpn-ticket",
+          "c3-reset-vpn-ticket",
+          "c3-status-asset-kb",
+          "c3-unlock-asset-vpn"
+        ],
+        "mcnemar_p": 0.0156
+      },
+      "M": {
+        "only_bounded": [
+          "m-unlock-confirm"
+        ],
+        "only_generalist": [
+          "m-cancel-then-ask"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "N": {
+        "only_bounded": [],
+        "only_generalist": [
+          "n-explain-only"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded": [
+          "m-unlock-confirm"
+        ],
+        "only_generalist": [
+          "c2-403-asset",
+          "c2-500-kb",
+          "c2-asset-grant-jira",
+          "c2-grant-status",
+          "c2-grant-vpn691",
+          "c2-status-asset",
+          "c2-status-ticket",
+          "c2-vpn-black",
+          "c3-403-asset-ticket",
+          "c3-grant-asset-ticket",
+          "c3-grant-asset-vpn",
+          "c3-grant-vpn-ticket",
+          "c3-reset-vpn-ticket",
+          "c3-status-asset-kb",
+          "c3-unlock-asset-vpn",
+          "m-cancel-then-ask",
+          "n-explain-only",
+          "s-asset",
+          "s-err403",
+          "s-err500"
+        ],
+        "mcnemar_p": 0.0
+      }
+    }
+  },
+  "evidence": {
+    "single": {
+      "evidence_endpoint": 0.476,
+      "evidence_network": 0.429
+    },
+    "bounded": {
+      "evidence_endpoint": 0.762,
+      "evidence_network": 0.643
+    },
+    "generalist": {
+      "evidence_endpoint": 1.0,
+      "evidence_network": 1.0
+    }
+  },
+  "failures": {
+    "single": {
+      "evidence_network": 32,
+      "evidence_endpoint": 22,
+      "approval_created": 1
+    },
+    "bounded": {
+      "evidence_network": 20,
+      "evidence_endpoint": 10,
+      "approval_created": 3,
+      "no_write": 2,
+      "correct_grant": 2,
+      "all_turns_completed": 2,
+      "expiry_scheduled": 1,
+      "no_extra_grants": 1
+    },
+    "generalist": {
+      "approval_created": 1
+    }
+  },
+  "simulator_flag_rate": 0.0,
+  "excluded_flagged_cases": false,
+  "source": [
+    "application_strata_v3_run1.json",
+    "application_strata_v3_run2.json"
+  ],
+  "runs": 2,
+  "model": {
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-flash"
+  }
+}

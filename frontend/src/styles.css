@@ -527,3 +527,15 @@ body { background: var(--canvas); }
 .report-card > strong small { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .report-card p { display: flex; justify-content: space-between; margin: 0; padding: 4px 0; font-size: 12px; color: var(--muted); }
 .report-card p b { color: var(--ink); font-weight: 600; }
+:root .approval-filters { display: flex; gap: 8px; margin: 0 0 14px; }
+:root .approval-filters button { background: #fff; color: #334155; border: 1px solid #cbd5e1; }
+:root .approval-filters button.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+:root .approval-meta { color: #475569; font-size: 13px; }
+:root .approval-steps { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+:root .approval-card { margin-top: 12px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; }
+:root .approval-card pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+:root .approval-card button { margin: 6px 8px 0 0; padding: 6px 10px; cursor: pointer; }
+:root .approval-action { padding-top: 12px; }
+:root .approval-action dl { display: grid; grid-template-columns: 4em minmax(0, 1fr); gap: 6px 12px; margin: 10px 0; }
+:root .approval-action dt { color: #64748b; }
+:root .approval-action dd { margin: 0; overflow-wrap: anywhere; }

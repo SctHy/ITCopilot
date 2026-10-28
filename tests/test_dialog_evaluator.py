@@ -25,6 +25,7 @@ def judge_model(scores):
 
 def make_evaluator(tmp_path, judge_scores):
     orchestrator = AgentOrchestrator("sk-local")
+    orchestrator.planning_mode = "single"  # the case checks intent routing to a specialist
     model = agent_model()
     orchestrator._intent_recognizer.llm = model
     for agents in orchestrator._pool.values():

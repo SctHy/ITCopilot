@@ -51,3 +51,9 @@ def test_lexical_index_refreshes_after_external_write_or_ttl(kb, monkeypatch):
 def test_department_filter_hides_other_departments(kb):
     for mode in ("hybrid", "vector", "bm25"):
         assert all(r["department"] in {"研发", "*"} for r in kb.search("权限 VPN", mode=mode, department="研发"))
+
+
+def test_department_filter_is_not_crowded_out_by_other_departments(kb):
+    kb.add_documents([{"title": f"财务 VPN 证书 {i}", "content": f"VPN 客户端证书与 DNS 排障 财务版 {i}", "department": "财务"} for i in range(40)])
+    rows = kb.search("VPN 客户端证书与 DNS 排障 财务版", top_k=3, department="研发", mode="vector")
+    assert [r["title"] for r in rows] == ["VPN 指南"]

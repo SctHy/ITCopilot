@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as api
+from tests.conftest import auth
 from tooling.tool_manager import MCPToolManager
 
 
@@ -28,8 +29,7 @@ def client(monkeypatch):
     kb = FakeKnowledgeBase()
     monkeypatch.setattr(api, "_kb", kb)
     monkeypatch.setattr(api, "_tool_manager", MCPToolManager("sk-local"))
-    monkeypatch.delenv("IT_COPILOT_ADMIN_TOKEN", raising=False)
-    return TestClient(api.app), kb
+    return TestClient(api.app, headers=auth("erin")), kb
 
 
 def test_knowledge_add_imports_documents_and_invalidates_search_cache(client):
@@ -65,16 +65,33 @@ def test_knowledge_upload_rejects_bad_files(client, filename, body, status):
     assert http.post("/knowledge/upload", files={"file": (filename, body)}).status_code == status
 
 
-def test_admin_token_guards_write_endpoints(client, monkeypatch):
+def test_roles_guard_write_endpoints(client):
     http, _ = client
-    monkeypatch.setenv("IT_COPILOT_ADMIN_TOKEN", "s3cret")
     doc = {"documents": [{"title": "t", "content": "c"}]}
-    assert http.post("/knowledge/add", json=doc).status_code == 401
-    assert http.post("/knowledge/add", json=doc, headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert http.post("/knowledge/add", json=doc, headers={"Authorization": "Bearer s3cret"}).status_code == 200
-    assert http.post("/approvals/a1", json={"decision": "approved"}).status_code == 401
-    assert http.post("/skills/reload").status_code == 401
-    assert http.get("/knowledge/stats").status_code == 200          # 只读接口不受影响
+    anonymous = TestClient(api.app)
+    assert anonymous.post("/knowledge/add", json=doc).status_code == 401
+    assert anonymous.post("/knowledge/add", json=doc, headers={"Authorization": "Bearer forged"}).status_code == 401
+    assert http.post("/knowledge/add", json=doc, headers=auth("alice")).status_code == 403   # employee, not admin
+    assert http.post("/knowledge/add", json=doc).status_code == 200                          # erin is it_admin
+    assert http.post("/approvals/a1", json={"decision": "approved", "payload_hash": "0" * 64}, headers=auth("alice")).status_code == 403
+    assert http.post("/skills/reload", headers=auth("bob")).status_code == 403
+    assert anonymous.get("/knowledge/stats").status_code == 200          # 只读统计不受影响
+
+
+def test_dev_tokens_are_refused_in_production(client, monkeypatch):
+    http, _ = client
+    token = auth("erin")
+    monkeypatch.setenv("IT_COPILOT_ENV", "production")
+    assert http.post("/knowledge/add", json={"documents": [{"title": "t", "content": "c"}]}, headers=token).status_code == 401
+    assert http.post("/auth/dev-token", json={"username": "erin"}).status_code == 404
+
+
+def test_auth_me_reflects_token_not_request_body(client):
+    http, _ = client
+    me = http.get("/auth/me", headers=auth("alice")).json()
+    assert me["subject"] == "dev:alice" and me["department"] == "engineering" and me["roles"] == ["employee"]
+    token = http.post("/auth/dev-token", json={"username": "bob"}).json()["access_token"]
+    assert http.get("/auth/me", headers={"Authorization": "Bearer " + token}).json()["roles"] == ["approver", "employee"]
 
 
 def test_eval_reports_summarize_committed_offline_reports(client):
@@ -82,7 +99,8 @@ def test_eval_reports_summarize_committed_offline_reports(client):
     body = http.get("/eval/reports").json()
     assert body["gate"] == {"status": "passed", "all_passed": True}
     suites = {suite["id"]: suite for suite in body["suites"]}
-    assert set(suites) == {"intent", "calibration", "rag", "memory", "planner", "safety"}
-    assert all(suite["status"] == "passed" and suite["metrics"] for suite in suites.values())
+    assert {"intent", "calibration", "rag", "memory", "planner", "safety", "intent_v2", "rag_v2", "application_v2"} <= set(suites)
+    assert all(suites[name]["status"] == "passed" and suites[name]["metrics"] for name in ("intent", "calibration", "rag", "memory", "planner", "safety"))
+    assert suites["intent_v2"]["title"] == "意图留出集 · 真实模型"
     rag = {m["label"]: m["value"] for m in suites["rag"]["metrics"]}
     assert rag["Hybrid Recall@5"] == 1.0 and rag["Vector Recall@5"] == 0.8

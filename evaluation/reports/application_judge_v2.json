@@ -1,0 +1,104 @@
+{
+  "status": "complete",
+  "source_report_sha256": "a25acd639c088e6cbbc13392113545d1cc7085fab424cde95e4597ff82067365",
+  "model": "deepseek-flash",
+  "rows": [
+    {
+      "case_id": "access-approve",
+      "planning": "single",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.9,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    },
+    {
+      "case_id": "access-approve",
+      "planning": "bounded",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.9,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    },
+    {
+      "case_id": "network-code",
+      "planning": "bounded",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.95,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    },
+    {
+      "case_id": "network-code",
+      "planning": "single",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.95,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    },
+    {
+      "case_id": "access-reject",
+      "planning": "single",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.9,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    },
+    {
+      "case_id": "access-reject",
+      "planning": "bounded",
+      "business_passed": true,
+      "scores": {
+        "relevance": 1.0,
+        "accuracy": 1.0,
+        "completeness": 0.9,
+        "helpfulness": 0.9,
+        "judge_failed": false,
+        "error": null,
+        "attempts": 1,
+        "stop_reason": "stop",
+        "error_type": null
+      }
+    }
+  ],
+  "limitations": "Small fixed prefix sample; same-family judge; not calibrated against human ratings; does not override code assertions."
+}

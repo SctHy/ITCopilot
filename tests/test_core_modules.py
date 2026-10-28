@@ -100,19 +100,3 @@ def test_temperature_calibration_is_bounded_and_improves_overconfident_rows():
     calibrated = [(calibrate(p, temperatures["network"]), ok) for p, ok in rows["network"]]
     assert all(0 < p < 1 for p, _ in calibrated)
     assert ece(calibrated) >= 0 and brier(calibrated) >= 0
-
-
-def test_phase5_approval_state_machine():
-    async def run():
-        import fakeredis.aioredis
-        from memory.conversation_memory import MemoryManager
-        with tempfile.TemporaryDirectory() as path:
-            manager = MemoryManager(redis_url="redis://127.0.0.1:6399/0", chroma_host="127.0.0.1", chroma_port=8999, chroma_path=path, api_key="sk-local")
-            manager._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-            await manager.create_approval("a1", {"actions": ["request_access"], "risk": "high"})
-            assert (await manager.get_approval("a1"))["status"] == "pending"
-            approved = await manager.decide_approval("a1", "approved", "tester")
-            assert approved["execution"] == "mock_executed"
-            assert (await manager.decide_approval("a1", "rejected", "tester"))["status"] == "approved"
-            await manager.close()
-    asyncio.run(run())

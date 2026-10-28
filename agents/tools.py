@@ -27,6 +27,7 @@ class AgentToolSpec:
     handler: AgentToolHandler
     allowed_agents: Optional[Tuple[str, ...]] = None
     retry_safe: bool = True
+    timeout_s: Optional[float] = None
 
 
 def make_tool(name: str, description: str, properties: Dict[str, Any], handler: AgentToolHandler, required: Optional[List[str]] = None, *, allowed_agents: Optional[Tuple[str, ...]] = None, retry_safe: bool = True) -> AgentToolSpec:
@@ -47,7 +48,7 @@ def _strings(*names: str) -> Dict[str, Any]:
 
 REQUIRED_FIELDS_BY_INTENT = {
     "password_reset": ["员工号或企业账号"],
-    "permission_request": ["系统名称", "角色", "业务理由", "有效期", "审批人"],
+    "permission_request": ["工号", "系统名称", "角色", "业务理由"],
     "vpn_issue": ["错误码", "设备和客户端版本"],
     "device_failure": ["设备号", "错误现象"],
     "ticket_create": ["问题标题", "影响范围"],
@@ -106,7 +107,19 @@ def query_ticket(req, args):
 # ── 写操作工具：只生成待审批请求，不直接变更 ─────────────────────────────────
 
 def _pending(req, args, action):
-    return {"status": "pending_approval", "action": action, "request": args, "requires_approval": True, "message": "已生成待审批请求；未执行账号、权限或设备变更。"}
+    """Validate against the versioned access policy and the caller's identity, then
+    return a dry-run. The approval store re-validates when it freezes the request."""
+    from workflow.policy import load_policy
+    principal = getattr(req, "principal", None)
+    if action == "create_ticket" and not args.get("employee_id"):
+        args["employee_id"] = (principal.employee_id if principal else None) or next(iter(req.entities.get("employee_id", [])), "")
+    policy = load_policy()
+    normalised = policy.normalise({"tool_name": action, "arguments": args})
+    if principal is not None:
+        policy.check_requester(normalised, principal.employee_id, principal.roles)
+    return {"status": "pending_approval", "action": action, "request": normalised["arguments"], "requires_approval": True,
+            "approvals_required": policy.requirement(normalised).approvals, "policy_version": policy.version,
+            "message": "已生成待审批请求；未执行账号、权限或设备变更。"}
 
 
 def reset_password(req, args):
@@ -156,6 +169,13 @@ def _diagnostic_plan_tool(description: str) -> AgentToolSpec:
     return make_tool("build_diagnostic_plan", description, properties, build_diagnostic_plan, required=["environment", "reproduced"])
 
 
+def _create_ticket_tool() -> AgentToolSpec:
+    # Only prepares a pending approval (no side effect), so diagnostic agents may file the
+    # ticket for what they just diagnosed instead of telling the user to go elsewhere.
+    return make_tool("create_ticket", "为当前问题创建 IT 工单的待审批请求：title 写故障摘要，description 汇总已做的诊断与证据，priority 取 P1-P4。用户要求建单/记录工单时调用。",
+                     _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False)
+
+
 def triage_tools() -> ToolSet:
     return _toolset(
         make_tool("inspect_request_context", "查看当前 IT 请求的意图、紧急度、实体和上下文。", _strings("focus"), inspect_request_context),
@@ -167,14 +187,20 @@ def endpoint_tools() -> ToolSet:
     return _toolset(
         make_tool("lookup_asset", "只读查询设备资产状态。", _strings("asset_id"), lookup_asset),
         _diagnostic_plan_tool("生成低风险设备排障顺序。"),
+        _create_ticket_tool(),
     )
 
 
 def access_tools() -> ToolSet:
+    access_schema = {**_strings("employee_id", "reason"),
+        "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
+        "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "只读使用 readonly。禁止将管理员权限请求悄悄替换成其他角色。"},
+        "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "权限有效期（小时），到期自动回收；用户未说明时省略，按策略默认值。"}}
     return _toolset(
         make_tool("reset_password", "创建密码重置待审批请求，不直接修改账号。", _strings("employee_id"), reset_password, required=["employee_id"], retry_safe=False),
         make_tool("unlock_account", "创建账号解锁待审批请求。", _strings("employee_id"), unlock_account, required=["employee_id"], retry_safe=False),
-        make_tool("request_access", "创建最小权限待审批请求。", _strings("employee_id", "system", "role", "reason"), request_access, required=["employee_id", "system", "role", "reason"], retry_safe=False),
+        make_tool("request_access", "创建限时权限的待审批请求（到期自动回收）；需工号、系统、角色和理由。只能为当前登录员工本人申请。", access_schema, request_access, required=["employee_id", "system", "role", "reason"], retry_safe=False),
+        _create_ticket_tool(),
     )
 
 
@@ -183,12 +209,13 @@ def network_software_tools() -> ToolSet:
         make_tool("lookup_error_code", "解释常见 IT 错误码，不读取服务端日志。", _strings("error_code"), lookup_error_code, required=["error_code"]),
         _diagnostic_plan_tool("生成低风险网络/软件排障顺序。"),
         make_tool("check_service_status", "查询 IT 服务状态。", _strings("service"), check_service_status),
+        _create_ticket_tool(),
     )
 
 
 def ticket_tools() -> ToolSet:
     return _toolset(
-        make_tool("create_ticket", "创建 IT 工单请求；第一阶段使用 mock adapter。", _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False),
+        _create_ticket_tool(),
         make_tool("query_ticket", "查询工单状态。", _strings("ticket_id"), query_ticket),
     )
 

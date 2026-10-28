@@ -340,6 +340,13 @@ async def messages(request: Request) -> JSONResponse:
             "model": model,
             "messages": openai_messages,
         }
+        # Some compatible providers enable reasoning by default and reject forced
+        # tool_choice. Explicit opt-in setting; never silently weaken ToolOutput.
+        thinking_type = _env("OPENAI_THINKING_TYPE")
+        if thinking_type:
+            if thinking_type not in {"enabled", "disabled"}:
+                raise ValueError("OPENAI_THINKING_TYPE must be enabled or disabled")
+            body["thinking"] = {"type": thinking_type}
 
         # 采样参数
         if payload.get("temperature") is not None:

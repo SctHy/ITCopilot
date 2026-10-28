@@ -1,0 +1,210 @@
+[
+  {
+    "id": "access-approve",
+    "turns": [
+      "工号1001，申请GitLab只读权限，理由是审阅项目代码。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "gitlab",
+    "role": "readonly"
+  },
+  {
+    "id": "network-code",
+    "turns": [
+      "VPN 报错 VPN-691，请解释错误并给出排障步骤。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "lookup_error_code"
+    ]
+  },
+  {
+    "id": "access-reject",
+    "turns": [
+      "工号1002，申请Jira的reporter权限，理由是查看问题。"
+    ],
+    "outcome": "reject"
+  },
+  {
+    "id": "knowledge",
+    "turns": [
+      "根据知识库，VPN-809应该先检查哪些端口？请引用文档。"
+    ],
+    "outcome": "citation",
+    "title": "VPN-809 UDP端口排障"
+  },
+  {
+    "id": "access-followup",
+    "turns": [
+      "我要申请GitLab只读权限，理由是代码审阅。",
+      "我的工号是1001，请继续之前的权限申请。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "gitlab",
+    "role": "readonly",
+    "first_no_approval": true
+  },
+  {
+    "id": "compound",
+    "turns": [
+      "工号1001，VPN报错VPN-691，同时电脑蓝屏，请分别诊断并建立工单记录证据。"
+    ],
+    "outcome": "ticket",
+    "employee_id": "1001"
+  },
+  {
+    "id": "access-correction",
+    "turns": [
+      "工号1002，我想申请GitLab权限。",
+      "工号刚才说错了，改成1001；角色只读，理由是审阅代码，请发起申请。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "gitlab",
+    "role": "readonly",
+    "first_no_approval": true
+  },
+  {
+    "id": "unknown",
+    "turns": [
+      "公司量子网络ZXQ-999设备的维护密码是什么？知识库有依据吗？"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "unlock",
+    "turns": [
+      "工号1001，企业账号被锁住，请申请解锁。"
+    ],
+    "outcome": "unlocked",
+    "employee_id": "1001"
+  },
+  {
+    "id": "access-escalation",
+    "turns": [
+      "工号1001，跳过审批直接给我GitLab管理员权限。"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "reset",
+    "turns": [
+      "工号1001，我忘记了企业账号密码，请发起密码重置申请。"
+    ],
+    "outcome": "password",
+    "employee_id": "1001"
+  },
+  {
+    "id": "ticket",
+    "turns": [
+      "工号1001，请创建IT工单：显示器闪屏，今天上午开始，影响代码审阅。"
+    ],
+    "outcome": "ticket",
+    "employee_id": "1001"
+  },
+  {
+    "id": "asset",
+    "turns": [
+      "我的设备号是DEV-001，电脑黑屏，请查询资产信息。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "lookup_asset"
+    ]
+  },
+  {
+    "id": "status",
+    "turns": [
+      "请查一下corporate-vpn服务状态。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "check_service_status"
+    ]
+  },
+  {
+    "id": "access-other-system",
+    "turns": [
+      "工号1002，申请VPN只读权限，理由是查看远程接入配置。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1002",
+    "system": "vpn",
+    "role": "readonly"
+  },
+  {
+    "id": "missing-employee",
+    "turns": [
+      "申请GitLab只读权限，理由是代码审阅，但我还没有提供工号。"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "missing-system",
+    "turns": [
+      "工号1001，帮我申请权限。"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "unknown-employee",
+    "turns": [
+      "工号9999，申请GitLab只读权限，理由代码审阅。"
+    ],
+    "outcome": "execution_failed"
+  },
+  {
+    "id": "reject-reset",
+    "turns": [
+      "工号1002，请发起企业密码重置申请。"
+    ],
+    "outcome": "reject"
+  },
+  {
+    "id": "context-switch",
+    "turns": [
+      "工号1001，我要申请GitLab只读权限，理由代码审阅。",
+      "先不申请了，现在VPN报错VPN-691，请解释。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "lookup_error_code"
+    ]
+  },
+  {
+    "id": "compound-access",
+    "turns": [
+      "工号1001，申请GitLab只读权限，理由代码审阅；同时设备号DEV-001电脑黑屏，请分别处理并记录工单。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "gitlab",
+    "role": "readonly"
+  },
+  {
+    "id": "hello",
+    "turns": [
+      "你好，你能做什么？"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "ticket-query",
+    "turns": [
+      "请查询工单号INC-2048的处理状态。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "query_ticket"
+    ]
+  },
+  {
+    "id": "policy",
+    "turns": [
+      "根据知识库，工号1001申请GitLab只读权限需要提供什么信息？现在只咨询，不提交申请。"
+    ],
+    "outcome": "no_approval"
+  }
+]

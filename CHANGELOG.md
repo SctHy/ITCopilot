@@ -1,5 +1,38 @@
 # Changelog
 
+## v3 — 可信身份、可恢复执行与实时事件流
+
+- 身份：请求身份只取自已验证 JWT（OIDC/Keycloak 或开发令牌），请求体身份字段被忽略；RBAC 四角色；trace、审批、审计、员工状态、事件流按归属授权；`client_request_id` 按调用者隔离，修复不同用户同 ID 时 trace 互相覆盖、审批冲突的问题。移除共享管理员令牌。
+- 策略与审批：`config/access_policy.yaml` 版本化策略（可申请的系统/角色、审批人数、最长有效期、代申请角色），工具与审批库双重校验；职责分离；developer 权限需两名审批人，投票做版本号 CAS。
+- 执行：新增 `workflow/`（SQLAlchemy + Alembic，SQLite/PostgreSQL）与 `adapters/`（Gitea、本地目录）；审批通过同事务写入 outbox，租约 worker 执行；确定失败/可重试/结果未知三分类，结果未知先回查；baseline 先持久化；到期自动回收并做漂移检查；批量失败 saga 补偿；管理员对账接口。替换 `tooling/business_store.py`。
+- 实时事件流：执行事件写入 Redis Streams，SSE 实时推送、`Last-Event-ID` 续传，执行与连接解耦。
+- 统一工具执行层：所有 Agent 工具经超时、熔断、只读重试与写操作幂等键。
+- 检索：向量召回在部门过滤后命中不足时自适应扩窗，修复其他部门文档挤占候选导致返回为空的问题。
+- 部署：compose 增加 postgres / keycloak / gitea（含初始化任务）/ 独立 worker；修复镜像构建时 `data/` 目录权限导致构建失败；前端 OIDC 登录（PKCE）、演示身份切换、审批页、实时事件展示。
+- 质量：GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）；21 项安全回归、真实 TCP 流式回归；后端 183 项测试（另 3 项真实服务集成测试按需运行），前端 18 项。见 docs/evaluation-v3.md、docs/adr/、docs/threat-model.md。
+- 复合诊断建单：计划 token 预算默认 30000（`IT_COPILOT_PLAN_TOKEN_BUDGET`）；Endpoint/Network/Access 开放仅生成审批的 `create_ticket`；模型轮数默认 5（`IT_COPILOT_MAX_MODEL_ROUNDS`）；计划含工单步骤时诊断步骤隐藏建单工具。
+- 新增 `generalist` 对照策略与 64 场景分层评测集（`application_strata_v3.json`）、按领域证据与多效果检查、`compare_strategies.py`（Wilson 区间、配对 McNemar）；结果：single 40/64、bounded 44/64、generalist 63/64。
+- 真实模型（deepseek-flash）重跑应用评测：开发集 24/24、23/24，留出集 36/36、36/36（v2：23/24、22/24、36/36、33/36）；修复评测脚本工号解析缺陷，报告记录实际上游模型。
+
+## v3.1 — 多 Agent 修复与多轮状态评测
+
+- 多 Agent 规划：新增 LLM 规划器（结构化输出，失败回退规则规划器）；只在用户要求时追加建单步骤；token 预算按步骤数计算（每步 10000）。在第 6 节同一批 42 个场景上，多 Agent 从 26/42 升到 41/42。
+- 新增 `bounded_all` 策略（专职 Agent 持有全部工具）；默认策略改为 `generalist`。
+- 审批：同一会话、同一申请人的新申请如果完全覆盖某张仍待审批的旧单，旧单标记为 `superseded`，不能再被批准，替代关系写入审计。修复多轮对话中重复建单（修复前占多轮评测失败的 72%）。
+- 新增 τ-bench 式多轮评测（`evaluation/simulated.py`、`scripts/evaluate_simulated.py`、`simulated_v4.json`）：组合任务、LLM 模拟用户、按最终状态评分、pass^k、模拟用户越界标记；有测试检查任务可解、“什么都不做”判为失败。
+- `compare_strategies.py` 支持按策略、按轮次拆开的报告文件，新增 `--exclude-simulator-flags`、`--exclude-errored`。
+- 评测运行后段模型服务额度耗尽，部分分层没有有效数据，详见 docs/evaluation-v3.md 第 7 节。
+- 新增 ADR 0006（默认通用 Agent）、0007（待审批申请替代）。后端 200 项测试通过（另 3 项真实服务集成测试按需运行），前端 18 项；工作流测试在 PostgreSQL 17 上通过。
+
+## v2 — 可验证业务执行与对照评测
+
+- 新增 SQLite 本地业务适配器：冻结审批参数和哈希、批准/执行状态分离、幂等操作记录、事务回滚、重启重试与审计。聊天阶段仅准备申请，不再写入会阻塞恢复的旧“结果未知”回执。
+- 会话锁覆盖最终状态提交；修正建单误要求 ticket_id、多轮返回字段、权限角色 Schema；前端支持查看参数、批准/拒绝、重试与执行凭据。
+- Planner 传递依赖工具证据、阻断失败依赖、波次间检查 token 预算，停止时保留已用 token 和 trace。
+- 默认 LLM 意图主路由与规则兜底，保留四策略对照；退休样本内校准，按模型/来源绑定独立 calibration 子集参数。
+- 新增真实 HTTP 应用评测、88 条意图消融、60 文档/40 查询 RAG 对照、记忆消融、进程中断和监控故障注入。结果与限制见 docs/evaluation-v2.md；未证明多 Agent 或 Hybrid 总体优于简单基线。
+- DeepSeek 强制工具选择通过显式 thinking 配置兼容；保留真实调用失败，不混算兜底准确率。
+
 ## Phase 11 — 清理与二次体检
 
 - 修复 Skills 从未生效：手写 front matter 解析把 `[a, b]` 解析成带方括号的字符串，Agent 名永远不匹配，4 个 Skill 从未注入任何提示词；改用 YAML 解析并补测试。

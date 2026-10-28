@@ -4,12 +4,28 @@
 #   docker compose up -d --build                                                  # 前端 http://127.0.0.1:8080
 #   docker compose --profile observability up -d                                  # 另起 Prometheus / Grafana / Jaeger
 #
-# 只在本机回环地址暴露端口；对外发布前请设置 IT_COPILOT_ADMIN_TOKEN 并在前面加 TLS 反向代理。
+# 身份：Keycloak（http://127.0.0.1:8180，演示账号见 config/dev_users.yaml，密码 <username>-pass）。
+# 业务状态：PostgreSQL；真实权限系统：Gitea 沙箱（http://127.0.0.1:3001）承接 gitlab 权限申请。
+# 只在本机回环地址暴露端口；对外发布前请替换所有默认口令、关闭 Keycloak 密码模式，并在前面加 TLS 反向代理。
 
 x-backend: &backend
   build: .
   image: it-copilot-backend:local
   restart: unless-stopped
+
+x-app-env: &app-env
+  REDIS_URL: redis://:${REDIS_PASSWORD:-it-copilot123}@redis:6379/0
+  CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+  IT_COPILOT_DATABASE_URL: postgresql+psycopg://itc:${POSTGRES_PASSWORD:-itc-pass}@postgres:5432/it_copilot
+  IT_COPILOT_AUTH_MODE: ${IT_COPILOT_AUTH_MODE:-oidc}
+  # 浏览器拿到的 token 的 iss 是对外地址；JWKS 走 compose 内网。
+  OIDC_ISSUER: http://127.0.0.1:8180/realms/it-copilot
+  OIDC_JWKS_URL: http://keycloak:8080/realms/it-copilot/protocol/openid-connect/certs
+  OIDC_AUDIENCE: it-copilot
+  IT_COPILOT_GITEA_URL: http://gitea:3000
+  IT_COPILOT_GITEA_USER: itc-svc
+  IT_COPILOT_GITEA_PASSWORD: ${GITEA_SVC_PASSWORD:-itc-svc-pass-123}
+  IT_COPILOT_GITEA_REPOS: gitlab=it-sandbox/platform
 
 services:
   redis:
@@ -25,6 +41,85 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-it-copilot123}
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: itc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itc-pass}
+      POSTGRES_DB: it_copilot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U itc -d it_copilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://127.0.0.1:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.24
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__ROOT_URL: http://127.0.0.1:3001/
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "127.0.0.1:3001:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # 一次性任务：创建 Gitea 服务账号（已存在则跳过），再建沙箱组织、私有仓库与员工账号。
+  gitea-init:
+    image: gitea/gitea:1.24
+    user: git
+    entrypoint: ["/bin/sh", "-c", "gitea admin user create --admin --username itc-svc --password \"$$GITEA_SVC_PASSWORD\" --email svc@example.com --must-change-password=false --config /data/gitea/conf/app.ini || gitea admin user list --config /data/gitea/conf/app.ini | grep -q itc-svc"]
+    environment:
+      GITEA_SVC_PASSWORD: ${GITEA_SVC_PASSWORD:-itc-svc-pass-123}
+    volumes:
+      - gitea-data:/data
+    depends_on:
+      gitea:
+        condition: service_healthy
+    restart: "no"
+
+  gitea-bootstrap:
+    <<: *backend
+    command: ["python", "scripts/bootstrap_gitea.py"]
+    environment:
+      <<: *app-env
+    depends_on:
+      gitea-init:
+        condition: service_completed_successfully
+    restart: "no"
+    healthcheck:
+      disable: true
 
   gateway:
     <<: *backend
@@ -42,9 +137,8 @@ services:
       - path: .env
         required: false
     environment:
+      <<: *app-env
       ANTHROPIC_BASE_URL: http://gateway:8082
-      REDIS_URL: redis://:${REDIS_PASSWORD:-it-copilot123}@redis:6379/0
-      CHROMA_PERSIST_DIRECTORY: /app/data/chroma
       IT_COPILOT_SKILLS_DIR: /app/skills
       IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -56,8 +150,26 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      gitea-bootstrap:
+        condition: service_completed_successfully
       gateway:
         condition: service_healthy
+
+  # 独立执行器：与 API 进程内 worker 共享同一 outbox，靠租约 + 版本号 CAS 保证同一动作只被一个 worker 执行。
+  worker:
+    <<: *backend
+    command: ["python", "-m", "workflow.worker"]
+    environment:
+      <<: *app-env
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      disable: true
 
   frontend:
     build: ./frontend
@@ -107,6 +219,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres-data:
+  gitea-data:
   redis-data:
   api-data:
   prometheus-data:

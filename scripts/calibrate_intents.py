@@ -1,49 +1,50 @@
 #!/usr/bin/env python3
-"""在固定意图数据集上按意图组拟合温度缩放参数，写出校准报告与运行时使用的温度配置。"""
-from __future__ import annotations
+"""Fit source-bound temperatures using ONLY calibration rows of a saved v2 report.
 
-import asyncio
+No model calls. --install is explicit; small held-out results do not imply that a
+fit generalizes to a different model or embedding provider.
+"""
+
+import argparse
 import json
-import os
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-
-from core.intent_calibration import brier, calibrate, ece, fit_temperatures
-from core.intent_recognizer import INTENT_GROUPS, IntentRecognizer
-from evaluation.evaluator import load_intent_cases
-from evaluation.reporting import DATASETS_DIR, REPORTS_DIR, ROOT, write_report
-
-CALIBRATION_CONFIG = ROOT / "evaluation/config/intent_calibration.json"
+from core.intent_calibration import fit_temperatures
+from evaluation.reporting import ROOT, REPORTS_DIR, write_report
 
 
-async def main():
-    os.environ["IT_INTENT_LLM_ENABLED"] = "false"
-    # 拟合时不能加载旧温度，否则会在已校准的置信度上再次校准。
-    os.environ["IT_INTENT_CALIBRATION_PATH"] = str(REPORTS_DIR / "does-not-exist.json")
-    cases = load_intent_cases(DATASETS_DIR / "intent_v1.json")
-    recognizer = IntentRecognizer("sk-local")
-    rows = []
-    for case in cases:
-        result = await recognizer.recognize(case.message, previous_intent_group=(case.context or {}).get("previous_intent_group"))
-        rows.append((INTENT_GROUPS.get(result.intent, "general"), result.confidence, result.intent.value == case.expected_intent))
-
-    by_group = {}
-    for group, confidence, correct in rows:
-        by_group.setdefault(group, []).append((confidence, correct))
-    temperatures = fit_temperatures(by_group)
-    before = [(p, ok) for _, p, ok in rows]
-    after = [(calibrate(p, temperatures.get(group, 1.0)), ok) for group, p, ok in rows]
-
-    write_report("intent_calibration_latest.json", {
-        "suite": "intent-calibration-v1", "dataset_size": len(cases), "temperatures": temperatures,
-        "ece_before": ece(before), "ece_after": ece(after), "brier_before": brier(before), "brier_after": brier(after),
-        "thresholds": {"clarify": float(os.getenv("IT_INTENT_CLARIFY_THRESHOLD", "0.60"))}, "status": "passed",
-    })
-    CALIBRATION_CONFIG.parent.mkdir(exist_ok=True)
-    CALIBRATION_CONFIG.write_text(json.dumps({"schema_version": 1, "source_dataset": "evaluation/datasets/intent_v1.json", "temperatures": temperatures}, ensure_ascii=False, indent=2))
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--report", default=str(REPORTS_DIR / "intent_ablation_live.json"))
+    parser.add_argument("--install", action="store_true")
+    args = parser.parse_args()
+    report = json.loads(pathlib.Path(args.report).read_text())
+    if report["status"] != "complete":
+        raise ValueError("Incomplete source predictions cannot calibrate the runtime")
+    temperatures = {}
+    for strategy in report["strategies"].values():
+        rows = [r for r in strategy["cases"] if r["split"] == "calibration"]
+        for source in {r["source"] for r in rows}:
+            groups = {}
+            for row in rows:
+                if row["source"] == source:
+                    groups.setdefault(row["group"], []).append((row["confidence"], row["correct"]))
+            temperatures[source] = fit_temperatures(groups)
+    config = {
+        "schema_version": 2,
+        "fit_split": "calibration",
+        "dataset_sha256": report["dataset_sha256"],
+        "temperatures_by_source": temperatures,
+    }
+    write_report("calibration_candidate_v2.json", config, echo=False)
+    if args.install:
+        (ROOT / "evaluation/config/intent_calibration.json").write_text(
+            json.dumps(config, indent=2)
+        )
+    print("Candidate written; installed=" + str(args.install))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

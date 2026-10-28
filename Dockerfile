@@ -16,12 +16,14 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN uv pip install --system -r requirements.txt
 
+# data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
+RUN mkdir -p /app/data/chroma && chown -R app:app /app/data
+
 # 构建期预下载 Chroma 默认 embedding 模型，避免首次请求时在线下载导致超时。
 USER app
 RUN python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFunction as E; E()(['warmup'])"
 
 COPY --chown=app:app . .
-RUN mkdir -p /app/data/chroma
 
 EXPOSE 8001
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \

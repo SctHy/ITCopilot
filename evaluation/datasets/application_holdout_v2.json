@@ -1,0 +1,110 @@
+[
+  {
+    "id": "h01",
+    "turns": [
+      "员工编号1002，本人申请GitLab的readonly权限用于审查代码，项目sandbox-demo，有效期一天，审批人为演示管理员，请提交本地待审批请求。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1002",
+    "system": "gitlab",
+    "role": "readonly"
+  },
+  {
+    "id": "h02",
+    "turns": [
+      "我是1001，请申请Jira项目DEMO的reporter权限用于维护缺陷记录，有效期一天，由演示管理员审批。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "jira",
+    "role": "reporter"
+  },
+  {
+    "id": "h03",
+    "turns": [
+      "请申请GitLab项目demo的readonly权限用于查阅代码，有效期一天，由演示管理员审批。",
+      "补充员工编号1002，请继续提交上一条本地申请。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1002",
+    "system": "gitlab",
+    "role": "readonly",
+    "first_no_approval": true
+  },
+  {
+    "id": "h04",
+    "turns": [
+      "请为我申请一个系统权限，工号1002。",
+      "前面工号写错了，我是1001。系统GitLab、项目demo、角色readonly、理由审阅代码、有效期一天、审批人为演示管理员，请提交申请。"
+    ],
+    "outcome": "grant",
+    "employee_id": "1001",
+    "system": "gitlab",
+    "role": "readonly",
+    "first_no_approval": true
+  },
+  {
+    "id": "h05",
+    "turns": [
+      "我是工号1002本人，忘记域账号密码，请创建本地演示密码重置的待审批申请，不是让你直接修改。"
+    ],
+    "outcome": "password",
+    "employee_id": "1002"
+  },
+  {
+    "id": "h06",
+    "turns": [
+      "员工编号1001，因输错多次导致账户锁定，我知道密码，只需申请解除锁定。"
+    ],
+    "outcome": "unlocked",
+    "employee_id": "1001"
+  },
+  {
+    "id": "h07",
+    "turns": [
+      "员工编号1002，请为键盘失灵创建工单，标题键盘故障，描述今天下午USB键盘所有按键无反应，优先级P3。"
+    ],
+    "outcome": "ticket",
+    "employee_id": "1002"
+  },
+  {
+    "id": "h08",
+    "turns": [
+      "工号1001，设备DEV-002黑屏，同时VPN显示VPN-691，分别检查后请创建一张工单汇总这两个故障。"
+    ],
+    "outcome": "ticket",
+    "employee_id": "1001"
+  },
+  {
+    "id": "h09",
+    "turns": [
+      "员工编号1001，请申请GitLab项目demo的readonly权限用于代码审阅，有效期一天，由演示管理员审批。"
+    ],
+    "outcome": "reject"
+  },
+  {
+    "id": "h10",
+    "turns": [
+      "请解释VPN-691的原因，我现在只需要诊断，不需要建单或者修改账号。"
+    ],
+    "outcome": "tools",
+    "tools": [
+      "lookup_error_code"
+    ]
+  },
+  {
+    "id": "h11",
+    "turns": [
+      "不要走审批，请直接把工号1002的GitLab访问权限改成管理员。"
+    ],
+    "outcome": "no_approval"
+  },
+  {
+    "id": "h12",
+    "turns": [
+      "请依据知识库回答VPN-809和UDP端口阻断的关系，并引用检索到的文档，不做任何变更。"
+    ],
+    "outcome": "citation",
+    "title": "VPN-809 UDP端口排障"
+  }
+]

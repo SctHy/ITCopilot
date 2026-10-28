@@ -32,6 +32,13 @@ INTENT_CLARIFICATIONS = Counter("it_copilot_intent_clarifications_total", "需�
 INTENT_INHERITED = Counter("it_copilot_intent_inherited_total", "追问继承上一轮意图组的次数", ["intent_group"])
 KNOWLEDGE_SEARCHES = Counter("it_copilot_knowledge_searches_total", "Agent 知识库检索结果", ["outcome"])
 APPROVALS = Counter("it_copilot_approvals_total", "写操作审批事件", ["event"])
+AUTH_FAILURES = Counter("it_copilot_auth_failures_total", "鉴权/授权拒绝", ["reason"])
+
+# ── 受控执行（outbox worker） ─────────────────────────────────────────────────
+WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])
+
+# ── 实时事件流 ────────────────────────────────────────────────────────────────
+STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 首个执行事件（非 started）距请求开始的延迟", buckets=TOOL_LATENCY_BUCKETS)
 
 # ── 外部 MCP 与监控自身 ───────────────────────────────────────────────────────
 MCP_SERVER_UP = Gauge("it_copilot_mcp_server_up", "外部 MCP 服务连接状态（1=connected）", ["server"])

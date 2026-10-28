@@ -1,0 +1,322 @@
+[
+  {
+    "id": "vpn809-semantic",
+    "query": "VPN显示809，防火墙要放通哪些端口？",
+    "relevant_titles": [
+      "VPN-809 UDP端口排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "vpn809-exact",
+    "query": "VPN-809 UDP 500 4500",
+    "relevant_titles": [
+      "VPN-809 UDP端口排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "vpn691-semantic",
+    "query": "VPN报691，该查账户还是端口？",
+    "relevant_titles": [
+      "VPN-691认证排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "vpn691-exact",
+    "query": "VPN-691 身份认证",
+    "relevant_titles": [
+      "VPN-691认证排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "dns-semantic",
+    "query": "网线接通但内网域名解析失败怎么办？",
+    "relevant_titles": [
+      "内网DNS解析故障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "dns-exact",
+    "query": "nslookup 企业DNS",
+    "relevant_titles": [
+      "内网DNS解析故障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "wifi-semantic",
+    "query": "会议室看不到无线网络名称怎么处理？",
+    "relevant_titles": [
+      "办公无线网络排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "wifi-exact",
+    "query": "SSID 5GHz",
+    "relevant_titles": [
+      "办公无线网络排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "gitlab-semantic",
+    "query": "申请代码仓库只读访问要提交什么信息？",
+    "relevant_titles": [
+      "GitLab权限申请流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "gitlab-exact",
+    "query": "GitLab 只读 员工编号",
+    "relevant_titles": [
+      "GitLab权限申请流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "jira-semantic",
+    "query": "查看研发缺陷列表需要申请什么角色？",
+    "relevant_titles": [
+      "Jira权限申请流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "jira-exact",
+    "query": "Jira reporter",
+    "relevant_titles": [
+      "Jira权限申请流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "mfa-semantic",
+    "query": "手机丢失无法完成第二步验证怎么办？",
+    "relevant_titles": [
+      "更换手机后的MFA迁移"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "mfa-exact",
+    "query": "MFA 验证器 OTP",
+    "relevant_titles": [
+      "更换手机后的MFA迁移"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "password-semantic",
+    "query": "忘记公司登录口令能发给客服处理吗？",
+    "relevant_titles": [
+      "企业密码重置流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "password-exact",
+    "query": "密码 重置 身份验证",
+    "relevant_titles": [
+      "企业密码重置流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "unlock-semantic",
+    "query": "记得密码但尝试太多被锁住，怎么恢复？",
+    "relevant_titles": [
+      "账户锁定解锁流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "unlock-exact",
+    "query": "账号 locked 解锁",
+    "relevant_titles": [
+      "账户锁定解锁流程"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "monitor-semantic",
+    "query": "显示器电源灯亮但没有图像应该先做什么？",
+    "relevant_titles": [
+      "显示器黑屏排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "monitor-exact",
+    "query": "黑屏 输入源 视频线",
+    "relevant_titles": [
+      "显示器黑屏排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "keyboard-semantic",
+    "query": "所有按键按下都没反应怎么排查？",
+    "relevant_titles": [
+      "键盘无响应排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "keyboard-exact",
+    "query": "键盘 USB",
+    "relevant_titles": [
+      "键盘无响应排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "printer-semantic",
+    "query": "打印作业一直排队无法输出怎么处理？",
+    "relevant_titles": [
+      "打印队列阻塞排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "printer-exact",
+    "query": "打印 队列",
+    "relevant_titles": [
+      "打印队列阻塞排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "install-semantic",
+    "query": "办公软件应该从哪里下载安装？",
+    "relevant_titles": [
+      "企业软件安装规范"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "install-exact",
+    "query": "软件 目录 破解",
+    "relevant_titles": [
+      "企业软件安装规范"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "license-semantic",
+    "query": "IDE显示没有可用授权座席怎么办？",
+    "relevant_titles": [
+      "软件授权席位耗尽"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "license-exact",
+    "query": "许可证 席位",
+    "relevant_titles": [
+      "软件授权席位耗尽"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "mail-semantic",
+    "query": "公司邮箱发信被退回该收集什么证据？",
+    "relevant_titles": [
+      "邮件退信排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "mail-exact",
+    "query": "SMTP 退信 配额",
+    "relevant_titles": [
+      "邮件退信排障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "meeting-semantic",
+    "query": "开会时无法展示桌面怎么检查？",
+    "relevant_titles": [
+      "会议屏幕共享故障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "meeting-exact",
+    "query": "会议 录屏权限",
+    "relevant_titles": [
+      "会议屏幕共享故障"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "sla-semantic",
+    "query": "多人同时无法办公应选什么工单优先级？",
+    "relevant_titles": [
+      "工单优先级定义"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "sla-exact",
+    "query": "P1 P2 P3 P4",
+    "relevant_titles": [
+      "工单优先级定义"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "asset-semantic",
+    "query": "新同事下周入职需要电脑，应该准备什么？",
+    "relevant_titles": [
+      "新员工设备申领"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "asset-exact",
+    "query": "新员工 设备 库存",
+    "relevant_titles": [
+      "新员工设备申领"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "proxy-semantic",
+    "query": "企业代理服务器在哪里配置？",
+    "relevant_titles": [
+      "公司代理配置指南"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "proxy-exact",
+    "query": "proxy.internal:8080",
+    "relevant_titles": [
+      "公司代理配置指南"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "disk-semantic",
+    "query": "电脑存储满了能删除哪些内容？",
+    "relevant_titles": [
+      "磁盘空间不足处理"
+    ],
+    "department": "engineering"
+  },
+  {
+    "id": "disk-exact",
+    "query": "磁盘 缓存",
+    "relevant_titles": [
+      "磁盘空间不足处理"
+    ],
+    "department": "engineering"
+  }
+]

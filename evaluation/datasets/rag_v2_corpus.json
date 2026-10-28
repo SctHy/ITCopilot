@@ -1,0 +1,402 @@
+[
+  {
+    "document_id": "vpn809",
+    "title": "VPN-809 UDP端口排障",
+    "content": "VPN-809是隧道建立超时。先检查UDP 500和4500是否被防火墙阻断，再检查IPSec NAT穿透。不要重置账号密码。",
+    "department": "engineering",
+    "source": "sandbox-sop/vpn809",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "vpn809-finance",
+    "title": "VPN-809 UDP端口排障（财务专用）",
+    "content": "VPN-809是隧道建立超时。先检查UDP 500和4500是否被防火墙阻断，再检查IPSec NAT穿透。不要重置账号密码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "vpn809-archive",
+    "title": "VPN-809 UDP端口排障（历史背景）",
+    "content": "VPN-809 UDP端口排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "vpn691",
+    "title": "VPN-691认证排障",
+    "content": "VPN-691表示身份认证失败。检查员工账号锁定状态、密码有效期和系统时间，记录错误发生时间。",
+    "department": "engineering",
+    "source": "sandbox-sop/vpn691",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "vpn691-finance",
+    "title": "VPN-691认证排障（财务专用）",
+    "content": "VPN-691表示身份认证失败。检查员工账号锁定状态、密码有效期和系统时间，记录错误发生时间。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "vpn691-archive",
+    "title": "VPN-691认证排障（历史背景）",
+    "content": "VPN-691认证排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "dns",
+    "title": "内网DNS解析故障",
+    "content": "有线内网域名无法解析时，用nslookup检查企业DNS配置，不要把内部域名发送到公共DNS。",
+    "department": "engineering",
+    "source": "sandbox-sop/dns",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "dns-finance",
+    "title": "内网DNS解析故障（财务专用）",
+    "content": "有线内网域名无法解析时，用nslookup检查企业DNS配置，不要把内部域名发送到公共DNS。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "dns-archive",
+    "title": "内网DNS解析故障（历史背景）",
+    "content": "内网DNS解析故障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "wifi",
+    "title": "办公无线网络排障",
+    "content": "会议室Wi-Fi找不到SSID时先确认位置与无线开关，检查5GHz兼容性，向网络团队提供地点与时间。",
+    "department": "engineering",
+    "source": "sandbox-sop/wifi",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "wifi-finance",
+    "title": "办公无线网络排障（财务专用）",
+    "content": "会议室Wi-Fi找不到SSID时先确认位置与无线开关，检查5GHz兼容性，向网络团队提供地点与时间。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "wifi-archive",
+    "title": "办公无线网络排障（历史背景）",
+    "content": "办公无线网络排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "gitlab",
+    "title": "GitLab权限申请流程",
+    "content": "GitLab只读权限申请需要员工编号、项目名称、角色和业务理由。审批前不修改权限，批准后核验实际授权。",
+    "department": "engineering",
+    "source": "sandbox-sop/gitlab",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "gitlab-finance",
+    "title": "GitLab权限申请流程（财务专用）",
+    "content": "GitLab只读权限申请需要员工编号、项目名称、角色和业务理由。审批前不修改权限，批准后核验实际授权。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "gitlab-archive",
+    "title": "GitLab权限申请流程（历史背景）",
+    "content": "GitLab权限申请流程的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "jira",
+    "title": "Jira权限申请流程",
+    "content": "Jira申请需员工编号、项目空间、reporter角色和业务理由，经空间负责人审批。",
+    "department": "engineering",
+    "source": "sandbox-sop/jira",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "jira-finance",
+    "title": "Jira权限申请流程（财务专用）",
+    "content": "Jira申请需员工编号、项目空间、reporter角色和业务理由，经空间负责人审批。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "jira-archive",
+    "title": "Jira权限申请流程（历史背景）",
+    "content": "Jira权限申请流程的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "mfa",
+    "title": "更换手机后的MFA迁移",
+    "content": "更换手机后通过企业身份平台迁移验证器，必要时由人工核验身份。禁止向客服发送OTP或恢复码。",
+    "department": "engineering",
+    "source": "sandbox-sop/mfa",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "mfa-finance",
+    "title": "更换手机后的MFA迁移（财务专用）",
+    "content": "更换手机后通过企业身份平台迁移验证器，必要时由人工核验身份。禁止向客服发送OTP或恢复码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "mfa-archive",
+    "title": "更换手机后的MFA迁移（历史背景）",
+    "content": "更换手机后的MFA迁移的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "password",
+    "title": "企业密码重置流程",
+    "content": "忘记域账号密码应由本人申请重置并完成身份验证，客服不得索取旧密码或发送明文新密码。",
+    "department": "engineering",
+    "source": "sandbox-sop/password",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "password-finance",
+    "title": "企业密码重置流程（财务专用）",
+    "content": "忘记域账号密码应由本人申请重置并完成身份验证，客服不得索取旧密码或发送明文新密码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "password-archive",
+    "title": "企业密码重置流程（历史背景）",
+    "content": "企业密码重置流程的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "unlock",
+    "title": "账户锁定解锁流程",
+    "content": "连续输错密码会锁定账号。确认员工编号后申请解锁，审批通过后检查locked状态，不要自动重置密码。",
+    "department": "engineering",
+    "source": "sandbox-sop/unlock",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "unlock-finance",
+    "title": "账户锁定解锁流程（财务专用）",
+    "content": "连续输错密码会锁定账号。确认员工编号后申请解锁，审批通过后检查locked状态，不要自动重置密码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "unlock-archive",
+    "title": "账户锁定解锁流程（历史背景）",
+    "content": "账户锁定解锁流程的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "monitor",
+    "title": "显示器黑屏排障",
+    "content": "显示器黑屏先检查供电、输入源和视频线，外接设备交叉验证，记录资产号后报修。",
+    "department": "engineering",
+    "source": "sandbox-sop/monitor",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "monitor-finance",
+    "title": "显示器黑屏排障（财务专用）",
+    "content": "显示器黑屏先检查供电、输入源和视频线，外接设备交叉验证，记录资产号后报修。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "monitor-archive",
+    "title": "显示器黑屏排障（历史背景）",
+    "content": "显示器黑屏排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "keyboard",
+    "title": "键盘无响应排障",
+    "content": "键盘无响应时更换USB端口，检查连接和系统输入设置；不要卸载未知驱动。",
+    "department": "engineering",
+    "source": "sandbox-sop/keyboard",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "keyboard-finance",
+    "title": "键盘无响应排障（财务专用）",
+    "content": "键盘无响应时更换USB端口，检查连接和系统输入设置；不要卸载未知驱动。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "keyboard-archive",
+    "title": "键盘无响应排障（历史背景）",
+    "content": "键盘无响应排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "printer",
+    "title": "打印队列阻塞排障",
+    "content": "打印任务卡住先核查默认打印机和队列状态，记录错误码，重启打印服务需获得授权。",
+    "department": "engineering",
+    "source": "sandbox-sop/printer",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "printer-finance",
+    "title": "打印队列阻塞排障（财务专用）",
+    "content": "打印任务卡住先核查默认打印机和队列状态，记录错误码，重启打印服务需获得授权。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "printer-archive",
+    "title": "打印队列阻塞排障（历史背景）",
+    "content": "打印队列阻塞排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "install",
+    "title": "企业软件安装规范",
+    "content": "仅从企业软件目录安装已批准软件，核查版本与兼容性。禁止下载破解工具或关闭安全防护。",
+    "department": "engineering",
+    "source": "sandbox-sop/install",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "install-finance",
+    "title": "企业软件安装规范（财务专用）",
+    "content": "仅从企业软件目录安装已批准软件，核查版本与兼容性。禁止下载破解工具或关闭安全防护。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "install-archive",
+    "title": "企业软件安装规范（历史背景）",
+    "content": "企业软件安装规范的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "license",
+    "title": "软件授权席位耗尽",
+    "content": "许可证提示席位耗尽时，查询分配记录并申请回收闲置席位，不要共享激活码。",
+    "department": "engineering",
+    "source": "sandbox-sop/license",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "license-finance",
+    "title": "软件授权席位耗尽（财务专用）",
+    "content": "许可证提示席位耗尽时，查询分配记录并申请回收闲置席位，不要共享激活码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "license-archive",
+    "title": "软件授权席位耗尽（历史背景）",
+    "content": "软件授权席位耗尽的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "mail",
+    "title": "邮件退信排障",
+    "content": "邮件退信需记录SMTP错误码、时间和收件域，检查邮箱配额与附件大小，不索取邮件密码。",
+    "department": "engineering",
+    "source": "sandbox-sop/mail",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "mail-finance",
+    "title": "邮件退信排障（财务专用）",
+    "content": "邮件退信需记录SMTP错误码、时间和收件域，检查邮箱配额与附件大小，不索取邮件密码。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "mail-archive",
+    "title": "邮件退信排障（历史背景）",
+    "content": "邮件退信排障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "meeting",
+    "title": "会议屏幕共享故障",
+    "content": "会议无法共享屏幕时检查操作系统录屏权限和客户端版本，禁止关闭整机安全策略。",
+    "department": "engineering",
+    "source": "sandbox-sop/meeting",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "meeting-finance",
+    "title": "会议屏幕共享故障（财务专用）",
+    "content": "会议无法共享屏幕时检查操作系统录屏权限和客户端版本，禁止关闭整机安全策略。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "meeting-archive",
+    "title": "会议屏幕共享故障（历史背景）",
+    "content": "会议屏幕共享故障的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "sla",
+    "title": "工单优先级定义",
+    "content": "P1为大范围中断，P2为关键业务受阻，P3为单员工一般故障，P4为咨询。记录工单ID用于后续查询。",
+    "department": "engineering",
+    "source": "sandbox-sop/sla",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "sla-finance",
+    "title": "工单优先级定义（财务专用）",
+    "content": "P1为大范围中断，P2为关键业务受阻，P3为单员工一般故障，P4为咨询。记录工单ID用于后续查询。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "sla-archive",
+    "title": "工单优先级定义（历史背景）",
+    "content": "工单优先级定义的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "asset",
+    "title": "新员工设备申领",
+    "content": "新员工电脑申领需要员工号、部门、设备型号及主管审批，先核查库存再确认交付。",
+    "department": "engineering",
+    "source": "sandbox-sop/asset",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "asset-finance",
+    "title": "新员工设备申领（财务专用）",
+    "content": "新员工电脑申领需要员工号、部门、设备型号及主管审批，先核查库存再确认交付。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "asset-archive",
+    "title": "新员工设备申领（历史背景）",
+    "content": "新员工设备申领的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "proxy",
+    "title": "公司代理配置指南",
+    "content": "企业代理地址为proxy.internal:8080，通过系统网络设置配置，只对内部域名使用组织下发的排除列表。",
+    "department": "engineering",
+    "source": "sandbox-sop/proxy",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "proxy-finance",
+    "title": "公司代理配置指南（财务专用）",
+    "content": "企业代理地址为proxy.internal:8080，通过系统网络设置配置，只对内部域名使用组织下发的排除列表。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "proxy-archive",
+    "title": "公司代理配置指南（历史背景）",
+    "content": "公司代理配置指南的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  },
+  {
+    "document_id": "disk",
+    "title": "磁盘空间不足处理",
+    "content": "磁盘空间不足先查看存储占用，清理可再生成的缓存，禁止擅自删除用户文件和系统目录。",
+    "department": "engineering",
+    "source": "sandbox-sop/disk",
+    "updated_at": "2026-10-28T00:00:00Z"
+  },
+  {
+    "document_id": "disk-finance",
+    "title": "磁盘空间不足处理（财务专用）",
+    "content": "磁盘空间不足先查看存储占用，清理可再生成的缓存，禁止擅自删除用户文件和系统目录。 财务部门另有专用管理员和审批流程。",
+    "department": "finance"
+  },
+  {
+    "document_id": "disk-archive",
+    "title": "磁盘空间不足处理（历史背景）",
+    "content": "磁盘空间不足处理的历史维护记录。本记录仅描述过去故障数量，不提供当前处理步骤。",
+    "department": "engineering"
+  }
+]

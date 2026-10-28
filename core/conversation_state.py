@@ -7,7 +7,7 @@ ENTITY_KEYS = ("employee_id", "device_id", "ticket_id", "system", "role", "error
 GROUP_REQUIREMENTS = {"access": ["employee_id"], "network": ["error_code"], "endpoint": ["device_id"], "ticket": ["ticket_id"]}
 
 
-def merge_state(previous: Dict[str, Any], intent_group: str, entities: Dict[str, Any], message: str, missing_slots: Iterable[str] = ()) -> Dict[str, Any]:
+def merge_state(previous: Dict[str, Any], intent_group: str, entities: Dict[str, Any], message: str, missing_slots: Iterable[str] = (), *, intent=None) -> Dict[str, Any]:
     """合并本轮识别结果。missing_slots（意图识别给出的本轮缺失槽位）中已被历史轮次提供的实体会被剔除。"""
     state = dict(previous or {})
     known = dict(state.get("entities") or {})
@@ -18,7 +18,12 @@ def merge_state(previous: Dict[str, Any], intent_group: str, entities: Dict[str,
         "schema_version": 3, "domain": "it_helpdesk", "intent_group": intent_group, "entities": known,
         "updated_at": datetime.now(timezone.utc).isoformat(), "turn_count": int(state.get("turn_count", 0)) + 1,
     })
-    missing = [key for key in GROUP_REQUIREMENTS.get(intent_group, []) if not known.get(key)]
+    if intent is not None:
+        from core.intent_recognizer import REQUIRED_SLOTS, IntentCategory
+        required = REQUIRED_SLOTS.get(IntentCategory(intent), ())
+    else:
+        required = GROUP_REQUIREMENTS.get(intent_group, [])
+    missing = [key for key in required if not known.get(key)]
     missing += [slot for slot in missing_slots if not known.get(slot) and slot not in missing]
     state["missing_fields"] = sorted(missing)
     return state

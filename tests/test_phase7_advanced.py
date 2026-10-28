@@ -116,9 +116,15 @@ def test_approval_ignores_read_only_tools():
 
 
 def test_planner_dependency_wave_contract():
-    plan = build_plan("申请权限并准备新电脑", "p")
+    plan = build_plan("申请权限并准备新电脑，然后建一张工单", "p")
     ticket = next(step for step in plan.steps if step.step_id == "ticket")
-    assert "endpoint" in ticket.depends_on and "access" not in ticket.depends_on
+    assert "endpoint" in ticket.depends_on and "access" in ticket.depends_on
+
+
+def test_planner_adds_ticket_only_when_asked():
+    assert [s.agent_type for s in build_plan("电脑 DEV-1 黑屏，同时 VPN 报 VPN-691", "p").steps] == ["endpoint", "network_software"]
+    assert "ticket" not in [s.agent_type for s in build_plan("设备 DEV-1 黑屏，诊断就行，不要建工单", "p").steps]
+    assert [s.agent_type for s in build_plan("解释一下 403 错误码", "p").steps] == ["network_software"]
 
 
 def test_planner_step_limit():
@@ -181,21 +187,22 @@ def test_sse_route_is_registered():
     assert any(route.path == "/chat/stream" for route in api.main.app.routes)
 
 
-def test_sse_stream_emits_status_and_completed_events():
-    async def run():
-        import api.main
-        original = api.main.chat
-        async def fake_chat(payload):
-            return api.main.ChatResponse(request_id="r1", response="已完成", status="success", agent_type="triage", intent="chitchat")
-        api.main.chat = fake_chat
-        try:
-            stream = await api.main.chat_stream(api.main.ChatRequest(message="你是谁"))
-            chunks = [chunk async for chunk in stream.body_iterator]
-            text = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
-            assert "event: status" in text and "event: content_delta" in text and "event: completed" in text
-        finally:
-            api.main.chat = original
-    asyncio.run(run())
+def test_sse_stream_emits_status_and_completed_events(monkeypatch):
+    import api.main
+    from fastapi.testclient import TestClient
+    from tests.conftest import auth
+
+    async def fake_chat(payload, principal, rid, emit=None):
+        await emit("tool_started", {"tool": "lookup_error_code"})
+        return api.main.ChatResponse(request_id=rid, response="已完成", status="success", agent_type="triage", intent="chitchat")
+
+    monkeypatch.setattr(api.main, "_orchestrator", object())
+    monkeypatch.setattr(api.main, "_chat", fake_chat)
+    monkeypatch.setattr(api.main, "_events", api.main.InMemoryEventBus())
+    with TestClient(api.main.app, headers=auth()).stream("POST", "/chat/stream", json={"message": "你是谁"}) as response:
+        text = "".join(response.iter_text())
+    assert text.index("event: status") < text.index("event: tool_started") < text.index("event: content_delta") < text.index("event: completed")
+    assert "id: " in text
 
 
 def test_trace_route_is_registered():
@@ -249,7 +256,10 @@ def test_local_embedding_is_stable_across_processes():
 def test_trace_tools_route_is_not_shadowed_by_request_id_route():
     import api.main
     from fastapi.testclient import TestClient
-    assert TestClient(api.main.app).get("/trace/tools").json() == {"items": []}
+    from tests.conftest import auth
+    client = TestClient(api.main.app)
+    assert client.get("/trace/tools", headers=auth("grace")).json() == {"items": []}   # auditor
+    assert client.get("/trace/tools", headers=auth("alice")).status_code == 403
 
 
 def test_parallel_run_reports_failure_when_every_agent_crashes():

@@ -1,0 +1,32 @@
+# Demo directory for IT_COPILOT_AUTH_MODE=dev (tests, offline evaluation, local UI).
+# Mirrors deploy/keycloak/realm-it-copilot.json so both auth modes see the same people.
+# employee_id must exist in the sandbox directory seeded by workflow/store.py.
+users:
+  - username: alice
+    employee_id: "1001"
+    department: engineering
+    roles: [employee]
+  - username: dave
+    employee_id: "1002"
+    department: engineering
+    roles: [employee]
+  - username: fiona
+    employee_id: "3001"
+    department: finance
+    roles: [employee]
+  - username: bob
+    employee_id: "2001"
+    department: engineering
+    roles: [employee, approver]
+  - username: carol
+    employee_id: "2002"
+    department: engineering
+    roles: [employee, approver]
+  - username: erin
+    employee_id: "9001"
+    department: it
+    roles: [employee, it_admin]
+  - username: grace
+    employee_id: "9002"
+    department: security
+    roles: [auditor]

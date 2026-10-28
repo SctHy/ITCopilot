@@ -1,0 +1,48 @@
+{
+  "suite": "memory-ablation-v2",
+  "status": "complete",
+  "model_calls": 0,
+  "fixtures_per_mode": 4,
+  "results": [
+    {
+      "mode": "working",
+      "checks": {
+        "corrected_entity_after_history_truncation": false,
+        "cross_conversation_recall": false,
+        "cross_user_isolation": true,
+        "intent_isolation": true
+      },
+      "passed": 2,
+      "total": 4,
+      "context_chars": 118,
+      "episodic_hits": 0
+    },
+    {
+      "mode": "state",
+      "checks": {
+        "corrected_entity_after_history_truncation": true,
+        "cross_conversation_recall": false,
+        "cross_user_isolation": true,
+        "intent_isolation": true
+      },
+      "passed": 3,
+      "total": 4,
+      "context_chars": 118,
+      "episodic_hits": 0
+    },
+    {
+      "mode": "full",
+      "checks": {
+        "corrected_entity_after_history_truncation": true,
+        "cross_conversation_recall": true,
+        "cross_user_isolation": true,
+        "intent_isolation": true
+      },
+      "passed": 4,
+      "total": 4,
+      "context_chars": 166,
+      "episodic_hits": 1
+    }
+  ],
+  "limitations": "Four controlled context fixtures, no user dialogue success-rate claim and no production-memory benchmark."
+}

@@ -1,0 +1,96 @@
+# CI gates: lint, offline tests (incl. security regression), workflow tests on PostgreSQL,
+# real Keycloak + Gitea integration, and the frontend. No model API keys are used.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYDANTIC_AI_NO_BANNER: "1"
+  IT_COPILOT_SEED_DEMO_DOCS: "false"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv pip install --system -r requirements-dev.txt
+      - run: ruff check .
+      # Includes the 21-case security regression suite and real-socket streaming test.
+      - run: pytest -q -p no:warnings
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: itc
+          POSTGRES_PASSWORD: itc-pass
+          POSTGRES_DB: it_copilot
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U itc -d it_copilot" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      IT_COPILOT_TEST_DATABASE_URL: postgresql+psycopg://itc:itc-pass@127.0.0.1:5432/it_copilot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv pip install --system -r requirements-dev.txt
+      # Same migrations and CAS/lease tests as SQLite, against PostgreSQL READ COMMITTED.
+      - run: pytest -q -p no:warnings tests/test_workflow.py
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      IT_COPILOT_TEST_OIDC_ISSUER: http://127.0.0.1:8180/realms/it-copilot
+      IT_COPILOT_TEST_GITEA_URL: http://127.0.0.1:3001
+      IT_COPILOT_TEST_GITEA_PASSWORD: ci-svc-pass-123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv pip install --system -r requirements-dev.txt
+      - name: Start Keycloak and Gitea
+        run: |
+          docker run -d --name kc -p 8180:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -e KC_HOSTNAME=http://127.0.0.1:8180 -v "$PWD/deploy/keycloak:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.4 start-dev --import-realm
+          docker run -d --name gitea -p 3001:3000 -e GITEA__security__INSTALL_LOCK=true -e GITEA__database__DB_TYPE=sqlite3 \
+            -e GITEA__service__DISABLE_REGISTRATION=true gitea/gitea:1.24
+          for i in $(seq 1 90); do curl -sf http://127.0.0.1:3001/api/v1/version && break; sleep 2; done
+          docker exec -u git gitea gitea admin user create --admin --username itc-svc --password "$IT_COPILOT_TEST_GITEA_PASSWORD" \
+            --email svc@example.com --must-change-password=false
+          IT_COPILOT_GITEA_URL=$IT_COPILOT_TEST_GITEA_URL IT_COPILOT_GITEA_PASSWORD=$IT_COPILOT_TEST_GITEA_PASSWORD python scripts/bootstrap_gitea.py
+          for i in $(seq 1 90); do curl -sf $IT_COPILOT_TEST_OIDC_ISSUER/.well-known/openid-configuration >/dev/null && break; sleep 2; done
+      - run: pytest -q -p no:warnings tests/test_integration_live.py
+      - if: failure()
+        run: docker logs kc | tail -50; docker logs gitea | tail -50
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build

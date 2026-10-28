@@ -33,8 +33,8 @@
         <button class="user-button" aria-label="当前用户与会话配置" @click="openConnection">
           <span class="avatar">{{ userInitial }}</span>
           <span>
-            <strong>{{ settings.userId || 'anonymous' }}</strong>
-            <small>个人工作空间</small>
+            <strong>{{ identity?.username || '未登录' }}</strong>
+            <small>{{ identity ? `${identity.department} · ${identity.roles.map(r => roleLabels[r] || r).join('、')}` : '点击登录' }}</small>
           </span>
           <AppIcon name="sliders" />
         </button>
@@ -103,6 +103,14 @@
                       {{ item.meta }}
                     </span>
                     <p>{{ formatBody(item.content) }}</p>
+                    <ApprovalCard
+                      v-if="item.approvalId"
+                      :approval="item.approval"
+                      :busy="item.approvalBusy"
+                      :error="item.approvalError"
+                      :identity="identity"
+                      @action="handleApproval(item, $event)"
+                    />
                     <details v-if="item.trace?.toolCalls?.length || item.trace?.toolsUsed?.length" class="message-trace">
                       <summary>
                         <AppIcon name="chevron" />
@@ -295,6 +303,32 @@
           </div>
         </section>
       </section>
+      <section v-else-if="activeView === 'approvals'" class="page page-approvals">
+        <div class="page-heading">
+          <div class="heading-copy">
+            <span class="kicker">APPROVALS</span>
+            <h1>审批</h1>
+            <p>审批人看到全部待审批申请，员工只看到本人的申请。批准后由执行器写入目标系统，到期自动回收。</p>
+          </div>
+          <button @click="performAction('approvals', loadApprovals)" :disabled="busy">
+            <AppIcon name="refresh" :class="{ spinning: busy && pendingAction === 'approvals' }" />
+            刷新
+          </button>
+        </div>
+        <div class="approval-filters">
+          <button v-for="option in approvalFilters" :key="option.id" :class="{ active: approvalFilter === option.id }" @click="approvalFilter = option.id; loadApprovals()">{{ option.label }}</button>
+        </div>
+        <p v-if="!approvalInbox.length" class="muted">没有{{ approvalFilters.find(o => o.id === approvalFilter)?.label }}的申请。</p>
+        <ApprovalCard
+          v-for="item in approvalInbox"
+          :key="item.approvalId"
+          :approval="item.approval"
+          :busy="item.approvalBusy"
+          :error="item.approvalError"
+          :identity="identity"
+          @action="handleApproval(item, $event)"
+        />
+      </section>
       <section v-else class="page page-evaluation">
         <div class="page-heading">
           <div class="heading-copy">
@@ -420,17 +454,26 @@
           <input v-model="connectionDraft.endpoint" required placeholder="http://127.0.0.1:8001" />
           <small>使用代理路径或完整的 HTTP / HTTPS 地址。</small>
         </label>
-        <label>
-          <span>用户 ID</span>
-          <input v-model="connectionDraft.userId" placeholder="u1001" />
-        </label>
+        <div class="identity-block">
+          <span>当前身份</span>
+          <strong>{{ identity ? `${identity.username} · 工号 ${identity.employee_id || '-'} · ${identity.department}` : '未登录' }}</strong>
+          <small v-if="identity">角色：{{ identity.roles.map(r => roleLabels[r] || r).join('、') || '无' }}（来自已验证令牌，服务端强制执行）</small>
+          <template v-if="authConfig?.mode === 'dev'">
+            <select v-model="devUser" aria-label="演示身份">
+              <option v-for="user in authConfig.users" :key="user.username" :value="user.username">
+                {{ user.username }} · {{ user.department }} · {{ user.roles.map(r => roleLabels[r] || r).join('、') }}
+              </option>
+            </select>
+            <button type="button" class="quiet-button" @click="loginAs(devUser)">切换到该演示身份</button>
+          </template>
+          <template v-else-if="authConfig?.mode === 'oidc'">
+            <button v-if="!identity" type="button" @click="loginOidc">通过 Keycloak 登录</button>
+            <button v-else type="button" class="quiet-button" @click="logoutOidc">退出登录</button>
+          </template>
+        </div>
         <label>
           <span>会话 ID</span>
           <input v-model="connectionDraft.conversationId" placeholder="留空以自动生成" />
-        </label>
-        <label>
-          <span>管理员 Token（服务端设置了 IT_COPILOT_ADMIN_TOKEN 时，知识库写入与审批需要；仅保存在本页）</span>
-          <input v-model="connectionDraft.pythonToken" type="password" autocomplete="off" placeholder="不是模型 API Key" />
         </label>
         <div class="dialog-health">
           <i :class="healthOk ? 'online' : 'offline'"></i>
@@ -466,6 +509,12 @@ import {
   requestChat,
   requestChatStream,
   requestHealth,
+  requestApproval,
+  reconcileApproval,
+  listApprovals,
+  requestAuthConfig,
+  requestDevToken,
+  requestMe,
   requestKnowledgeStats,
   requestMonitor,
   requestSearch,
@@ -477,6 +526,8 @@ import {
 } from './lib/backends'
 
 import AppIcon from './components/AppIcon.vue'
+import ApprovalCard from './components/ApprovalCard.vue'
+import { completeOidcLogin, oidcLogout, startOidcLogin, storeToken } from './lib/auth.js'
 import RequestInspector from './components/RequestInspector.vue'
 
 import { createRequestState } from './lib/requestState'
@@ -499,13 +550,21 @@ const messageList = ref(null)
 const composerInput = ref(null)
 const connectionDialog = ref(null)
 const inspectorDialog = ref(null)
-const connectionDraft = reactive({ endpoint: '', userId: '', conversationId: '', pythonToken: '' })
+const connectionDraft = reactive({ endpoint: '', conversationId: '' })
+const identity = ref(null)
+const authConfig = ref(null)
+const devUser = ref('alice')
+const approvalInbox = ref([])
+const approvalFilter = ref('pending')
+const approvalFilters = [{ id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }]
+const roleLabels = { employee: '员工', approver: '审批人', it_admin: 'IT 管理员', auditor: '审计员' }
 const pendingAction = ref('')
 const streamStatus = ref('')
 const searched = ref(false)
 const views = [
   { id: 'chat', label: '对话', icon: 'chat' },
   { id: 'knowledge', label: '知识库', icon: 'book' },
+  { id: 'approvals', label: '审批', icon: 'shield' },
   { id: 'evaluation', label: '运行与评测', icon: 'chart' }
 ]
 const prompts = [
@@ -535,16 +594,20 @@ let messageSequence = 0
 
 const currentBackend = computed(() => backendMeta(settings.backend, settings))
 const docsUrl = computed(() => `${currentBackend.value.baseUrl}/docs`)
-const userInitial = computed(() => (settings.userId || 'U').slice(0, 1).toUpperCase())
+const userInitial = computed(() => (identity.value?.username || '?').slice(0, 1).toUpperCase())
 
 watch(() => settings.conversationId, persist)
 watch(activeView, view => {
   clearInterval(operationsTimer)
+  if (view === 'approvals') loadApprovals()
   if (view !== 'evaluation') return
   loadOperations()
   operationsTimer = setInterval(loadOperations, 15000)
 })
-onMounted(refreshConsole)
+onMounted(async () => {
+  await initAuth()
+  refreshConsole()
+})
 onBeforeUnmount(() => {
   requestState.invalidate()
   clearTimeout(toastTimer)
@@ -559,10 +622,57 @@ function performAction(name, action, ...args) {
   return action(...args)
 }
 
+// 身份初始化：先处理 OIDC 回调；dev 模式无令牌时默认以 alice 登录，便于本地演示。
+async function initAuth() {
+  try {
+    const callbackToken = await completeOidcLogin()
+    if (callbackToken) settings.accessToken = callbackToken
+    authConfig.value = await requestAuthConfig(settings.backend, settings)
+    if (!settings.accessToken && authConfig.value.mode === 'dev') await loginAs(identity.value?.username || 'alice', { quiet: true })
+    await loadIdentity()
+  } catch (error) {
+    showToast(`身份初始化失败：${error.message}`)
+  }
+}
+
+async function loadIdentity() {
+  if (!settings.accessToken) { identity.value = null; return }
+  try {
+    identity.value = await requestMe(settings.backend, settings)
+    devUser.value = identity.value.username
+  } catch {
+    identity.value = null
+    settings.accessToken = ''
+    storeToken('')
+  }
+}
+
+async function loginAs(username, { quiet = false } = {}) {
+  const { access_token: token } = await requestDevToken(settings.backend, settings, username)
+  settings.accessToken = token
+  storeToken(token)
+  // 换身份即换会话：避免把上一个人的对话与审批卡片展示给新身份。
+  clearConversation()
+  approvalInbox.value = []
+  await loadIdentity()
+  if (!quiet) showToast(`已切换为 ${username}`)
+}
+
+function loginOidc() { startOidcLogin(authConfig.value) }
+function logoutOidc() { oidcLogout(authConfig.value) }
+
+async function loadApprovals() {
+  if (!settings.accessToken) return
+  try {
+    const body = await listApprovals(settings.backend, settings, approvalFilter.value)
+    approvalInbox.value = body.items.map(approval => ({ approvalId: approval.approval_id, approval, approvalBackend: settings.backend, approvalSettings: { ...settings } }))
+  } catch (error) {
+    showToast(`审批列表加载失败：${error.message}`)
+  }
+}
+
 function openConnection() {
-  connectionDraft.pythonToken = settings.pythonToken
   connectionDraft.endpoint = currentBackend.value.baseUrl
-  connectionDraft.userId = settings.userId
   connectionDraft.conversationId = settings.conversationId
   connectionDialog.value.showModal()
 }
@@ -580,7 +690,7 @@ function saveConnection() {
     showToast('请输入代理路径或 HTTP / HTTPS 服务地址')
     return
   }
-  const changed = connectionDraft.pythonToken !== settings.pythonToken || endpoint !== currentBackend.value.baseUrl || connectionDraft.userId.trim() !== settings.userId || connectionDraft.conversationId.trim() !== settings.conversationId
+  const changed = endpoint !== currentBackend.value.baseUrl || connectionDraft.conversationId.trim() !== settings.conversationId
   if (changed) {
     requestState.invalidate()
     busy.value = false
@@ -597,10 +707,8 @@ function saveConnection() {
     healthLabel.value = '未检查'
     statusText.value = ''
   }
-  const identityChanged = connectionDraft.userId.trim() !== settings.userId || endpoint !== currentBackend.value.baseUrl
+  const identityChanged = endpoint !== currentBackend.value.baseUrl
   settings.endpoints[settings.backend] = endpoint
-  settings.pythonToken = connectionDraft.pythonToken.trim()
-  settings.userId = connectionDraft.userId.trim()
   settings.conversationId = identityChanged && connectionDraft.conversationId.trim() === settings.conversationId ? '' : connectionDraft.conversationId.trim()
   persist()
   connectionDialog.value.close()
@@ -619,7 +727,8 @@ async function copyMessage(content) {
 
 
 async function refreshConsole() {
-  await Promise.allSettled([checkHealth(), loadStats(), loadMonitor(), loadSkills()])
+  // /monitor 需要登录；未登录时只检查公开接口，避免无意义的 401。
+  await Promise.allSettled([checkHealth(), loadStats(), settings.accessToken ? loadMonitor() : null, loadSkills()])
 }
 
 async function checkHealth() {
@@ -698,8 +807,18 @@ async function sendMessage() {
   busy.value = true
   try {
     streamStatus.value = ''
-    const response = await requestChatStream(request.backend, request.settings, content, (event) => {
-      const labels = { started: '正在识别问题', plan: '正在生成处理计划', step: 'Agent 正在协作', tool: '正在执行工具', approval_required: '等待人工审批', content_delta: '正在生成回复' }
+    if (!settings.conversationId) {
+      settings.conversationId = crypto.randomUUID()
+      persist()
+    }
+    const response = await requestChatStream(request.backend, { ...request.settings, conversationId: settings.conversationId }, content, (event, data) => {
+      // 执行过程中实时到达的事件（不是完成后回放）。
+      const labels = {
+        status: '已受理，正在识别问题', intent: `已识别：${data.intent}`, routed: `交给 ${(data.agent_types || []).join(' + ')} 处理`,
+        plan: '已生成处理计划', step_started: `步骤开始：${data.title || data.step_id}`, step_finished: `步骤完成：${data.step_id}`,
+        tool_started: `正在调用工具 ${data.tool}`, tool_finished: `工具 ${data.tool} ${data.success ? '完成' : '失败'}（${data.latency_ms}ms）`,
+        approval_required: `已提交审批，需 ${data.approvals_required} 人批准`, content_delta: '正在输出回复', resumed: '连接中断，正在续传'
+      }
       streamStatus.value = labels[event] || streamStatus.value
     })
     if (!request.isCurrent()) return
@@ -719,7 +838,8 @@ async function sendMessage() {
     const planMeta = response.plan?.steps?.length ? `计划 ${response.plan.steps.length} 步` : ''
     const approvalMeta = response.approvalRequired ? `待审批 · ${response.approvalId || ''}` : ''
     const meta = [intentMeta, clarificationMeta, planMeta, approvalMeta, response.primaryAgent || response.agentType, response.knowledgeUsed ? 'RAG' : '', response.escalated ? '转人工' : ''].filter(Boolean).join(' · ')
-    messages.value.push({ id: createMessageId(), role: 'assistant', content: response.response, meta, trace: lastTrace.value?.trace || null })
+    messages.value.push({ id: createMessageId(), role: 'assistant', content: response.response, meta, trace: lastTrace.value?.trace || null,
+      approvalId: response.approvalId, approvalSettings: request.settings, approvalBackend: request.backend })
     await loadMonitor()
   } catch (error) {
     if (!request.isCurrent()) return
@@ -734,6 +854,27 @@ async function sendMessage() {
 }
 
 function usePrompt(prompt) { draft.value = prompt; nextTick(() => composerInput.value?.focus()) }
+
+async function handleApproval(item, decision) {
+  if (item.approvalBusy) return
+  item.approvalBusy = true
+  item.approvalError = ''
+  try {
+    // Keep the original endpoint: switching connections must never approve an unrelated request.
+    if (backendMeta(item.approvalBackend, settings).baseUrl !== backendMeta(item.approvalBackend, item.approvalSettings).baseUrl) {
+      throw new Error('请切回生成此申请的服务连接后再审批。')
+    }
+    // 以当前登录身份操作；审批权限与职责分离由服务端判定。
+    const target = { ...item.approvalSettings, accessToken: settings.accessToken }
+    item.approval = decision === 'reconcile'
+      ? await reconcileApproval(item.approvalBackend, target, item.approvalId)
+      : await requestApproval(item.approvalBackend, target, item.approvalId, decision, item.approval?.payload_hash)
+  } catch (error) {
+    item.approvalError = error.message
+  } finally {
+    item.approvalBusy = false
+  }
+}
 
 function clearConversation() {
   requestState.invalidate()

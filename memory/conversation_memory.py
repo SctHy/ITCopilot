@@ -125,6 +125,9 @@ class MemoryManager:
 
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._request_locks = KeyedLocks()
+        self.context_mode = os.getenv("IT_COPILOT_MEMORY_MODE", "full")
+        if self.context_mode not in {"working", "state", "full"}:
+            raise ValueError("unknown memory mode")
 
         # ChromaDB：优先连接独立服务（docker compose 模式），连不上则降级为本地嵌入式
         try:
@@ -199,36 +202,6 @@ class MemoryManager:
             return []
         rows = await self._redis.mget(["trace:" + key for key in keys])
         return [json.loads(row) for row in rows if row]
-
-    def approval_key(self, approval_id: str) -> str:
-        return "approval:" + self._safe_text(approval_id)
-
-    async def create_approval(self, approval_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Persist a pending write-action approval and its audit metadata."""
-        body = {**payload, "approval_id": approval_id, "status": "pending", "created_at": datetime.now(timezone.utc).isoformat()}
-        await self._redis.set(self.approval_key(approval_id), json.dumps(body, ensure_ascii=False), ex=7 * 86400)
-        return body
-
-    async def get_approval(self, approval_id: str) -> Optional[Dict[str, Any]]:
-        raw = await self._redis.get(self.approval_key(approval_id))
-        return json.loads(raw) if raw else None
-
-    async def decide_approval(self, approval_id: str, decision: str, actor: str) -> Optional[Dict[str, Any]]:
-        if decision not in {"approved", "rejected"}:
-            raise ValueError("decision 必须为 approved 或 rejected")
-        body = await self.get_approval(approval_id)
-        if not body:
-            return None
-        if body.get("status") != "pending":
-            # 已决策的审批不可再次变更，直接返回当前状态（幂等）。
-            return body
-        body.update({"status": decision, "decided_by": self._safe_text(actor)[:120], "decided_at": datetime.now(timezone.utc).isoformat()})
-        if decision == "approved":
-            body.update({"execution": "mock_executed", "result": "已按审批结果执行 mock 操作；生产环境需替换为受控 ITSM/身份系统适配器。"})
-        else:
-            body.update({"execution": "not_executed", "result": "审批已拒绝，未执行任何写操作。"})
-        await self._redis.set(self.approval_key(approval_id), json.dumps(body, ensure_ascii=False), ex=7 * 86400)
-        return body
 
     async def maintain(self, user_id, conv_id):
         # _compress 的快照与 WATCH 提交已保护一致性；生成摘要不占聊天锁。
@@ -362,10 +335,10 @@ class MemoryManager:
             intent_group=intent_group,
             entities=entities,
             max_tokens=max_history_tokens or self.MEMORY_MAX_TOKENS,
-        )
+        ) if self.context_mode == "full" else []
 
         # 3. 用户画像
-        profile = await self._get_profile(user_id)
+        profile = await self._get_profile(user_id) if self.context_mode == "full" else {}
 
         # 4. 会话摘要（如果已压缩过）
         summary = await self._redis.get(self._summary_key(user_id, conv_id)) or ""
@@ -376,7 +349,7 @@ class MemoryManager:
             relevant_history=history,
             user_profile=profile,
             summary=summary,
-            state=json.loads(state_raw) if state_raw else {},
+            state=json.loads(state_raw) if state_raw and self.context_mode != "working" else {},
         )
 
     # ── 压缩（防止 context 爆炸）─────────────────────────────────────────────

@@ -216,8 +216,17 @@ class KnowledgeBase:
             entry["rrf"] += 1 / (rrf_k + rank)
 
         # 不用 Chroma 的 where 过滤：不同版本服务端的元数据过滤行为不一致，部门隔离在查询后统一校验（纵深防御）。
-        results = self._collection.query(query_texts=[query], n_results=min(top_k * 4, count), include=["documents", "metadatas", "distances"])
-        lexical_scores = self._bm25(query, allowed)
+        # 只做查询后过滤时，其他部门的文档可能占满候选窗口；允许命中不足时逐步扩大窗口，等价于召回前过滤。
+        results = {}
+        if mode != "bm25":
+            n_results = min(top_k * 4, count)
+            while True:
+                results = self._collection.query(query_texts=[query], n_results=n_results, include=["documents", "metadatas", "distances"])
+                hits = sum(1 for doc_id in results.get("ids", [[]])[0] if doc_id in allowed)
+                if hits >= min(top_k * 2, len(allowed)) or n_results >= count:
+                    break
+                n_results = min(n_results * 4, count)
+        lexical_scores = self._bm25(query, allowed) if mode != "vector" else {}
         vector_hits = zip(results.get("ids", [[]])[0], results.get("documents", [[]])[0], results.get("metadatas", [[]])[0], results.get("distances", [[]])[0])
         for rank, (doc_id, document, metadata, distance) in enumerate(vector_hits, 1):
             if doc_id in allowed:

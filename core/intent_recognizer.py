@@ -203,15 +203,18 @@ def _fallback_vote(source: str) -> Dict[str, Any]:
 
 
 class IntentRecognizer:
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = ""):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", strategy: Optional[str] = None):
         default_calibration = os.path.join(os.path.dirname(__file__), "../evaluation/config/intent_calibration.json")
         self.llm = build_model(api_key, base_url, model)
         self.model = model
+        self.strategy = strategy or os.getenv("IT_INTENT_STRATEGY", "fusion")
+        if self.strategy not in {"pattern", "embedding", "llm", "fusion"}:
+            raise ValueError("unknown intent strategy")
         self._classifier = Agent(output_type=ToolOutput(IntentClassification, name="classify_it_request", description="分类 IT 意图并抽取非敏感实体。"), name="intent_classifier")
         self._embedding = IntentEmbedding()
         self._cache: Dict[str, IntentResult] = {}
         self._cache_limit = max(100, int(os.getenv("IT_INTENT_CACHE_SIZE", "2048")))
-        self._temperatures = load_temperatures(os.getenv("IT_INTENT_CALIBRATION_PATH", default_calibration))
+        self._calibration_path = os.getenv("IT_INTENT_CALIBRATION_PATH", default_calibration)
         self._clarify_threshold = float(os.getenv("IT_INTENT_CLARIFY_THRESHOLD", "0.60"))
         self._metrics = _fresh_metrics()
 
@@ -227,16 +230,17 @@ class IntentRecognizer:
             return self._cache[key]
 
         pattern = self._pattern(message)
-        embedding = await self._embedding_match(message)
-        if os.getenv("IT_INTENT_LLM_ENABLED", "true").lower() in {"1", "true", "yes"}:
+        embedding = await self._embedding_match(message) if self.strategy in {"embedding", "fusion"} else _fallback_vote("unused")
+        if self.strategy in {"llm", "fusion"} and os.getenv("IT_INTENT_LLM_ENABLED", "true").lower() in {"1", "true", "yes"}:
             llm = await self._llm(message, history)
         else:
             self._metrics["fallback_calls"] += 1
             self._metrics["fallback_disabled"] += 1
             llm = _fallback_vote("fallback_disabled")
 
-        intent, confidence, scores = self._vote(llm, embedding, pattern)
-        confidence = calibrate(confidence, self._temperatures.get(INTENT_GROUPS.get(intent, "general"), 1.0))
+        intent, confidence, scores = self.select_vote(self.strategy, llm, embedding, pattern)
+        temperatures = load_temperatures(self._calibration_path, source=self.calibration_source(llm, embedding))
+        confidence = calibrate(confidence, temperatures.get(INTENT_GROUPS.get(intent, "general"), 1.0))
         inherited_intent = self._inherited_intent(message, pattern["intent"], previous_intent_group)
         if inherited_intent is not None:
             intent, confidence = inherited_intent, max(confidence, .6)
@@ -272,6 +276,19 @@ class IntentRecognizer:
         if len(self._cache) > self._cache_limit:
             self._cache.pop(next(iter(self._cache)))
         return result
+
+    def calibration_source(self, llm, embedding):
+        model = f"{os.getenv('IT_COPILOT_LLM_PROVIDER', 'anthropic')}:{self.model}" if llm.get("_llm_used") else "fallback"
+        return f"{self.strategy}|{model}|{embedding.get('source', 'none')}"
+
+    @classmethod
+    def select_vote(cls, strategy, llm, embedding, pattern):
+        if strategy == "fusion":
+            return cls._vote(llm, embedding, pattern)
+        if strategy == "llm" and str(llm.get("_source", "")).startswith("fallback"):
+            return pattern["intent"], float(pattern.get("confidence", 0)), {"pattern_fallback": float(pattern.get("confidence", 0)), "group_agreement": 1.0}
+        selected = {"llm": llm, "embedding": embedding, "pattern": pattern}[strategy]
+        return selected["intent"], float(selected.get("confidence", 0)), {strategy: float(selected.get("confidence", 0)), "group_agreement": 1.0}
 
     @staticmethod
     def _inherited_intent(message: str, pattern_intent: IntentCategory, previous_group: Optional[str]) -> Optional[IntentCategory]:

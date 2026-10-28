@@ -1,0 +1,299 @@
+{
+  "realm": "it-copilot",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 900,
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "employee",
+        "description": "Requests access for own account"
+      },
+      {
+        "name": "approver",
+        "description": "Decides access approvals"
+      },
+      {
+        "name": "it_admin",
+        "description": "Operates IT-Copilot"
+      },
+      {
+        "name": "auditor",
+        "description": "Reads traces and audit logs"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "it-copilot-web",
+      "name": "IT-Copilot Web",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://127.0.0.1:8080/*",
+        "http://localhost:8080/*",
+        "http://127.0.0.1:5173/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "it-copilot",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "employee_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "employee_id",
+            "claim.name": "employee_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "department",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "department",
+            "claim.name": "department",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "1001"
+        ],
+        "department": [
+          "engineering"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee"
+      ]
+    },
+    {
+      "username": "dave",
+      "enabled": true,
+      "email": "dave@example.com",
+      "emailVerified": true,
+      "firstName": "Dave",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "1002"
+        ],
+        "department": [
+          "engineering"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dave-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee"
+      ]
+    },
+    {
+      "username": "fiona",
+      "enabled": true,
+      "email": "fiona@example.com",
+      "emailVerified": true,
+      "firstName": "Fiona",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "3001"
+        ],
+        "department": [
+          "finance"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "fiona-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "2001"
+        ],
+        "department": [
+          "engineering"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee",
+        "approver"
+      ]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@example.com",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "2002"
+        ],
+        "department": [
+          "engineering"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee",
+        "approver"
+      ]
+    },
+    {
+      "username": "erin",
+      "enabled": true,
+      "email": "erin@example.com",
+      "emailVerified": true,
+      "firstName": "Erin",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "9001"
+        ],
+        "department": [
+          "it"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "erin-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "employee",
+        "it_admin"
+      ]
+    },
+    {
+      "username": "grace",
+      "enabled": true,
+      "email": "grace@example.com",
+      "emailVerified": true,
+      "firstName": "Grace",
+      "lastName": "Demo",
+      "attributes": {
+        "employee_id": [
+          "9002"
+        ],
+        "department": [
+          "security"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "grace-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "auditor"
+      ]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"employee_id\", \"displayName\": \"Employee ID\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"department\", \"displayName\": \"Department\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}]}"
+          ]
+        }
+      }
+    ]
+  }
+}

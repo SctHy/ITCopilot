@@ -1,0 +1,39 @@
+# Access policy (policy-as-code). Every approval snapshot records `version`;
+# changing rules requires bumping it so old approvals stay explainable.
+# The LLM never reads or edits this file: tools validate against it, the
+# approval store enforces it, and knowledge-base text cannot override it.
+version: "2026-10-28.1"
+
+# Pending approvals that nobody decides within this window expire.
+approval_ttl_hours: 72
+
+# Employees may only request changes for their own employee_id; IT admins may
+# file on behalf of others (e.g. onboarding).
+on_behalf_roles: [it_admin]
+
+# Roles allowed to decide approvals. Separation of duties is always enforced:
+# nobody decides an approval they requested or that targets their own account.
+approver_roles: [approver, it_admin]
+
+systems:
+  gitlab:
+    roles:
+      readonly:  {approvals: 1, default_hours: 24, max_hours: 168}
+      reporter:  {approvals: 1, default_hours: 24, max_hours: 168}
+      developer: {approvals: 2, default_hours: 8,  max_hours: 72}
+  jira:
+    roles:
+      readonly:  {approvals: 1, default_hours: 24, max_hours: 168}
+      reporter:  {approvals: 1, default_hours: 24, max_hours: 168}
+      developer: {approvals: 2, default_hours: 8,  max_hours: 72}
+  vpn:
+    roles:
+      readonly:  {approvals: 1, default_hours: 24, max_hours: 168}
+
+# Accepted spellings normalised before policy lookup.
+role_aliases: {read: readonly, "只读": readonly}
+
+actions:
+  reset_password: {approvals: 1}
+  unlock_account: {approvals: 1}
+  create_ticket:  {approvals: 1}

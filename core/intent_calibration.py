@@ -70,11 +70,14 @@ def brier(rows: Iterable[tuple[float, bool]]) -> float:
     return round(sum((p - float(ok)) ** 2 for p, ok in rows) / max(1, len(rows)), 6)
 
 
-def load_temperatures(path: str | Path | None) -> Dict[str, float]:
+def load_temperatures(path: str | Path | None, source: str | None = None) -> Dict[str, float]:
     if not path:
         return {}
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if source is not None:
+            # Legacy in-sample/fallback fits must never calibrate a different live model.
+            data = {"temperatures": data.get("temperatures_by_source", {}).get(source, {})}
         return {str(k): float(v) for k, v in (data.get("temperatures") or {}).items()}
     except (OSError, ValueError, TypeError):
         return {}

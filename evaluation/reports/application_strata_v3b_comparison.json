@@ -1,0 +1,941 @@
+{
+ "note": "v3 strata re-run after multi-agent fixes; only S/C2/C3 cases where every trial completed (later cases lost to provider HTTP 402 quota exhaustion)",
+ "cases": [
+  "c2-403-asset",
+  "c2-500-kb",
+  "c2-691-403",
+  "c2-asset-grant-jira",
+  "c2-asset-kb",
+  "c2-asset-status",
+  "c2-black-ticket",
+  "c2-grant-asset",
+  "c2-grant-status",
+  "c2-grant-ticket",
+  "c2-grant-vpn691",
+  "c2-reset-asset",
+  "c2-reset-ticket",
+  "c2-status-asset",
+  "c2-status-ticket",
+  "c2-unlock-ticket",
+  "c2-unlock-vpn",
+  "c2-vpn-black",
+  "c2-vpn-kb",
+  "c2-vpn-ticket",
+  "c3-all-ticket",
+  "c3-grant-asset-ticket",
+  "c3-grant-asset-vpn",
+  "c3-reset-vpn-ticket",
+  "c3-status-asset-kb",
+  "c3-unlock-asset-vpn",
+  "s-asset",
+  "s-asset-black",
+  "s-err403",
+  "s-err500",
+  "s-grant-gitlab-rep",
+  "s-grant-jira",
+  "s-kb-809",
+  "s-kb-mfa",
+  "s-kb-print",
+  "s-reset",
+  "s-ticket",
+  "s-ticket-query",
+  "s-unlock",
+  "s-vpn-grant",
+  "s-vpn-status",
+  "s-vpn691"
+ ],
+ "new": {
+  "modes": [
+   "single",
+   "bounded",
+   "bounded_all",
+   "generalist"
+  ],
+  "strata": {
+   "S": {
+    "cases": 16,
+    "single": {
+     "passed": 13,
+     "rate": 0.812,
+     "wilson95": [
+      0.57,
+      0.934
+     ],
+     "trial_rate": 0.812,
+     "tokens_median": 3227.5,
+     "latency_p50_s": 4.42,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 16,
+     "rate": 1.0,
+     "wilson95": [
+      0.806,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 3661.5,
+     "latency_p50_s": 6.08,
+     "turns_mean": 1
+    },
+    "bounded_all": {
+     "passed": 16,
+     "rate": 1.0,
+     "wilson95": [
+      0.806,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 3978.5,
+     "latency_p50_s": 4.27,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 16,
+     "rate": 1.0,
+     "wilson95": [
+      0.806,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 4049.5,
+     "latency_p50_s": 4.11,
+     "turns_mean": 1
+    }
+   },
+   "C2": {
+    "cases": 20,
+    "single": {
+     "passed": 9,
+     "rate": 0.45,
+     "wilson95": [
+      0.258,
+      0.658
+     ],
+     "trial_rate": 0.45,
+     "tokens_median": 6845.0,
+     "latency_p50_s": 8.24,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 19,
+     "rate": 0.95,
+     "wilson95": [
+      0.764,
+      0.991
+     ],
+     "trial_rate": 0.975,
+     "tokens_median": 12295.0,
+     "latency_p50_s": 10.33,
+     "turns_mean": 1
+    },
+    "bounded_all": {
+     "passed": 20,
+     "rate": 1.0,
+     "wilson95": [
+      0.839,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 12745.0,
+     "latency_p50_s": 9.88,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 18,
+     "rate": 0.9,
+     "wilson95": [
+      0.699,
+      0.972
+     ],
+     "trial_rate": 0.95,
+     "tokens_median": 7643.0,
+     "latency_p50_s": 8.56,
+     "turns_mean": 1
+    }
+   },
+   "C3": {
+    "cases": 6,
+    "single": {
+     "passed": 0,
+     "rate": 0.0,
+     "wilson95": [
+      0.0,
+      0.39
+     ],
+     "trial_rate": 0.0,
+     "tokens_median": 10323.5,
+     "latency_p50_s": 9.28,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 6,
+     "rate": 1.0,
+     "wilson95": [
+      0.61,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 30049.5,
+     "latency_p50_s": 14.49,
+     "turns_mean": 1
+    },
+    "bounded_all": {
+     "passed": 6,
+     "rate": 1.0,
+     "wilson95": [
+      0.61,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 18615.5,
+     "latency_p50_s": 11.14,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 6,
+     "rate": 1.0,
+     "wilson95": [
+      0.61,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 8055.5,
+     "latency_p50_s": 8.37,
+     "turns_mean": 1
+    }
+   },
+   "ALL": {
+    "cases": 42,
+    "single": {
+     "passed": 22,
+     "rate": 0.524,
+     "wilson95": [
+      0.377,
+      0.666
+     ],
+     "trial_rate": 0.524,
+     "tokens_median": 4885.5,
+     "latency_p50_s": 7.28,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 41,
+     "rate": 0.976,
+     "wilson95": [
+      0.877,
+      0.996
+     ],
+     "trial_rate": 0.988,
+     "tokens_median": 9109.0,
+     "latency_p50_s": 9.25,
+     "turns_mean": 1
+    },
+    "bounded_all": {
+     "passed": 42,
+     "rate": 1.0,
+     "wilson95": [
+      0.916,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 7915.5,
+     "latency_p50_s": 7.68,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 40,
+     "rate": 0.952,
+     "wilson95": [
+      0.842,
+      0.987
+     ],
+     "trial_rate": 0.976,
+     "tokens_median": 5731.0,
+     "latency_p50_s": 7.06,
+     "turns_mean": 1
+    }
+   }
+  },
+  "paired": {
+   "single_vs_bounded": {
+    "S": {
+     "only_single": [],
+     "only_bounded": [
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.25
+    },
+    "C2": {
+     "only_single": [],
+     "only_bounded": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black"
+     ],
+     "mcnemar_p": 0.002
+    },
+    "C3": {
+     "only_single": [],
+     "only_bounded": [
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn"
+     ],
+     "mcnemar_p": 0.0312
+    },
+    "ALL": {
+     "only_single": [],
+     "only_bounded": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black",
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn",
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.0
+    }
+   },
+   "single_vs_bounded_all": {
+    "S": {
+     "only_single": [],
+     "only_bounded_all": [
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.25
+    },
+    "C2": {
+     "only_single": [],
+     "only_bounded_all": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black"
+     ],
+     "mcnemar_p": 0.001
+    },
+    "C3": {
+     "only_single": [],
+     "only_bounded_all": [
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn"
+     ],
+     "mcnemar_p": 0.0312
+    },
+    "ALL": {
+     "only_single": [],
+     "only_bounded_all": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black",
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn",
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.0
+    }
+   },
+   "single_vs_generalist": {
+    "S": {
+     "only_single": [],
+     "only_generalist": [
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.25
+    },
+    "C2": {
+     "only_single": [
+      "c2-grant-ticket"
+     ],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black"
+     ],
+     "mcnemar_p": 0.0117
+    },
+    "C3": {
+     "only_single": [],
+     "only_generalist": [
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn"
+     ],
+     "mcnemar_p": 0.0312
+    },
+    "ALL": {
+     "only_single": [
+      "c2-grant-ticket"
+     ],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black",
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn",
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.0
+    }
+   },
+   "bounded_vs_bounded_all": {
+    "S": {
+     "only_bounded": [],
+     "only_bounded_all": [],
+     "mcnemar_p": 1.0
+    },
+    "C2": {
+     "only_bounded": [],
+     "only_bounded_all": [
+      "c2-asset-grant-jira"
+     ],
+     "mcnemar_p": 1.0
+    },
+    "C3": {
+     "only_bounded": [],
+     "only_bounded_all": [],
+     "mcnemar_p": 1.0
+    },
+    "ALL": {
+     "only_bounded": [],
+     "only_bounded_all": [
+      "c2-asset-grant-jira"
+     ],
+     "mcnemar_p": 1.0
+    }
+   },
+   "bounded_vs_generalist": {
+    "S": {
+     "only_bounded": [],
+     "only_generalist": [],
+     "mcnemar_p": 1.0
+    },
+    "C2": {
+     "only_bounded": [
+      "c2-grant-ticket",
+      "c2-grant-vpn691"
+     ],
+     "only_generalist": [
+      "c2-asset-grant-jira"
+     ],
+     "mcnemar_p": 1.0
+    },
+    "C3": {
+     "only_bounded": [],
+     "only_generalist": [],
+     "mcnemar_p": 1.0
+    },
+    "ALL": {
+     "only_bounded": [
+      "c2-grant-ticket",
+      "c2-grant-vpn691"
+     ],
+     "only_generalist": [
+      "c2-asset-grant-jira"
+     ],
+     "mcnemar_p": 1.0
+    }
+   },
+   "bounded_all_vs_generalist": {
+    "S": {
+     "only_bounded_all": [],
+     "only_generalist": [],
+     "mcnemar_p": 1.0
+    },
+    "C2": {
+     "only_bounded_all": [
+      "c2-grant-ticket",
+      "c2-grant-vpn691"
+     ],
+     "only_generalist": [],
+     "mcnemar_p": 0.5
+    },
+    "C3": {
+     "only_bounded_all": [],
+     "only_generalist": [],
+     "mcnemar_p": 1.0
+    },
+    "ALL": {
+     "only_bounded_all": [
+      "c2-grant-ticket",
+      "c2-grant-vpn691"
+     ],
+     "only_generalist": [],
+     "mcnemar_p": 0.5
+    }
+   }
+  },
+  "evidence": {
+   "single": {
+    "evidence_endpoint": 0.438,
+    "evidence_network": 0.381
+   },
+   "bounded": {
+    "evidence_endpoint": 1.0,
+    "evidence_network": 1.0
+   },
+   "bounded_all": {
+    "evidence_endpoint": 1.0,
+    "evidence_network": 1.0
+   },
+   "generalist": {
+    "evidence_endpoint": 1.0,
+    "evidence_network": 1.0
+   }
+  },
+  "failures": {
+   "single": {
+    "evidence_network": 26,
+    "evidence_endpoint": 18
+   },
+   "bounded": {
+    "approval_created": 1
+   },
+   "bounded_all": {},
+   "generalist": {
+    "approval_created": 1,
+    "ticket_persisted": 1
+   }
+  }
+ },
+ "old_same_cases": {
+  "modes": [
+   "single",
+   "bounded",
+   "generalist"
+  ],
+  "strata": {
+   "S": {
+    "cases": 16,
+    "single": {
+     "passed": 13,
+     "rate": 0.812,
+     "wilson95": [
+      0.57,
+      0.934
+     ],
+     "trial_rate": 0.812,
+     "tokens_median": 3267.5,
+     "latency_p50_s": 4.91,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 13,
+     "rate": 0.812,
+     "wilson95": [
+      0.57,
+      0.934
+     ],
+     "trial_rate": 0.812,
+     "tokens_median": 3064.5,
+     "latency_p50_s": 4.9,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 16,
+     "rate": 1.0,
+     "wilson95": [
+      0.806,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 4043.5,
+     "latency_p50_s": 4.79,
+     "turns_mean": 1
+    }
+   },
+   "C2": {
+    "cases": 20,
+    "single": {
+     "passed": 9,
+     "rate": 0.45,
+     "wilson95": [
+      0.258,
+      0.658
+     ],
+     "trial_rate": 0.45,
+     "tokens_median": 5586.0,
+     "latency_p50_s": 7.67,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 12,
+     "rate": 0.6,
+     "wilson95": [
+      0.387,
+      0.781
+     ],
+     "trial_rate": 0.7,
+     "tokens_median": 10945.5,
+     "latency_p50_s": 9.26,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 20,
+     "rate": 1.0,
+     "wilson95": [
+      0.839,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 6791.0,
+     "latency_p50_s": 7.88,
+     "turns_mean": 1
+    }
+   },
+   "C3": {
+    "cases": 6,
+    "single": {
+     "passed": 0,
+     "rate": 0.0,
+     "wilson95": [
+      0.0,
+      0.39
+     ],
+     "trial_rate": 0.0,
+     "tokens_median": 10466.0,
+     "latency_p50_s": 8.79,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 1,
+     "rate": 0.167,
+     "wilson95": [
+      0.03,
+      0.564
+     ],
+     "trial_rate": 0.25,
+     "tokens_median": 20593.5,
+     "latency_p50_s": 11.14,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 6,
+     "rate": 1.0,
+     "wilson95": [
+      0.61,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 9482.0,
+     "latency_p50_s": 8.84,
+     "turns_mean": 1
+    }
+   },
+   "ALL": {
+    "cases": 42,
+    "single": {
+     "passed": 22,
+     "rate": 0.524,
+     "wilson95": [
+      0.377,
+      0.666
+     ],
+     "trial_rate": 0.524,
+     "tokens_median": 4733.0,
+     "latency_p50_s": 6.84,
+     "turns_mean": 1
+    },
+    "bounded": {
+     "passed": 26,
+     "rate": 0.619,
+     "wilson95": [
+      0.468,
+      0.75
+     ],
+     "trial_rate": 0.679,
+     "tokens_median": 5305.5,
+     "latency_p50_s": 7.54,
+     "turns_mean": 1
+    },
+    "generalist": {
+     "passed": 42,
+     "rate": 1.0,
+     "wilson95": [
+      0.916,
+      1.0
+     ],
+     "trial_rate": 1.0,
+     "tokens_median": 5427.0,
+     "latency_p50_s": 6.48,
+     "turns_mean": 1
+    }
+   }
+  },
+  "paired": {
+   "single_vs_bounded": {
+    "S": {
+     "only_single": [],
+     "only_bounded": [],
+     "mcnemar_p": 1.0
+    },
+    "C2": {
+     "only_single": [
+      "c2-status-ticket"
+     ],
+     "only_bounded": [
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-reset-asset",
+      "c2-unlock-vpn"
+     ],
+     "mcnemar_p": 0.375
+    },
+    "C3": {
+     "only_single": [],
+     "only_bounded": [
+      "c3-all-ticket"
+     ],
+     "mcnemar_p": 1.0
+    },
+    "ALL": {
+     "only_single": [
+      "c2-status-ticket"
+     ],
+     "only_bounded": [
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-reset-asset",
+      "c2-unlock-vpn",
+      "c3-all-ticket"
+     ],
+     "mcnemar_p": 0.2188
+    }
+   },
+   "single_vs_generalist": {
+    "S": {
+     "only_single": [],
+     "only_generalist": [
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.25
+    },
+    "C2": {
+     "only_single": [],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black"
+     ],
+     "mcnemar_p": 0.001
+    },
+    "C3": {
+     "only_single": [],
+     "only_generalist": [
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn"
+     ],
+     "mcnemar_p": 0.0312
+    },
+    "ALL": {
+     "only_single": [],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-asset-status",
+      "c2-grant-asset",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-reset-asset",
+      "c2-status-asset",
+      "c2-unlock-vpn",
+      "c2-vpn-black",
+      "c3-all-ticket",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn",
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.0
+    }
+   },
+   "bounded_vs_generalist": {
+    "S": {
+     "only_bounded": [],
+     "only_generalist": [
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.25
+    },
+    "C2": {
+     "only_bounded": [],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-status-asset",
+      "c2-status-ticket",
+      "c2-vpn-black"
+     ],
+     "mcnemar_p": 0.0078
+    },
+    "C3": {
+     "only_bounded": [],
+     "only_generalist": [
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn"
+     ],
+     "mcnemar_p": 0.0625
+    },
+    "ALL": {
+     "only_bounded": [],
+     "only_generalist": [
+      "c2-403-asset",
+      "c2-500-kb",
+      "c2-asset-grant-jira",
+      "c2-grant-status",
+      "c2-grant-vpn691",
+      "c2-status-asset",
+      "c2-status-ticket",
+      "c2-vpn-black",
+      "c3-grant-asset-ticket",
+      "c3-grant-asset-vpn",
+      "c3-reset-vpn-ticket",
+      "c3-status-asset-kb",
+      "c3-unlock-asset-vpn",
+      "s-asset",
+      "s-err403",
+      "s-err500"
+     ],
+     "mcnemar_p": 0.0
+    }
+   }
+  },
+  "evidence": {
+   "single": {
+    "evidence_endpoint": 0.438,
+    "evidence_network": 0.381
+   },
+   "bounded": {
+    "evidence_endpoint": 0.812,
+    "evidence_network": 0.667
+   },
+   "generalist": {
+    "evidence_endpoint": 1.0,
+    "evidence_network": 1.0
+   }
+  },
+  "failures": {
+   "single": {
+    "evidence_network": 26,
+    "evidence_endpoint": 18,
+    "approval_created": 1
+   },
+   "bounded": {
+    "evidence_network": 14,
+    "evidence_endpoint": 6,
+    "approval_created": 3,
+    "no_write": 2,
+    "correct_grant": 2,
+    "all_turns_completed": 2,
+    "expiry_scheduled": 1,
+    "no_extra_grants": 1
+   },
+   "generalist": {}
+  }
+ }
+}

@@ -1,0 +1,483 @@
+{
+  "modes": [
+    "generalist",
+    "bounded",
+    "bounded_all",
+    "single"
+  ],
+  "strata": {
+    "T1": {
+      "cases": 9,
+      "generalist": {
+        "passed": 9,
+        "rate": 1.0,
+        "wilson95": [
+          0.701,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 20617.0,
+        "latency_p50_s": 19.89,
+        "turns_mean": 3.17
+      },
+      "bounded": {
+        "passed": 9,
+        "rate": 1.0,
+        "wilson95": [
+          0.701,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 12897.0,
+        "latency_p50_s": 19.16,
+        "turns_mean": 3.17
+      },
+      "bounded_all": {
+        "passed": 9,
+        "rate": 1.0,
+        "wilson95": [
+          0.701,
+          1.0
+        ],
+        "trial_rate": 1.0,
+        "tokens_median": 17231.5,
+        "latency_p50_s": 22.29,
+        "turns_mean": 3.72
+      },
+      "single": {
+        "passed": 7,
+        "rate": 0.778,
+        "wilson95": [
+          0.453,
+          0.937
+        ],
+        "trial_rate": 0.889,
+        "tokens_median": 12145.5,
+        "latency_p50_s": 17.0,
+        "turns_mean": 3.17
+      }
+    },
+    "T2": {
+      "cases": 5,
+      "generalist": {
+        "passed": 3,
+        "rate": 0.6,
+        "wilson95": [
+          0.231,
+          0.882
+        ],
+        "trial_rate": 0.8,
+        "tokens_median": 28457.5,
+        "latency_p50_s": 28.91,
+        "turns_mean": 3.7
+      },
+      "bounded": {
+        "passed": 4,
+        "rate": 0.8,
+        "wilson95": [
+          0.376,
+          0.964
+        ],
+        "trial_rate": 0.9,
+        "tokens_median": 49551.5,
+        "latency_p50_s": 36.64,
+        "turns_mean": 3.8
+      },
+      "bounded_all": {
+        "passed": 3,
+        "rate": 0.6,
+        "wilson95": [
+          0.231,
+          0.882
+        ],
+        "trial_rate": 0.7,
+        "tokens_median": 97032.5,
+        "latency_p50_s": 53.56,
+        "turns_mean": 4.9
+      },
+      "single": {
+        "passed": 2,
+        "rate": 0.4,
+        "wilson95": [
+          0.118,
+          0.769
+        ],
+        "trial_rate": 0.4,
+        "tokens_median": 27688.5,
+        "latency_p50_s": 31.06,
+        "turns_mean": 4.5
+      }
+    },
+    "T3": {
+      "cases": 3,
+      "generalist": {
+        "passed": 2,
+        "rate": 0.667,
+        "wilson95": [
+          0.208,
+          0.939
+        ],
+        "trial_rate": 0.833,
+        "tokens_median": 50715.5,
+        "latency_p50_s": 41.51,
+        "turns_mean": 5.33
+      },
+      "bounded": {
+        "passed": 0,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.562
+        ],
+        "trial_rate": 0.333,
+        "tokens_median": 65417.0,
+        "latency_p50_s": 55.06,
+        "turns_mean": 5.33
+      },
+      "bounded_all": {
+        "passed": 1,
+        "rate": 0.333,
+        "wilson95": [
+          0.061,
+          0.792
+        ],
+        "trial_rate": 0.5,
+        "tokens_median": 69205.5,
+        "latency_p50_s": 42.59,
+        "turns_mean": 4
+      },
+      "single": {
+        "passed": 0,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.562
+        ],
+        "trial_rate": 0.5,
+        "tokens_median": 39194.5,
+        "latency_p50_s": 40.01,
+        "turns_mean": 5.5
+      }
+    },
+    "ALL": {
+      "cases": 17,
+      "generalist": {
+        "passed": 14,
+        "rate": 0.824,
+        "wilson95": [
+          0.59,
+          0.938
+        ],
+        "trial_rate": 0.912,
+        "tokens_median": 27089.0,
+        "latency_p50_s": 27.25,
+        "turns_mean": 3.71
+      },
+      "bounded": {
+        "passed": 13,
+        "rate": 0.765,
+        "wilson95": [
+          0.527,
+          0.904
+        ],
+        "trial_rate": 0.853,
+        "tokens_median": 39622.0,
+        "latency_p50_s": 34.68,
+        "turns_mean": 3.74
+      },
+      "bounded_all": {
+        "passed": 13,
+        "rate": 0.765,
+        "wilson95": [
+          0.527,
+          0.904
+        ],
+        "trial_rate": 0.824,
+        "tokens_median": 50529.5,
+        "latency_p50_s": 38.87,
+        "turns_mean": 4.12
+      },
+      "single": {
+        "passed": 9,
+        "rate": 0.529,
+        "wilson95": [
+          0.31,
+          0.738
+        ],
+        "trial_rate": 0.676,
+        "tokens_median": 18797.0,
+        "latency_p50_s": 24.4,
+        "turns_mean": 3.97
+      }
+    }
+  },
+  "paired": {
+    "generalist_vs_bounded": {
+      "T1": {
+        "only_generalist": [],
+        "only_bounded": [],
+        "mcnemar_p": 1.0
+      },
+      "T2": {
+        "only_generalist": [],
+        "only_bounded": [
+          "t2-01"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_bounded": [],
+        "mcnemar_p": 0.5
+      },
+      "ALL": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_bounded": [
+          "t2-01"
+        ],
+        "mcnemar_p": 1.0
+      }
+    },
+    "generalist_vs_bounded_all": {
+      "T1": {
+        "only_generalist": [],
+        "only_bounded_all": [],
+        "mcnemar_p": 1.0
+      },
+      "T2": {
+        "only_generalist": [
+          "t2-10"
+        ],
+        "only_bounded_all": [
+          "t2-01"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-01"
+        ],
+        "only_bounded_all": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_generalist": [
+          "t2-10",
+          "t3-01"
+        ],
+        "only_bounded_all": [
+          "t2-01"
+        ],
+        "mcnemar_p": 1.0
+      }
+    },
+    "generalist_vs_single": {
+      "T1": {
+        "only_generalist": [
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "T2": {
+        "only_generalist": [
+          "t2-10"
+        ],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_generalist": [
+          "t3-00",
+          "t3-01"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "ALL": {
+        "only_generalist": [
+          "t1-05",
+          "t1-09",
+          "t2-10",
+          "t3-00",
+          "t3-01"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.0625
+      }
+    },
+    "bounded_vs_bounded_all": {
+      "T1": {
+        "only_bounded": [],
+        "only_bounded_all": [],
+        "mcnemar_p": 1.0
+      },
+      "T2": {
+        "only_bounded": [
+          "t2-10"
+        ],
+        "only_bounded_all": [],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_bounded": [],
+        "only_bounded_all": [
+          "t3-00"
+        ],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded": [
+          "t2-10"
+        ],
+        "only_bounded_all": [
+          "t3-00"
+        ],
+        "mcnemar_p": 1.0
+      }
+    },
+    "bounded_vs_single": {
+      "T1": {
+        "only_bounded": [
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "T2": {
+        "only_bounded": [
+          "t2-01",
+          "t2-10"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "T3": {
+        "only_bounded": [],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded": [
+          "t1-05",
+          "t1-09",
+          "t2-01",
+          "t2-10"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.125
+      }
+    },
+    "bounded_all_vs_single": {
+      "T1": {
+        "only_bounded_all": [
+          "t1-05",
+          "t1-09"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.5
+      },
+      "T2": {
+        "only_bounded_all": [
+          "t2-01"
+        ],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "T3": {
+        "only_bounded_all": [
+          "t3-00"
+        ],
+        "only_single": [],
+        "mcnemar_p": 1.0
+      },
+      "ALL": {
+        "only_bounded_all": [
+          "t1-05",
+          "t1-09",
+          "t2-01",
+          "t3-00"
+        ],
+        "only_single": [],
+        "mcnemar_p": 0.125
+      }
+    }
+  },
+  "evidence": {
+    "generalist": {},
+    "bounded": {},
+    "bounded_all": {},
+    "single": {}
+  },
+  "failures": {
+    "generalist": {
+      "tickets_count": 2,
+      "password": 1
+    },
+    "bounded": {
+      "tickets_count": 3,
+      "cite_打印队列阻塞排障": 1,
+      "cite_邮件退信排障": 1,
+      "password": 1
+    },
+    "bounded_all": {
+      "tickets_count": 5,
+      "cite_邮件退信排障": 1,
+      "password": 1
+    },
+    "single": {
+      "tool_lookup_asset": 6,
+      "tool_lookup_error_code": 2,
+      "unlocked": 1,
+      "grants_exact": 1,
+      "tool_check_service_status": 1,
+      "tickets_count": 1,
+      "cite_打印队列阻塞排障": 1,
+      "cite_邮件退信排障": 1
+    }
+  },
+  "simulator_flag_rate": 0.193,
+  "excluded_flagged_cases": true,
+  "excluded_errored_cases": [
+    "p-00",
+    "p-01",
+    "p-02",
+    "p-03",
+    "p-04",
+    "p-05",
+    "p-06",
+    "p-07",
+    "t3-03",
+    "t3-04",
+    "t3-05",
+    "t3-06",
+    "t3-07",
+    "t3-08",
+    "t3-09",
+    "t3-10",
+    "t3-11"
+  ],
+  "source": [
+    "simulated_v4_generalist_run1.json",
+    "simulated_v4_generalist_run2.json",
+    "simulated_v4_bounded_run1.json",
+    "simulated_v4_bounded_run2.json",
+    "simulated_v4_bounded_all_run1.json",
+    "simulated_v4_bounded_all_run2.json",
+    "simulated_v4_single_run1.json",
+    "simulated_v4_single_run2.json"
+  ],
+  "runs": 8,
+  "model": {
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-flash"
+  }
+}

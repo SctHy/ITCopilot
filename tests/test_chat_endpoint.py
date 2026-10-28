@@ -8,6 +8,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 
 import api.main as api
+from tests.conftest import auth
 from agents.agent_orchestrator import AgentOrchestrator
 from monitor.performance_monitor import PerformanceMonitor
 from tooling.tool_manager import MCPToolManager
@@ -28,6 +29,7 @@ def chat_client(monkeypatch):
 
     model = FunctionModel(respond)
     orchestrator = AgentOrchestrator("sk-local")
+    orchestrator.planning_mode = "single"  # these tests assert specialist routing and per-agent health
     orchestrator._intent_recognizer.llm = model
     for agents in orchestrator._pool.values():
         for agent in agents:
@@ -37,7 +39,7 @@ def chat_client(monkeypatch):
     for name, value in {"_orchestrator": orchestrator, "_memory": None, "_tool_manager": tool_manager, "_monitor": monitor}.items():
         monkeypatch.setattr(api, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
-    return TestClient(api.app), monitor
+    return TestClient(api.app, headers=auth("alice")), monitor
 
 
 def test_chat_end_to_end_records_metrics_and_slo(chat_client):
@@ -81,7 +83,9 @@ def test_second_turn_reuses_employee_id_from_conversation_state(chat_client, mon
 
     monkeypatch.setattr(api, "_memory", FakeMemory())
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    _, req, intent_result, _ = asyncio.run(api._run_turn(api.ChatRequest(message="帮我重置密码"), "turn-2", "c1"))
+    from core.identity import principal_from_token
+    alice = principal_from_token(auth("alice")["Authorization"].split()[1])
+    _, req, intent_result, _ = asyncio.run(api._run_turn(api.ChatRequest(message="帮我重置密码"), alice, "turn-2", "c1"))
     assert "employee_id" in intent_result.missing_slots          # 本轮消息本身没有工号
     assert "employee_id" not in req.conversation_state["missing_fields"]
     assert req.entities["employee_id"] == ["E1001"]

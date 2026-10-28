@@ -124,7 +124,7 @@
       "message": "公司 VPN 一直连接超时",
       "expected": "vpn_issue",
       "predicted": "vpn_issue",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -133,7 +133,7 @@
       "message": "虚拟专网断了",
       "expected": "vpn_issue",
       "predicted": "vpn_issue",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -142,7 +142,7 @@
       "message": "Wi-Fi 一直断开",
       "expected": "wifi_issue",
       "predicted": "wifi_issue",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -151,7 +151,7 @@
       "message": "无线网络搜不到",
       "expected": "wifi_issue",
       "predicted": "wifi_issue",
-      "confidence": 0.9961,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -160,7 +160,7 @@
       "message": "网络很慢，访问不了内网",
       "expected": "network_issue",
       "predicted": "network_issue",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -169,7 +169,7 @@
       "message": "办公室网络故障",
       "expected": "network_issue",
       "predicted": "network_issue",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -232,7 +232,7 @@
       "message": "申请 GitLab 权限",
       "expected": "permission_request",
       "predicted": "permission_request",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -241,7 +241,7 @@
       "message": "开通生产系统访问权限",
       "expected": "permission_request",
       "predicted": "permission_request",
-      "confidence": 0.9961,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -250,7 +250,7 @@
       "message": "我需要申请应用权限",
       "expected": "permission_request",
       "predicted": "permission_request",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -259,7 +259,7 @@
       "message": "检查一下我的系统权限",
       "expected": "access_review",
       "predicted": "access_review",
-      "confidence": 0.9961,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -295,7 +295,7 @@
       "message": "申请一台新电脑",
       "expected": "device_provisioning",
       "predicted": "device_provisioning",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -304,7 +304,7 @@
       "message": "入职需要领取办公设备",
       "expected": "device_provisioning",
       "predicted": "device_provisioning",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -340,7 +340,7 @@
       "message": "申请软件 license",
       "expected": "software_license",
       "predicted": "software_license",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -367,7 +367,7 @@
       "message": "怎么配置公司代理",
       "expected": "howto",
       "predicted": "howto",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -376,7 +376,7 @@
       "message": "请告诉我 VPN 使用教程",
       "expected": "howto",
       "predicted": "howto",
-      "confidence": 0.9961,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -394,7 +394,7 @@
       "message": "提交一个服务台请求",
       "expected": "ticket_create",
       "predicted": "ticket_create",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -430,7 +430,7 @@
       "message": "我要转人工",
       "expected": "human_handoff",
       "predicted": "human_handoff",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -448,7 +448,7 @@
       "message": "你好",
       "expected": "greeting",
       "predicted": "greeting",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -466,7 +466,7 @@
       "message": "你是谁",
       "expected": "chitchat",
       "predicted": "chitchat",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -475,7 +475,7 @@
       "message": "谢谢你的帮助",
       "expected": "chitchat",
       "predicted": "chitchat",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -484,7 +484,7 @@
       "message": "你能做什么",
       "expected": "chitchat",
       "predicted": "chitchat",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -493,7 +493,7 @@
       "message": "帮我写一首诗",
       "expected": "out_of_scope",
       "predicted": "out_of_scope",
-      "confidence": 0.9998,
+      "confidence": 0.9,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -502,7 +502,7 @@
       "message": "今天上海天气怎么样",
       "expected": "out_of_scope",
       "predicted": "out_of_scope",
-      "confidence": 0.9998,
+      "confidence": 0.9,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -520,7 +520,7 @@
       "message": "那个权限呢",
       "expected": "permission_request",
       "predicted": "permission_request",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -529,7 +529,7 @@
       "message": "第二个怎么处理",
       "expected": "ticket_status",
       "predicted": "ticket_status",
-      "confidence": 0.9225,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"

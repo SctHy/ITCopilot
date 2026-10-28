@@ -1,0 +1,530 @@
+[
+  {
+    "id": "device_failure-1",
+    "split": "calibration",
+    "message": "合盖后再打开笔记本屏幕一直黑着",
+    "expected_intent": "device_failure"
+  },
+  {
+    "id": "device_failure-2",
+    "split": "calibration",
+    "message": "外接键盘插上后所有按键都没反应",
+    "expected_intent": "device_failure"
+  },
+  {
+    "id": "device_failure-3",
+    "split": "test",
+    "message": "显示器电源灯亮但没有画面",
+    "expected_intent": "device_failure"
+  },
+  {
+    "id": "device_failure-4",
+    "split": "test",
+    "message": "触控板失灵，鼠标正常",
+    "expected_intent": "device_failure"
+  },
+  {
+    "id": "device_provisioning-1",
+    "split": "calibration",
+    "message": "下周入职还没有办公电脑，怎么申领",
+    "expected_intent": "device_provisioning"
+  },
+  {
+    "id": "device_provisioning-2",
+    "split": "calibration",
+    "message": "新同事需要配一台笔记本",
+    "expected_intent": "device_provisioning"
+  },
+  {
+    "id": "device_provisioning-3",
+    "split": "test",
+    "message": "需要为新员工领用终端设备",
+    "expected_intent": "device_provisioning"
+  },
+  {
+    "id": "device_provisioning-4",
+    "split": "test",
+    "message": "办公电脑太旧，想申请更换设备",
+    "expected_intent": "device_provisioning"
+  },
+  {
+    "id": "password_reset-1",
+    "split": "calibration",
+    "message": "域账号口令忘记了，需要重新设置",
+    "expected_intent": "password_reset"
+  },
+  {
+    "id": "password_reset-2",
+    "split": "calibration",
+    "message": "企业登录密码到期了，请帮我重置",
+    "expected_intent": "password_reset"
+  },
+  {
+    "id": "password_reset-3",
+    "split": "test",
+    "message": "不是验证码的问题，我需要修改忘掉的登录口令",
+    "expected_intent": "password_reset"
+  },
+  {
+    "id": "password_reset-4",
+    "split": "test",
+    "message": "工号1001，申请重设企业密码",
+    "expected_intent": "password_reset"
+  },
+  {
+    "id": "account_unlock-1",
+    "split": "calibration",
+    "message": "密码记得但输错次数太多，账户被锁住了",
+    "expected_intent": "account_unlock"
+  },
+  {
+    "id": "account_unlock-2",
+    "split": "calibration",
+    "message": "企业账号因连续登录失败被锁定",
+    "expected_intent": "account_unlock"
+  },
+  {
+    "id": "account_unlock-3",
+    "split": "test",
+    "message": "请解除我的企业账户锁定，不要修改密码",
+    "expected_intent": "account_unlock"
+  },
+  {
+    "id": "account_unlock-4",
+    "split": "test",
+    "message": "工号1001，账号锁定需要解锁",
+    "expected_intent": "account_unlock"
+  },
+  {
+    "id": "mfa_issue-1",
+    "split": "calibration",
+    "message": "手机换了之后验证器无法登录",
+    "expected_intent": "mfa_issue"
+  },
+  {
+    "id": "mfa_issue-2",
+    "split": "calibration",
+    "message": "第二步认证一直不通过",
+    "expected_intent": "mfa_issue"
+  },
+  {
+    "id": "mfa_issue-3",
+    "split": "test",
+    "message": "不是忘了密码，是动态验证码收不到",
+    "expected_intent": "mfa_issue"
+  },
+  {
+    "id": "mfa_issue-4",
+    "split": "test",
+    "message": "旧手机丢了，如何迁移二次认证",
+    "expected_intent": "mfa_issue"
+  },
+  {
+    "id": "permission_request-1",
+    "split": "calibration",
+    "message": "请开通我访问GitLab项目的权限",
+    "expected_intent": "permission_request"
+  },
+  {
+    "id": "permission_request-2",
+    "split": "calibration",
+    "message": "申请Jira只读角色，工号1001",
+    "expected_intent": "permission_request"
+  },
+  {
+    "id": "permission_request-3",
+    "split": "test",
+    "message": "GitLab网页能打开，但我没有项目访问权限",
+    "expected_intent": "permission_request"
+  },
+  {
+    "id": "permission_request-4",
+    "split": "test",
+    "message": "需要VPN的使用权限，工号1002",
+    "expected_intent": "permission_request"
+  },
+  {
+    "id": "access_review-1",
+    "split": "calibration",
+    "message": "想核查当前拥有的系统权限",
+    "expected_intent": "access_review"
+  },
+  {
+    "id": "access_review-2",
+    "split": "calibration",
+    "message": "帮我复核已有应用授权",
+    "expected_intent": "access_review"
+  },
+  {
+    "id": "access_review-3",
+    "split": "test",
+    "message": "请列出我目前有哪些权限，不申请新的",
+    "expected_intent": "access_review"
+  },
+  {
+    "id": "access_review-4",
+    "split": "test",
+    "message": "核对本人现有访问授权是否多余",
+    "expected_intent": "access_review"
+  },
+  {
+    "id": "vpn_issue-1",
+    "split": "calibration",
+    "message": "VPN连接时提示认证失败",
+    "expected_intent": "vpn_issue"
+  },
+  {
+    "id": "vpn_issue-2",
+    "split": "calibration",
+    "message": "虚拟专网接通后立刻断开",
+    "expected_intent": "vpn_issue"
+  },
+  {
+    "id": "vpn_issue-3",
+    "split": "test",
+    "message": "家里网页正常，只有VPN无法建立连接",
+    "expected_intent": "vpn_issue"
+  },
+  {
+    "id": "vpn_issue-4",
+    "split": "test",
+    "message": "远程接入客户端报VPN-691，怎么排障",
+    "expected_intent": "vpn_issue"
+  },
+  {
+    "id": "wifi_issue-1",
+    "split": "calibration",
+    "message": "办公无线网络总是掉线",
+    "expected_intent": "wifi_issue"
+  },
+  {
+    "id": "wifi_issue-2",
+    "split": "calibration",
+    "message": "手机能连同一个Wi-Fi但电脑不行",
+    "expected_intent": "wifi_issue"
+  },
+  {
+    "id": "wifi_issue-3",
+    "split": "test",
+    "message": "会议室SSID搜不到，其他网络可见",
+    "expected_intent": "wifi_issue"
+  },
+  {
+    "id": "wifi_issue-4",
+    "split": "test",
+    "message": "连上办公Wi-Fi后提示无互联网",
+    "expected_intent": "wifi_issue"
+  },
+  {
+    "id": "network_issue-1",
+    "split": "calibration",
+    "message": "有线网络访问内网很慢",
+    "expected_intent": "network_issue"
+  },
+  {
+    "id": "network_issue-2",
+    "split": "calibration",
+    "message": "插网线以后内网站点全部打不开",
+    "expected_intent": "network_issue"
+  },
+  {
+    "id": "network_issue-3",
+    "split": "test",
+    "message": "交换机接出的网络无法解析内部域名",
+    "expected_intent": "network_issue"
+  },
+  {
+    "id": "network_issue-4",
+    "split": "test",
+    "message": "办公室有线连接丢包严重",
+    "expected_intent": "network_issue"
+  },
+  {
+    "id": "software_install-1",
+    "split": "calibration",
+    "message": "想安装公司批准的办公软件",
+    "expected_intent": "software_install"
+  },
+  {
+    "id": "software_install-2",
+    "split": "calibration",
+    "message": "新电脑需要装开发工具",
+    "expected_intent": "software_install"
+  },
+  {
+    "id": "software_install-3",
+    "split": "test",
+    "message": "如何部署公司软件目录中的编辑器",
+    "expected_intent": "software_install"
+  },
+  {
+    "id": "software_install-4",
+    "split": "test",
+    "message": "请协助安装企业版会议客户端",
+    "expected_intent": "software_install"
+  },
+  {
+    "id": "software_license-1",
+    "split": "calibration",
+    "message": "IDE提示license已经过期",
+    "expected_intent": "software_license"
+  },
+  {
+    "id": "software_license-2",
+    "split": "calibration",
+    "message": "需要续订办公软件许可证",
+    "expected_intent": "software_license"
+  },
+  {
+    "id": "software_license-3",
+    "split": "test",
+    "message": "软件能启动但授权席位已用尽",
+    "expected_intent": "software_license"
+  },
+  {
+    "id": "software_license-4",
+    "split": "test",
+    "message": "已有安装包，需要申请合法使用许可",
+    "expected_intent": "software_license"
+  },
+  {
+    "id": "email_collab_issue-1",
+    "split": "calibration",
+    "message": "公司邮箱发出的邮件一直退信",
+    "expected_intent": "email_collab_issue"
+  },
+  {
+    "id": "email_collab_issue-2",
+    "split": "calibration",
+    "message": "日历会议邀请无法同步",
+    "expected_intent": "email_collab_issue"
+  },
+  {
+    "id": "email_collab_issue-3",
+    "split": "test",
+    "message": "企业邮件收件箱不再更新",
+    "expected_intent": "email_collab_issue"
+  },
+  {
+    "id": "email_collab_issue-4",
+    "split": "test",
+    "message": "线上会议无法共享屏幕",
+    "expected_intent": "email_collab_issue"
+  },
+  {
+    "id": "howto-1",
+    "split": "calibration",
+    "message": "请给出VPN使用教程",
+    "expected_intent": "howto"
+  },
+  {
+    "id": "howto-2",
+    "split": "calibration",
+    "message": "哪里有公司代理的配置步骤",
+    "expected_intent": "howto"
+  },
+  {
+    "id": "howto-3",
+    "split": "test",
+    "message": "能介绍知识库检索功能的使用方法吗",
+    "expected_intent": "howto"
+  },
+  {
+    "id": "howto-4",
+    "split": "test",
+    "message": "请解释工单优先级的划分方法",
+    "expected_intent": "howto"
+  },
+  {
+    "id": "ticket_create-1",
+    "split": "calibration",
+    "message": "帮我提交一张电脑报修工单",
+    "expected_intent": "ticket_create"
+  },
+  {
+    "id": "ticket_create-2",
+    "split": "calibration",
+    "message": "请建立服务台请求记录这个故障",
+    "expected_intent": "ticket_create"
+  },
+  {
+    "id": "ticket_create-3",
+    "split": "test",
+    "message": "要为打印机故障新建IT工单",
+    "expected_intent": "ticket_create"
+  },
+  {
+    "id": "ticket_create-4",
+    "split": "test",
+    "message": "工号1001，请建单记录显示器闪屏",
+    "expected_intent": "ticket_create"
+  },
+  {
+    "id": "ticket_status-1",
+    "split": "calibration",
+    "message": "查一下工单INC-2048的处理进度",
+    "expected_intent": "ticket_status"
+  },
+  {
+    "id": "ticket_status-2",
+    "split": "calibration",
+    "message": "我提交的服务台工单现在谁在处理",
+    "expected_intent": "ticket_status"
+  },
+  {
+    "id": "ticket_status-3",
+    "split": "test",
+    "message": "工单号INC-101，预计何时完成",
+    "expected_intent": "ticket_status"
+  },
+  {
+    "id": "ticket_status-4",
+    "split": "test",
+    "message": "看看上次报修工单是否已经解决",
+    "expected_intent": "ticket_status"
+  },
+  {
+    "id": "ticket_cancel-1",
+    "split": "calibration",
+    "message": "问题解决了，撤回之前的工单",
+    "expected_intent": "ticket_cancel"
+  },
+  {
+    "id": "ticket_cancel-2",
+    "split": "calibration",
+    "message": "请取消工单INC-2048",
+    "expected_intent": "ticket_cancel"
+  },
+  {
+    "id": "ticket_cancel-3",
+    "split": "test",
+    "message": "不需要维修了，帮我撤销服务台申请单",
+    "expected_intent": "ticket_cancel"
+  },
+  {
+    "id": "ticket_cancel-4",
+    "split": "test",
+    "message": "工单号INC-101，要求终止处理",
+    "expected_intent": "ticket_cancel"
+  },
+  {
+    "id": "human_handoff-1",
+    "split": "calibration",
+    "message": "请让人工服务台接手",
+    "expected_intent": "human_handoff"
+  },
+  {
+    "id": "human_handoff-2",
+    "split": "calibration",
+    "message": "需要升级给IT同事处理",
+    "expected_intent": "human_handoff"
+  },
+  {
+    "id": "human_handoff-3",
+    "split": "test",
+    "message": "我想直接和真人技术支持沟通",
+    "expected_intent": "human_handoff"
+  },
+  {
+    "id": "human_handoff-4",
+    "split": "test",
+    "message": "这个问题交给人工工程师吧",
+    "expected_intent": "human_handoff"
+  },
+  {
+    "id": "greeting-1",
+    "split": "calibration",
+    "message": "早上好，服务台有人吗",
+    "expected_intent": "greeting"
+  },
+  {
+    "id": "greeting-2",
+    "split": "calibration",
+    "message": "你好IT助手",
+    "expected_intent": "greeting"
+  },
+  {
+    "id": "greeting-3",
+    "split": "test",
+    "message": "hello，可以开始吗",
+    "expected_intent": "greeting"
+  },
+  {
+    "id": "greeting-4",
+    "split": "test",
+    "message": "您好，打个招呼",
+    "expected_intent": "greeting"
+  },
+  {
+    "id": "chitchat-1",
+    "split": "calibration",
+    "message": "谢谢你刚才的帮助",
+    "expected_intent": "chitchat"
+  },
+  {
+    "id": "chitchat-2",
+    "split": "calibration",
+    "message": "你可以处理哪些事情",
+    "expected_intent": "chitchat"
+  },
+  {
+    "id": "chitchat-3",
+    "split": "test",
+    "message": "辛苦了，再见",
+    "expected_intent": "chitchat"
+  },
+  {
+    "id": "chitchat-4",
+    "split": "test",
+    "message": "你叫什么名字",
+    "expected_intent": "chitchat"
+  },
+  {
+    "id": "out_of_scope-1",
+    "split": "calibration",
+    "message": "帮我预测明天股票价格",
+    "expected_intent": "out_of_scope"
+  },
+  {
+    "id": "out_of_scope-2",
+    "split": "calibration",
+    "message": "写一首关于秋天的诗",
+    "expected_intent": "out_of_scope"
+  },
+  {
+    "id": "out_of_scope-3",
+    "split": "test",
+    "message": "推荐一份周末旅行路线",
+    "expected_intent": "out_of_scope"
+  },
+  {
+    "id": "out_of_scope-4",
+    "split": "test",
+    "message": "帮我算一份减脂食谱",
+    "expected_intent": "out_of_scope"
+  },
+  {
+    "id": "other-1",
+    "split": "calibration",
+    "message": "那个东西有点奇怪",
+    "expected_intent": "other"
+  },
+  {
+    "id": "other-2",
+    "split": "calibration",
+    "message": "事情还是那样但我不知道是什么",
+    "expected_intent": "other"
+  },
+  {
+    "id": "other-3",
+    "split": "test",
+    "message": "有个情况想说，一时说不清",
+    "expected_intent": "other"
+  },
+  {
+    "id": "other-4",
+    "split": "test",
+    "message": "嗯，就是那个问题，没有更多信息",
+    "expected_intent": "other"
+  }
+]

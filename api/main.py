@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import pathlib
-import secrets
 import sys
 import time
 import uuid
@@ -22,7 +21,13 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
+from core.events import TERMINAL_EVENTS, EventPublisher, InMemoryEventBus, RedisEventBus
+from core.identity import (ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, AuthError, Principal, dev_mode_allowed, dev_users, issue_dev_token,
+                           principal_from_token)
 from monitor import metrics
+from tooling.schemas import KNOWLEDGE_SEARCH_SCHEMA
+from workflow.policy import PolicyViolation
+from workflow.store import ApprovalConflict, ApprovalForbidden
 
 load_dotenv(pathlib.Path(_ROOT) / ".env")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -37,28 +42,19 @@ _profile_updater = None
 _tracing = None
 _monitor = None
 _mcp_client = None
+_workflow = None
+_worker = None
+_registry = None
+# 未接 Redis 时（单元测试、显式降级）使用进程内事件流；lifespan 中有 Redis 则替换为 Redis Streams。
+_events = InMemoryEventBus()
 # 保存后台任务引用：事件循环只持有弱引用，未被引用的任务可能在执行中途被回收。
 _background_tasks: set = set()
 
-KNOWLEDGE_SEARCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "query": {"type": "string", "minLength": 1},
-        "top_k": {"type": "integer", "minimum": 1, "maximum": 8},
-        "department": {"type": ["string", "null"]},
-        "mode": {"type": "string", "enum": ["hybrid", "vector", "bm25"]},
-    },
-    "required": ["query"],
-    "additionalProperties": False,
-}
-
-
 class ChatRequest(BaseModel):
+    """身份（用户、部门、角色）只来自已验证的 token；请求体里的 user_id/department 等字段会被忽略。"""
     message: str = Field(..., min_length=1, max_length=8000)
-    user_id: str = "demo-user"
-    conv_id: str = "demo"
-    client_request_id: Optional[str] = None
-    department: str = "engineering"
+    conv_id: str = Field("demo", min_length=1, max_length=200)
+    client_request_id: Optional[str] = Field(None, min_length=1, max_length=200)
 
 
 class ChatResponse(BaseModel):
@@ -100,8 +96,13 @@ class KnowledgeAddRequest(BaseModel):
 
 
 class ApprovalDecision(BaseModel):
+    """审批人由 token 决定，不接受请求体中的 actor。"""
     decision: str = Field(..., pattern="^(approved|rejected)$")
-    actor: str = Field("it-admin", min_length=1, max_length=120)
+    payload_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class DevTokenRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=80)
 
 
 def _spawn(coro) -> None:
@@ -116,14 +117,40 @@ def _on_background_done(task: asyncio.Task) -> None:
         logger.warning("background task failed: %s", type(task.exception()).__name__)
 
 
-def require_admin(authorization: Optional[str] = Header(None)) -> None:
-    """写操作接口鉴权：配置 IT_COPILOT_ADMIN_TOKEN 后必须携带 Bearer token；未配置时为开发模式放行。"""
-    expected = os.getenv("IT_COPILOT_ADMIN_TOKEN", "")
-    if not expected:
-        return
+def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(token.encode(), expected.encode()):
-        raise HTTPException(401, "需要管理员 token", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        if scheme.lower() != "bearer":
+            raise AuthError("missing bearer token")
+        return principal_from_token(token.strip())
+    except AuthError as exc:
+        metrics.AUTH_FAILURES.labels(reason="unauthenticated").inc()
+        raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+def require_roles(*roles: str):
+    def dependency(principal: Principal = Depends(current_principal)) -> Principal:
+        if not principal.has_any(*roles):
+            metrics.AUTH_FAILURES.labels(reason="forbidden").inc()
+            raise HTTPException(403, f"需要以下角色之一：{', '.join(roles)}")
+        return principal
+    return dependency
+
+
+require_admin = require_roles(ROLE_IT_ADMIN)
+
+
+def _forbid(message: str = "无权访问该资源"):
+    metrics.AUTH_FAILURES.labels(reason="forbidden").inc()
+    # 404 instead of 403 would hide existence; 403 is clearer for this internal tool.
+    return HTTPException(403, message)
+
+
+def _request_id(principal: Principal, client_request_id: Optional[str]) -> str:
+    """客户端幂等键按调用者隔离：不同用户使用相同 client_request_id 不会共享回执、trace 或审批。"""
+    if not client_request_id:
+        return str(uuid.uuid4())
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"it-copilot:{principal.tenant}:{principal.subject}:{client_request_id}"))
 
 
 def _chroma_settings() -> Dict[str, Any]:
@@ -152,7 +179,7 @@ async def _start_mcp_client():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _orchestrator, _memory, _tool_manager, _kb, _skills, _profile_updater, _tracing, _monitor, _mcp_client
+    global _orchestrator, _memory, _tool_manager, _kb, _skills, _profile_updater, _tracing, _monitor, _mcp_client, _workflow, _worker, _registry, _events
     from agents.agent_orchestrator import AgentOrchestrator
     from core.concurrency import ProfileUpdater
     from core.skill_loader import SkillManager
@@ -162,6 +189,8 @@ async def lifespan(app: FastAPI):
     from tooling.knowledge_base import KnowledgeBase
     from tooling.mcp_server import create_http_app, create_server
     from tooling.tool_manager import MCPToolManager, Tool
+    from workflow.store import WorkflowStore
+    from workflow.worker import ExecutionWorker, build_registry, database_url
 
     _tracing = setup_tracing()
     llm = {"api_key": os.getenv("ANTHROPIC_API_KEY", "sk-local"), "base_url": os.getenv("ANTHROPIC_BASE_URL") or None, "model": os.getenv("ANTHROPIC_MODEL", "deepseek-chat")}
@@ -188,6 +217,14 @@ async def lifespan(app: FastAPI):
             logger.error("Redis is required for safe startup: %s", type(exc).__name__)
             raise RuntimeError("Redis 不可用，拒绝启动：会话锁和幂等保护不能被绕过") from exc
         logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
+    # 审批与执行状态的唯一来源是工作流数据库（SQLite 本地 / PostgreSQL 部署），不放在 Redis 里。
+    _workflow = await asyncio.to_thread(WorkflowStore, database_url(_chroma_settings()["chroma_path"]))
+    _registry = build_registry(_workflow)
+    _workflow.route = lambda action: _registry.for_action(action).name
+    _worker = ExecutionWorker(_workflow, _registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))
+    if _env_flag("IT_COPILOT_WORKER_ENABLED", "true"):
+        _worker.start()
+    _events = RedisEventBus(_memory._redis) if _memory else InMemoryEventBus()
     if _memory:
         # 后台维护（会话压缩 + 画像提炼）走有界 worker，同一用户的积压更新合并为一次。
         _profile_updater = ProfileUpdater(_memory, workers=int(os.getenv("IT_COPILOT_MEMORY_WORKERS", "2")))
@@ -201,13 +238,18 @@ async def lifespan(app: FastAPI):
         _mcp_client = await _start_mcp_client()
         _monitor = PerformanceMonitor(_orchestrator, _tool_manager, _mcp_client)
         await _monitor.start()
-        if not os.getenv("IT_COPILOT_ADMIN_TOKEN"):
-            logger.warning("IT_COPILOT_ADMIN_TOKEN 未设置：知识库写入、审批决定等接口未鉴权，仅适用于本地开发")
+        if dev_mode_allowed():
+            logger.warning("IT_COPILOT_AUTH_MODE=dev：使用本地演示身份签发 token，仅适用于开发与评测")
         logger.info("IT-Copilot ready on port %s", os.getenv("IT_COPILOT_PORT", "8001"))
         try:
             yield
         finally:
             await _monitor.stop()
+            await _worker.stop()
+            for adapter in _registry.all():
+                if hasattr(adapter, "close"):
+                    await adapter.close()
+            _workflow.close()
             if _mcp_client:
                 await _mcp_client.close()
             _mcp_mount.app = None
@@ -248,6 +290,31 @@ async def health():
     return {"status": "ok", "service": "IT-Copilot", "port": int(os.getenv("IT_COPILOT_PORT", "8001")), "agents": agents}
 
 
+@app.get("/auth/config")
+async def auth_config():
+    """前端登录方式：dev 模式列出演示身份；oidc 模式给出 Keycloak 地址与 client。"""
+    if dev_mode_allowed():
+        return {"mode": "dev", "users": [{"username": u, "department": d.get("department"), "roles": d.get("roles", []),
+                                          "employee_id": d.get("employee_id")} for u, d in dev_users().items()]}
+    return {"mode": os.getenv("IT_COPILOT_AUTH_MODE", "dev"), "issuer": os.getenv("OIDC_PUBLIC_ISSUER") or os.getenv("OIDC_ISSUER"),
+            "client_id": os.getenv("OIDC_FRONTEND_CLIENT_ID", "it-copilot-web")}
+
+
+@app.post("/auth/dev-token")
+async def dev_token(payload: DevTokenRequest):
+    if not dev_mode_allowed():
+        raise HTTPException(404, "not found")
+    try:
+        return {"access_token": issue_dev_token(payload.username), "token_type": "Bearer"}
+    except AuthError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get("/auth/me")
+async def auth_me(principal: Principal = Depends(current_principal)):
+    return principal.public()
+
+
 @app.get("/skills")
 async def skills():
     return _skills.summary() if _skills else {"count": 0, "skills": []}
@@ -258,12 +325,14 @@ async def reload_skills():
     return _skills.summary() if _skills and _skills.reload() is not None else {"count": 0}
 
 
-@app.get("/monitor")
+@app.get("/monitor", dependencies=[Depends(current_principal)])
 async def monitor():
     """运行状态：Agent/工具实时统计 + 进程内监控（SLO 燃烧率、触发中的告警、处置建议）。"""
     return {
         "agents": _orchestrator.get_stats() if _orchestrator else {},
         "tools": _tool_manager.monitor_snapshot() if _tool_manager else {},
+        "agent_tools": _orchestrator.tool_executor.snapshot() if _orchestrator else {},
+        "workflow": {"pending_actions": await asyncio.to_thread(_workflow.pending_work)} if _workflow else None,
         "monitor": _monitor.summary() if _monitor else None,
         "mcp": _mcp_client.summary() if _mcp_client else {"enabled": False, "servers": []},
     }
@@ -274,49 +343,112 @@ async def prometheus_metrics():  # 不能命名为 metrics：会遮蔽上方导�
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+def _owns_trace(trace: Optional[Dict[str, Any]], principal: Principal) -> bool:
+    owner = ((trace or {}).get("observability") or {}).get("owner")
+    return principal.can_read_all or (owner is not None and owner == principal.subject)
+
+
 # 静态路径必须在 /trace/{request_id} 之前注册，否则会被当作 request_id 匹配。
 @app.get("/trace/tools")
-async def trace_tools(limit: int = 20):
+async def trace_tools(limit: int = 20, principal: Principal = Depends(require_roles(ROLE_IT_ADMIN, ROLE_AUDITOR))):
     return {"items": await _memory.recent_traces(limit) if _memory else []}
 
 
-@app.get("/trace/tool/{request_id}")
-async def trace_tool(request_id: str):
+async def _readable_trace(request_id: str, principal: Principal):
     trace = await _memory.get_trace(request_id) if _memory else None
+    if trace is not None and not _owns_trace(trace, principal):
+        raise _forbid("只能查看自己的请求 trace")
+    return trace
+
+
+@app.get("/trace/tool/{request_id}")
+async def trace_tool(request_id: str, principal: Principal = Depends(current_principal)):
+    trace = await _readable_trace(request_id, principal)
     return {"request_id": request_id, "found": trace is not None, "trace": trace or {}}
 
 
 @app.get("/trace/{request_id}")
-async def trace_request(request_id: str):
-    """Phase 6 canonical replay endpoint for plan, tools, memory and approval events."""
-    trace = await _memory.get_trace(request_id) if _memory else None
+async def trace_request(request_id: str, principal: Principal = Depends(current_principal)):
+    """Canonical replay endpoint for plan, tools, memory and approval events (owner, admin or auditor only)."""
+    trace = await _readable_trace(request_id, principal)
     return {"request_id": request_id, "found": trace is not None, "trace": trace or {}, "schema_version": 1}
 
 
-@app.get("/approvals/{approval_id}")
-async def get_approval(approval_id: str):
-    if not _memory:
+def _require_workflow():
+    if not _workflow:
         raise HTTPException(503, "approval store unavailable")
-    body = await _memory.get_approval(approval_id)
+    return _workflow
+
+
+async def _readable_approval(approval_id: str, principal: Principal) -> Dict[str, Any]:
+    store = _require_workflow()
+    body = await asyncio.to_thread(store.get, approval_id)
     if not body:
         raise HTTPException(404, "approval not found")
+    if not store.can_read(body, principal):
+        raise _forbid("只能查看自己发起的申请")
     return body
 
 
-@app.post("/approvals/{approval_id}", dependencies=[Depends(require_admin)])
-async def decide_approval(approval_id: str, payload: ApprovalDecision):
-    if not _memory:
-        raise HTTPException(503, "approval store unavailable")
-    before = await _memory.get_approval(approval_id)
+@app.get("/approvals")
+async def list_approvals(status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|expired|superseded)$"),
+                         principal: Principal = Depends(current_principal)):
+    """申请人看到自己的申请；审批人、管理员、审计员看到全部（审批收件箱）。"""
+    return {"items": await asyncio.to_thread(_require_workflow().list, principal, status)}
+
+
+@app.get("/approvals/{approval_id}")
+async def get_approval(approval_id: str, principal: Principal = Depends(current_principal)):
+    return await _readable_approval(approval_id, principal)
+
+
+@app.post("/approvals/{approval_id}")
+async def decide_approval(approval_id: str, payload: ApprovalDecision, principal: Principal = Depends(require_roles(ROLE_APPROVER, ROLE_IT_ADMIN))):
+    store = _require_workflow()
+    before = await asyncio.to_thread(store.get, approval_id)
     try:
-        body = await _memory.decide_approval(approval_id, payload.decision, payload.actor)
+        body = await asyncio.to_thread(store.decide, approval_id, payload.decision, principal, payload.payload_hash)
+    except ApprovalForbidden as exc:
+        metrics.AUTH_FAILURES.labels(reason="separation_of_duties").inc()
+        raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     if not body:
         raise HTTPException(404, "approval not found")
-    if before and before.get("status") == "pending":
+    if before and before["status"] == "pending" and body["status"] != "pending":
         # 只统计真正发生的状态迁移；重复提交的幂等返回不计数。
         metrics.APPROVALS.labels(event=body["status"]).inc()
+    if body["status"] == "approved" and _worker:
+        # 执行由持久 worker 完成；这里只短暂等待，让快速路径直接返回结果，慢的外部系统返回 queued/executing。
+        body = await _worker.wait_settled(approval_id, float(os.getenv("IT_COPILOT_APPROVAL_WAIT_S", "5"))) or body
+    return body
+
+
+@app.post("/approvals/{approval_id}/reconcile")
+async def reconcile_approval(approval_id: str, principal: Principal = Depends(require_admin)):
+    """人工对账：把 manual_review/unknown 的动作重新交给 worker，先回查目标系统再决定是否重做。"""
+    body = await asyncio.to_thread(_require_workflow().requeue, approval_id, principal)
+    if not body:
+        raise HTTPException(404, "approval not found")
+    if _worker:
+        body = await _worker.wait_settled(approval_id, float(os.getenv("IT_COPILOT_APPROVAL_WAIT_S", "5"))) or body
+    return body
+
+
+@app.get("/approvals/{approval_id}/audit")
+async def approval_audit(approval_id: str, principal: Principal = Depends(current_principal)):
+    await _readable_approval(approval_id, principal)
+    return {"events": await asyncio.to_thread(_workflow.audit, approval_id)}
+
+
+@app.get("/business/employees/{employee_id}")
+async def business_employee(employee_id: str, principal: Principal = Depends(current_principal)):
+    """沙箱目录中的员工状态与限时授权台账：本人、审批人、管理员、审计员可查。"""
+    if employee_id != principal.employee_id and not principal.has_any(ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR):
+        raise _forbid("只能查看本人账号状态")
+    body = await asyncio.to_thread(_require_workflow().employee, employee_id)
+    if not body:
+        raise HTTPException(404, "employee not found")
     return body
 
 
@@ -369,6 +501,9 @@ async def knowledge_upload(file: UploadFile = File(...)):
 
 # 离线评测套件 → 前端展示的关键指标（label, 报告中的取值路径, 展示格式）。
 EVAL_SUITES = (
+    ("application_v2", "应用留出集 · 真实模型 / 本地业务", "application_holdout_live.json", (("单 Agent 成功率", "summary.single.success_rate", "percent"), ("多 Agent 成功率", "summary.bounded.success_rate", "percent"), ("每策略运行数", "summary.single.trials", "number"))),
+    ("intent_v2", "意图留出集 · 真实模型", "intent_ablation_live.json", (("LLM 准确率", "strategies.llm.accuracy", "percent"), ("融合准确率", "strategies.fusion.accuracy", "percent"), ("留出样本", "test_n", "number"))),
+    ("rag_v2", "检索消融 · 60 文档 / 40 查询", "rag_ablation_v2.json", (("BM25 Recall@3", "strategies.bm25.recall_at_3", "percent"), ("Vector Recall@3", "strategies.vector.recall_at_3", "percent"), ("Hybrid Recall@3", "strategies.hybrid.recall_at_3", "percent"))),
     ("intent", "意图识别", "intent_latest.json", (("准确率", "accuracy", "percent"), ("Macro-F1", "macro_f1", "percent"), ("用例数", "total", "number"))),
     ("calibration", "置信度校准", "intent_calibration_latest.json", (("ECE 校准前", "ece_before", "number"), ("ECE 校准后", "ece_after", "number"), ("Brier 校准后", "brier_after", "number"))),
     ("rag", "混合检索 RAG", "rag_latest.json", (("Hybrid Recall@5", "hybrid.recall_at_5", "percent"), ("Hybrid MRR", "hybrid.mrr", "number"), ("Vector Recall@5", "vector.recall_at_5", "percent"))),
@@ -399,7 +534,7 @@ async def eval_reports():
     for suite_id, title, filename, fields in EVAL_SUITES:
         report = await asyncio.to_thread(load, filename)
         suites.append({
-            "id": suite_id, "title": title, "status": (report or {}).get("status", "missing"),
+            "id": suite_id, "title": title if suite_id.endswith("_v2") else "历史 smoke · " + title, "status": (report or {}).get("status", "missing"),
             "metrics": [{"label": label, "value": _dig(report, path), "format": fmt} for label, path, fmt in fields] if report else [],
         })
     gate = await asyncio.to_thread(load, "all_latest.json") or {}
@@ -412,46 +547,58 @@ async def knowledge_stats():
 
 
 @app.post("/search")
-async def search(query: str = Query("", min_length=1), top_k: int = Query(5, ge=1, le=20), department: Optional[str] = Query(None), mode: str = Query("hybrid", pattern="^(hybrid|vector|bm25)$")):
+async def search(query: str = Query("", min_length=1), top_k: int = Query(5, ge=1, le=20), department: Optional[str] = Query(None),
+                 mode: str = Query("hybrid", pattern="^(hybrid|vector|bm25)$"), principal: Principal = Depends(current_principal)):
     if not _tool_manager:
         raise HTTPException(503, "service not ready")
+    # 检索范围由身份决定；只有管理员可以指定其他部门（运维排查用）。
+    if not principal.is_admin or department is None:
+        department = principal.department
     result = await _tool_manager.call("knowledge_search", {"query": query, "top_k": top_k, "department": department, "mode": mode}, {})
     return result.data if result.success else {"items": [], "fallback": True, "error": result.error}
 
 
-async def _run_turn(payload: ChatRequest, rid: str, conv_id: str):
-    """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。"""
+async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, emit=None):
+    """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。用户与部门取自已验证身份。"""
     from agents.agent_orchestrator import Request
     from core.conversation_state import known_entities, merge_state
 
-    mem_ctx = await _memory.get_context(payload.user_id, conv_id, query=payload.message) if _memory else None
+    user_id = principal.subject
+    mem_ctx = await _memory.get_context(user_id, conv_id, query=payload.message) if _memory else None
     history = [{"role": m.role.value, "content": m.content} for m in mem_ctx.recent_messages[-5:]] if mem_ctx and mem_ctx.recent_messages else None
     state = (getattr(mem_ctx, "state", {}) or {}) if mem_ctx else {}
     intent_result = await _orchestrator.recognize_intent(payload.message, history=history, previous_intent_group=state.get("intent_group"))
+    if emit:
+        await emit("intent", {"intent": intent_result.intent.value, "intent_group": intent_result.intent_group,
+                              "confidence": round(intent_result.confidence, 4), "source": intent_result.recognition_source})
 
     req = Request(
-        message=payload.message, user_id=payload.user_id, conv_id=conv_id, context=mem_ctx.to_prompt_text() if mem_ctx else "",
+        message=payload.message, user_id=user_id, conv_id=conv_id, context=mem_ctx.to_prompt_text() if mem_ctx else "",
         history=history, entities=intent_result.entities, intent=intent_result.intent, intent_group=intent_result.intent_group,
-        urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=payload.department, request_id=rid,
+        urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=principal.department, request_id=rid,
+        principal=principal, emit=emit,
     )
-    req.context += f"\n[部门]\n{payload.department}"
+    req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
     # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
-    req.conversation_state = merge_state(state, intent_result.intent_group, intent_result.entities, payload.message, intent_result.missing_slots)
+    req.conversation_state = merge_state(state, intent_result.intent_group, intent_result.entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
     req.entities = known_entities(req.conversation_state, intent_result.entities)
 
     async def before_unsafe_tool(name):
-        # 写操作执行前先落“结果未知”回执：进程若在副作用后崩溃，重试不会重复执行。
-        if _memory:
-            await _memory.commit_turn(payload.user_id, conv_id, rid, payload.message, {"request_id": rid, "response": "tool outcome pending", "status": "failed", "retryable": False, "error_code": "tool_outcome_unknown"})
+        # Chat tools only prepare immutable approval data. Actual effects happen in the
+        # execution worker after approval, so a crashed dry-run is retryable.
+        if not _workflow:
+            raise ValueError("审批存储不可用，无法创建写操作申请")
 
     req.before_unsafe_tool = before_unsafe_tool
     return await _orchestrator.run(req), req, intent_result, mem_ctx
 
 
-def _build_trace(result, intent_result, mem_ctx, approval, approval_id) -> Dict[str, Any]:
+def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal: Principal) -> Dict[str, Any]:
     trace = json.loads(json.dumps(result.__dict__, default=lambda value: value.value if hasattr(value, "value") else str(value)))
     trace["observability"] = {
-        "schema_version": 2,
+        "schema_version": 3,
+        "owner": principal.subject,
+        "department": principal.department,
         "memory": {
             "working_hit": bool(mem_ctx and mem_ctx.recent_messages),
             "episodic_hits": len(mem_ctx.relevant_history) if mem_ctx else 0,
@@ -465,58 +612,81 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id) -> Dict[
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest):
+async def chat(payload: ChatRequest, principal: Principal = Depends(current_principal)):
+    return await _chat_entry(payload, principal, _request_id(principal, payload.client_request_id))
+
+
+async def _chat_entry(payload: ChatRequest, principal: Principal, rid: str, emit=None):
     if not _orchestrator:
         raise HTTPException(503, "service not ready")
     from core.telemetry import chat_span
-    rid = payload.client_request_id or str(uuid.uuid4())
     with chat_span(rid) as span:
-        response = await _chat(payload, rid)
+        response = await _chat(payload, principal, rid, emit)
         if isinstance(response, ChatResponse):
             for key in ("status", "agent_type", "intent", "intent_group"):
                 span.set_attribute(f"it_copilot.{key}", getattr(response, key))
         return response
 
 
-async def _chat(payload: ChatRequest, rid: str):
+async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None):
     request_started = time.monotonic()
-    conv_id = payload.conv_id or str(uuid.uuid5(uuid.NAMESPACE_URL, payload.user_id + ":" + rid))
+    conv_id = payload.conv_id
     if _memory:
-        async with _memory.conversation(payload.user_id, conv_id):
-            receipt = await _memory.get_turn_receipt(payload.user_id, conv_id, rid)
+        async with _memory.conversation(principal.subject, conv_id):
+            receipt = await _memory.get_turn_receipt(principal.subject, conv_id, rid)
             if receipt:
                 if receipt.get("message") != payload.message:
                     raise HTTPException(409, "同一 client_request_id 不能用于不同消息")
                 return receipt.get("response")
-            result, req, intent_result, mem_ctx = await _run_turn(payload, rid, conv_id)
-    else:
-        result, req, intent_result, mem_ctx = await _run_turn(payload, rid, conv_id)
+            return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
+    return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
 
-    from core.approval import approval_summary
-    approval = approval_summary([t.get("tool_name", "") for t in result.tool_traces if t.get("success") and not t.get("retry_safe", True)], payload.message)
+
+async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None):
+    # The caller holds the conversation lease through approval creation AND commit.
+    result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, emit)
+
+    from core.approval import approval_from_traces
+    approval = approval_from_traces(result.tool_traces, payload.message)
     approval_id = rid + ":approval" if approval else None
-    if approval and _memory:
-        await _memory.create_approval(approval_id, {**approval, "request_id": rid, "user_id": payload.user_id, "conv_id": conv_id})
-        metrics.APPROVALS.labels(event="created").inc()
+    reply = result.response
+    if approval and _workflow:
+        summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
+        try:
+            created = await asyncio.to_thread(_workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
+                                              action_requests=approval["action_requests"], summary=summary)
+        except (PolicyViolation, ApprovalConflict, ValueError) as exc:
+            # Tools validate first, so this is rare (e.g. policy changed mid-turn); never create a half-valid approval.
+            logger.warning("approval not created for %s: %s", rid, exc)
+            approval, approval_id = None, None
+            reply += f"\n\n（审批申请未创建：{exc}）"
+        else:
+            metrics.APPROVALS.labels(event="created").inc()
+            if created.get("superseded"):
+                metrics.APPROVALS.labels(event="superseded").inc(len(created["superseded"]))
+                reply += f"\n\n（本次申请已替代本会话中尚未审批的申请：{', '.join(created['superseded'])}）"
+            if emit:
+                await emit("approval_required", {"approval_id": approval_id, "approvals_required": created["approvals_required"],
+                                                 "policy_version": created["policy_version"], "actions": approval["actions"]})
 
     response = ChatResponse(
-        request_id=rid, response=result.response, status=result.status, agent_type=result.agent_type.value,
-        intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=intent_result.entities,
+        request_id=rid, response=reply, status=result.status, agent_type=result.agent_type.value,
+        intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
-        intent_source_scores=intent_result.source_scores, clarification_needed=intent_result.clarification_needed,
-        missing_slots=intent_result.missing_slots, inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
+        intent_source_scores=intent_result.source_scores, clarification_needed=bool(req.conversation_state.get("missing_fields")),
+        missing_slots=req.conversation_state.get("missing_fields", []), inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
         tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used, latency_ms=result.latency_ms,
         escalated=result.escalated, plan=result.plan, findings=result.findings, approval_required=bool(approval), approval_id=approval_id,
         token_usage=result.token_usage,
     )
     if _memory:
-        trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id)
-        await _memory.commit_turn(payload.user_id, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
+        trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal)
+        await _memory.commit_turn(principal.subject, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
         if _profile_updater:
-            _profile_updater.submit(payload.user_id, conv_id)
+            _profile_updater.submit(principal.subject, conv_id)
         if result.intent and result.intent.value not in {"greeting", "chitchat"}:
             metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "agent_type": result.agent_type.value, "entities": intent_result.entities}
-            _spawn(_memory.store_episodic_turn(payload.user_id, conv_id, rid, payload.message, response.response, metadata))
+            _spawn(_memory.store_episodic_turn(principal.subject, conv_id, rid, payload.message, response.response, metadata))
     metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
     if _monitor:
@@ -524,35 +694,74 @@ async def _chat(payload: ChatRequest, rid: str):
     return response
 
 
-def _sse(event: str, data: Any) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+def _sse(event: str, data: Any, event_id: Optional[str] = None) -> str:
+    head = f"id: {event_id}\n" if event_id else ""
+    return f"{head}event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+async def _run_streamed(payload: ChatRequest, principal: Principal, rid: str, emit: EventPublisher) -> None:
+    """后台执行一整轮并实时写入事件流。与 SSE 连接解耦：客户端断开不会取消执行，重连后续读即可。"""
+    try:
+        raw = await _chat_entry(payload, principal, rid, emit)
+        response = raw if isinstance(raw, ChatResponse) else ChatResponse.model_validate(raw)
+        # 正文是最终回答的分片（不是模型 token 流）；执行过程已经通过上面的事件实时推送。
+        for index in range(0, len(response.response), 200):
+            await emit("content_delta", {"delta": response.response[index:index + 200]})
+        await emit("completed", response.model_dump())
+    except HTTPException as exc:
+        await emit("error", {"status_code": exc.status_code, "detail": exc.detail})
+    except Exception:
+        logger.exception("streamed chat failed")
+        await emit("error", {"status_code": 500, "detail": "stream_failed"})
+    finally:
+        if emit.first_event_s is not None:
+            metrics.STREAM_FIRST_EVENT.observe(emit.first_event_s)
+
+
+async def _subscribe(stream: str, after: Optional[str]):
+    heartbeat_s = float(os.getenv("IT_COPILOT_SSE_HEARTBEAT_S", "15"))
+    while True:
+        events = await _events.read(stream, after, block_s=heartbeat_s)
+        if not events:
+            yield ": heartbeat\n\n"
+            continue
+        for event_id, event, data in events:
+            after = event_id
+            yield _sse(event, data, event_id)
+            if event in TERMINAL_EVENTS:
+                return
+
+
+def _stream_response(stream: str, after: Optional[str]) -> StreamingResponse:
+    return StreamingResponse(_subscribe(stream, after), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/chat/stream")
-async def chat_stream(payload: ChatRequest):
-    """SSE facade preserving the normal chat transaction and idempotency path."""
-    async def generate():
-        yield _sse("status", {"stage": "started", "request_id": payload.client_request_id})
-        try:
-            raw = await chat(payload)
-            response = raw if isinstance(raw, ChatResponse) else ChatResponse.model_validate(raw)
-            if response.plan:
-                yield _sse("plan", response.plan)
-            for finding in response.findings:
-                yield _sse("step", finding)
-            for tool in response.tools_used:
-                yield _sse("tool", {"name": tool, "status": "finished"})
-            if response.approval_required:
-                yield _sse("approval_required", {"approval_id": response.approval_id})
-            text = response.response
-            for index in range(0, len(text), 80):
-                yield _sse("content_delta", {"delta": text[index:index + 80]})
-                await asyncio.sleep(0)
-            yield _sse("completed", response.model_dump())
-        except HTTPException as exc:
-            yield _sse("error", {"status_code": exc.status_code, "detail": exc.detail})
-        except Exception:
-            logger.exception("SSE chat failed")
-            yield _sse("error", {"status_code": 500, "detail": "stream_failed"})
+async def chat_stream(payload: ChatRequest, principal: Principal = Depends(current_principal)):
+    """实时执行事件流：intent → routed/plan → tool_started/tool_finished → approval_required → content_delta → completed。
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    每个事件带 id，可用 GET /chat/stream/{request_id} + Last-Event-ID 断线续传。相同 client_request_id 的
+    重复提交只订阅已有执行，不会再跑一遍。"""
+    if not _orchestrator:
+        raise HTTPException(503, "service not ready")
+    rid = _request_id(principal, payload.client_request_id)
+    stream = "chat:" + rid
+    if await _events.claim(stream, principal.subject):
+        emit = EventPublisher(_events, stream, time.monotonic())
+        await emit("status", {"stage": "started", "request_id": rid})
+        _spawn(_run_streamed(payload, principal, rid, emit))
+    elif await _events.owner(stream) != principal.subject:
+        raise _forbid()
+    return _stream_response(stream, None)
+
+
+@app.get("/chat/stream/{request_id}")
+async def chat_stream_resume(request_id: str, principal: Principal = Depends(current_principal),
+                             last_event_id: Optional[str] = Header(None, alias="Last-Event-ID")):
+    stream = "chat:" + request_id
+    owner = await _events.owner(stream)
+    if owner is None:
+        raise HTTPException(404, "stream not found or expired")
+    if owner != principal.subject:
+        raise _forbid()
+    return _stream_response(stream, last_event_id)

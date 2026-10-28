@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "suite": "stream_latency_v3",
+  "generated_at": "2026-10-29T00:12:47+0800",
+  "mode": "real uvicorn over loopback TCP; simulated model latency 0.8s x 3 calls/turn; fakeredis; not production latency",
+  "runs": 20,
+  "summary": {
+    "first_progress_s": {
+      "p50": 0.925,
+      "p95": 1.019,
+      "mean": 0.943
+    },
+    "first_tool_s": {
+      "p50": 1.734,
+      "p95": 1.827,
+      "mean": 1.752
+    },
+    "completed_s": {
+      "p50": 2.557,
+      "p95": 2.644,
+      "mean": 2.575
+    }
+  },
+  "baseline_note": "Previous SSE replayed events after the turn completed: its first progress event ~= completed_s.",
+  "rows": [
+    {
+      "first_progress_s": 0.816,
+      "first_tool_s": 1.623,
+      "completed_s": 2.434,
+      "event_times": {
+        "status": 0.005,
+        "intent": 0.816,
+        "routed": 0.817,
+        "tool_started": 1.623,
+        "tool_finished": 1.624,
+        "content_delta": 2.434,
+        "completed": 2.434
+      }
+    },
+    {
+      "first_progress_s": 0.882,
+      "first_tool_s": 1.691,
+      "completed_s": 2.52,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.882,
+        "routed": 0.883,
+        "tool_started": 1.691,
+        "tool_finished": 1.692,
+        "content_delta": 2.52,
+        "completed": 2.52
+      }
+    },
+    {
+      "first_progress_s": 1.019,
+      "first_tool_s": 1.827,
+      "completed_s": 2.644,
+      "event_times": {
+        "status": 0.02,
+        "intent": 1.019,
+        "routed": 1.02,
+        "tool_started": 1.827,
+        "tool_finished": 1.827,
+        "content_delta": 2.643,
+        "completed": 2.644
+      }
+    },
+    {
+      "first_progress_s": 0.918,
+      "first_tool_s": 1.724,
+      "completed_s": 2.539,
+      "event_times": {
+        "status": 0.015,
+        "intent": 0.918,
+        "routed": 0.919,
+        "tool_started": 1.724,
+        "tool_finished": 1.724,
+        "content_delta": 2.538,
+        "completed": 2.539
+      }
+    },
+    {
+      "first_progress_s": 0.938,
+      "first_tool_s": 1.742,
+      "completed_s": 2.558,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.938,
+        "routed": 0.938,
+        "tool_started": 1.742,
+        "tool_finished": 1.743,
+        "content_delta": 2.557,
+        "completed": 2.558
+      }
+    },
+    {
+      "first_progress_s": 0.914,
+      "first_tool_s": 1.721,
+      "completed_s": 2.538,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.914,
+        "routed": 0.915,
+        "tool_started": 1.721,
+        "tool_finished": 1.721,
+        "content_delta": 2.538,
+        "completed": 2.538
+      }
+    },
+    {
+      "first_progress_s": 0.925,
+      "first_tool_s": 1.73,
+      "completed_s": 2.548,
+      "event_times": {
+        "status": 0.005,
+        "intent": 0.925,
+        "routed": 0.926,
+        "tool_started": 1.73,
+        "tool_finished": 1.73,
+        "content_delta": 2.548,
+        "completed": 2.548
+      }
+    },
+    {
+      "first_progress_s": 0.917,
+      "first_tool_s": 1.725,
+      "completed_s": 2.548,
+      "event_times": {
+        "status": 0.016,
+        "intent": 0.917,
+        "routed": 0.918,
+        "tool_started": 1.725,
+        "tool_finished": 1.726,
+        "content_delta": 2.547,
+        "completed": 2.548
+      }
+    },
+    {
+      "first_progress_s": 0.923,
+      "first_tool_s": 1.73,
+      "completed_s": 2.549,
+      "event_times": {
+        "status": 0.003,
+        "intent": 0.923,
+        "routed": 0.923,
+        "tool_started": 1.73,
+        "tool_finished": 1.732,
+        "content_delta": 2.548,
+        "completed": 2.549
+      }
+    },
+    {
+      "first_progress_s": 0.944,
+      "first_tool_s": 1.751,
+      "completed_s": 2.572,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.944,
+        "routed": 0.944,
+        "tool_started": 1.751,
+        "tool_finished": 1.752,
+        "content_delta": 2.571,
+        "completed": 2.572
+      }
+    },
+    {
+      "first_progress_s": 0.918,
+      "first_tool_s": 1.724,
+      "completed_s": 2.557,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.918,
+        "routed": 0.918,
+        "tool_started": 1.724,
+        "tool_finished": 1.729,
+        "content_delta": 2.557,
+        "completed": 2.557
+      }
+    },
+    {
+      "first_progress_s": 0.928,
+      "first_tool_s": 1.737,
+      "completed_s": 2.554,
+      "event_times": {
+        "status": 0.005,
+        "intent": 0.928,
+        "routed": 0.929,
+        "tool_started": 1.737,
+        "tool_finished": 1.738,
+        "content_delta": 2.554,
+        "completed": 2.554
+      }
+    },
+    {
+      "first_progress_s": 0.916,
+      "first_tool_s": 1.727,
+      "completed_s": 2.554,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.916,
+        "routed": 0.917,
+        "tool_started": 1.727,
+        "tool_finished": 1.728,
+        "content_delta": 2.553,
+        "completed": 2.554
+      }
+    },
+    {
+      "first_progress_s": 0.989,
+      "first_tool_s": 1.794,
+      "completed_s": 2.614,
+      "event_times": {
+        "status": 0.019,
+        "intent": 0.989,
+        "routed": 0.989,
+        "tool_started": 1.794,
+        "tool_finished": 1.795,
+        "content_delta": 2.613,
+        "completed": 2.614
+      }
+    },
+    {
+      "first_progress_s": 0.927,
+      "first_tool_s": 1.737,
+      "completed_s": 2.559,
+      "event_times": {
+        "status": 0.005,
+        "intent": 0.927,
+        "routed": 0.928,
+        "tool_started": 1.737,
+        "tool_finished": 1.739,
+        "content_delta": 2.558,
+        "completed": 2.559
+      }
+    },
+    {
+      "first_progress_s": 0.925,
+      "first_tool_s": 1.734,
+      "completed_s": 2.55,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.925,
+        "routed": 0.926,
+        "tool_started": 1.734,
+        "tool_finished": 1.735,
+        "content_delta": 2.549,
+        "completed": 2.55
+      }
+    },
+    {
+      "first_progress_s": 0.923,
+      "first_tool_s": 1.727,
+      "completed_s": 2.582,
+      "event_times": {
+        "status": 0.004,
+        "intent": 0.923,
+        "routed": 0.924,
+        "tool_started": 1.727,
+        "tool_finished": 1.728,
+        "content_delta": 2.58,
+        "completed": 2.582
+      }
+    },
+    {
+      "first_progress_s": 1.27,
+      "first_tool_s": 2.08,
+      "completed_s": 2.915,
+      "event_times": {
+        "status": 0.016,
+        "intent": 1.27,
+        "routed": 1.271,
+        "tool_started": 2.08,
+        "tool_finished": 2.081,
+        "content_delta": 2.914,
+        "completed": 2.915
+      }
+    },
+    {
+      "first_progress_s": 0.943,
+      "first_tool_s": 1.756,
+      "completed_s": 2.591,
+      "event_times": {
+        "status": 0.007,
+        "intent": 0.943,
+        "routed": 0.946,
+        "tool_started": 1.756,
+        "tool_finished": 1.758,
+        "content_delta": 2.591,
+        "completed": 2.591
+      }
+    },
+    {
+      "first_progress_s": 0.929,
+      "first_tool_s": 1.75,
+      "completed_s": 2.571,
+      "event_times": {
+        "status": 0.006,
+        "intent": 0.929,
+        "routed": 0.93,
+        "tool_started": 1.75,
+        "tool_finished": 1.752,
+        "content_delta": 2.571,
+        "completed": 2.571
+      }
+    }
+  ]
+}

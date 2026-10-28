@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { createRequestState } from '../src/lib/requestState.js'
 
-function state() { return { backend:'python', userId:'a', conversationId:'', endpoints:{python:'/py'} } }
+function state() { return { backend:'python', conversationId:'', endpoints:{python:'/py'} } }
 
 test('changing the endpoint and back invalidates old responses', () => {
   const settings = state()

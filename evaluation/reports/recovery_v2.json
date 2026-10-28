@@ -1,0 +1,12 @@
+{
+  "suite": "recovery-v2",
+  "status": "passed",
+  "injected_failures": 10,
+  "checks": {
+    "cooled_after_failures": true,
+    "triage_fallback": true,
+    "single_probe": true,
+    "recovered": true
+  },
+  "limitations": "Local FunctionModel faults and advanced cooldown clock; not measured wall-clock MTTR or production availability."
+}

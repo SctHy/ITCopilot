@@ -1,3 +1,5 @@
+import { storedToken } from './auth.js'
+
 const DEFAULT_BACKENDS = {
   python: {
     id: 'python',
@@ -11,9 +13,9 @@ export function createInitialSettings() {
   const saved = readSettings()
   const savedPythonEndpoint = saved.endpoints?.python === '/api/python' ? 'http://127.0.0.1:8001' : saved.endpoints?.python
   return {
-    pythonToken: '',
+    // 身份由登录令牌决定（见 auth.js）；请求体不再携带 user_id / department。
+    accessToken: typeof sessionStorage === 'undefined' ? '' : storedToken(),
     backend: 'python',
-    userId: saved.userId || 'u1001',
     conversationId: saved.conversationId || '',
     endpoints: {
       python: savedPythonEndpoint || DEFAULT_BACKENDS.python.baseUrl
@@ -22,7 +24,7 @@ export function createInitialSettings() {
 }
 
 export function saveSettings(settings) {
-  localStorage.setItem('it-copilot.frontend.settings', JSON.stringify({ ...settings, pythonToken: undefined }))
+  localStorage.setItem('it-copilot.frontend.settings', JSON.stringify({ ...settings, accessToken: undefined }))
 }
 
 export function backendMeta(type, settings) {
@@ -35,6 +37,37 @@ export function backendMeta(type, settings) {
 
 export async function requestHealth(type, settings) {
   return requestFor(type, settings, '/health')
+}
+
+export async function requestApproval(type, settings, id, decision, hash) {
+  const path = `/approvals/${encodeURIComponent(id)}`
+  return requestFor(type, settings, path, decision ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision, payload_hash: hash })
+  } : {})
+}
+
+// 人工对账（IT 管理员）：结果未知或需复核的动作重新交给执行器，先回查目标系统再决定是否重做。
+export async function reconcileApproval(type, settings, id) {
+  return requestFor(type, settings, `/approvals/${encodeURIComponent(id)}/reconcile`, { method: 'POST' })
+}
+
+export async function listApprovals(type, settings, status = 'pending') {
+  return requestFor(type, settings, `/approvals?status=${encodeURIComponent(status)}`)
+}
+
+export async function requestAuthConfig(type, settings) {
+  return requestFor(type, settings, '/auth/config')
+}
+
+export async function requestMe(type, settings) {
+  return requestFor(type, settings, '/auth/me')
+}
+
+export async function requestDevToken(type, settings, username) {
+  return requestFor(type, settings, '/auth/dev-token', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username })
+  })
 }
 
 export async function requestMonitor(type, settings) {
@@ -66,7 +99,7 @@ export async function requestSearch(type, settings, query, topK = 5) {
 export async function requestChat(type, settings, message) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
-  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.userId, settings.conversationId, message])
+  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.conversationId, message])
   if (!chatAttempts.has(attemptKey)) {
     if (chatAttempts.size > 100) chatAttempts.clear()
     chatAttempts.set(attemptKey, crypto.randomUUID())
@@ -81,29 +114,66 @@ export async function requestChat(type, settings, message) {
   return normalizeChatResponse(type, raw)
 }
 
-export async function requestChatStream(type, settings, message, onEvent = () => {}) {
+// 实时事件流：每个 SSE 事件带 id；连接中断时用 Last-Event-ID 续读同一请求，服务端不会重复执行。
+export async function requestChatStream(type, settings, message, onEvent = () => {}, { maxResumes = 3 } = {}) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
-  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.userId, settings.conversationId, message])
+  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.conversationId, message])
   if (!chatAttempts.has(attemptKey)) chatAttempts.set(attemptKey, crypto.randomUUID())
   payload.client_request_id = chatAttempts.get(attemptKey)
-  const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'text/event-stream' })
-  if (settings.pythonToken) headers.set('Authorization', `Bearer ${settings.pythonToken}`)
-  const response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream`, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(120000) })
-  if (!response.ok || !response.body) { chatAttempts.delete(attemptKey); throw new Error(`${response.status} ${response.statusText}`) }
-  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let eventName = 'message'; let completed = null
-  const consume = (chunk) => {
-    buffer += decoder.decode(chunk, { stream: true }); const blocks = buffer.split('\n\n'); buffer = blocks.pop() || ''
-    for (const block of blocks) {
-      let data = ''
-      for (const line of block.split('\n')) { if (line.startsWith('event:')) eventName = line.slice(6).trim(); if (line.startsWith('data:')) data += line.slice(5).trim() }
-      if (!data) continue
-      let parsed; try { parsed = JSON.parse(data) } catch { parsed = { raw: data } }
-      onEvent(eventName, parsed); if (eventName === 'completed') completed = parsed; eventName = 'message'
+  const headers = authHeaders(settings, { 'Content-Type': 'application/json', Accept: 'text/event-stream' })
+  const state = { requestId: '', lastEventId: '', completed: null, failed: null }
+  let response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream`, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(180000) })
+  for (let resumes = 0; ; resumes++) {
+    if (!response.ok || !response.body) { chatAttempts.delete(attemptKey); throw new Error(`${response.status} ${response.statusText}`) }
+    try {
+      await readEventStream(response.body, (id, event, data) => {
+        if (id) state.lastEventId = id
+        if (event === 'status' && data.request_id) state.requestId = data.request_id
+        if (event === 'completed') state.completed = data
+        if (event === 'error') state.failed = data
+        onEvent(event, data)
+      })
+    } catch (error) {
+      if (!state.requestId || resumes >= maxResumes) throw error
     }
+    if (state.completed || state.failed || !state.requestId || resumes >= maxResumes) break
+    onEvent('resumed', { request_id: state.requestId, last_event_id: state.lastEventId })
+    response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream/${encodeURIComponent(state.requestId)}`, {
+      headers: authHeaders(settings, { Accept: 'text/event-stream', 'Last-Event-ID': state.lastEventId }), signal: AbortSignal.timeout(180000)
+    })
   }
-  while (true) { const { value, done } = await reader.read(); if (done) break; consume(value) }
-  chatAttempts.delete(attemptKey); if (!completed) throw new Error('流式响应未完成'); return normalizeChatResponse(type, completed)
+  chatAttempts.delete(attemptKey)
+  if (state.failed) throw new Error(`${state.failed.status_code || ''} ${state.failed.detail || '请求失败'}`.trim())
+  if (!state.completed) throw new Error('流式响应未完成')
+  return normalizeChatResponse(type, state.completed)
+}
+
+export async function readEventStream(body, onEvent) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const dispatch = (block) => {
+    let id = ''; let event = 'message'; let data = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('id:')) id = line.slice(3).trim()
+      else if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data += line.slice(5).trim()
+    }
+    if (!data) return  // 心跳注释行
+    let parsed
+    try { parsed = JSON.parse(data) } catch { parsed = { raw: data } }
+    onEvent(id, event, parsed)
+  }
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const blocks = buffer.split('\n\n')
+    buffer = blocks.pop() || ''
+    blocks.forEach(dispatch)
+  }
+  if (buffer.trim()) dispatch(buffer)
 }
 
 export async function requestToolTrace(type, settings, requestId) {
@@ -130,11 +200,13 @@ export async function uploadKnowledge(type, settings, file) {
 }
 
 function buildChatPayload(type, settings, message) {
-  return {
-    message,
-    user_id: settings.userId || 'anonymous',
-    conv_id: settings.conversationId || undefined
-  }
+  return { message, conv_id: settings.conversationId || undefined }
+}
+
+function authHeaders(settings, extra = {}) {
+  const headers = new Headers(extra)
+  if (settings.accessToken) headers.set('Authorization', `Bearer ${settings.accessToken}`)
+  return headers
 }
 
 function normalizeChatResponse(type, raw) {
@@ -187,8 +259,7 @@ export function normalizeToolTraceResponse(raw) {
 
 const chatAttempts = new Map()
 async function requestFor(type, settings, path, options = {}) {
-  const headers = new Headers(options.headers || {})
-  if (settings.pythonToken) headers.set('Authorization', `Bearer ${settings.pythonToken}`)
+  const headers = authHeaders(settings, options.headers || {})
   return requestJson(backendMeta(type, settings).baseUrl, path, { ...options, headers,
     signal: options.signal || AbortSignal.timeout(path === '/chat' || path === '/chat/stream' ? 120000 : 20000) })
 }
