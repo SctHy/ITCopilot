@@ -22,12 +22,16 @@ os.environ.setdefault("no_proxy", os.environ["NO_PROXY"])
 
 from core.intent_recognizer import IntentRecognizer
 from evaluation.evaluator import IntentEvaluator, load_intent_cases
+from evaluation.reporting import DATASETS_DIR, REPORTS_DIR, status
+
+
+PASS_ACCURACY = 0.75
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default=str(ROOT / "evaluation/datasets/intent_v1.json"))
-    parser.add_argument("--output", default=str(ROOT / "evaluation/reports/intent_latest.json"))
+    parser.add_argument("--dataset", default=str(DATASETS_DIR / "intent_v1.json"))
+    parser.add_argument("--output", default=str(REPORTS_DIR / "intent_latest.json"))
     args = parser.parse_args()
     cases = load_intent_cases(args.dataset)
     recognizer = IntentRecognizer(
@@ -36,7 +40,7 @@ async def main() -> int:
         os.getenv("ANTHROPIC_MODEL", "deepseek-chat"),
     )
     metrics = await IntentEvaluator(recognizer).evaluate(cases)
-    metrics["status"] = "passed" if metrics.get("accuracy", 0) >= 0.75 else "failed"
+    metrics["status"] = status(metrics.get("accuracy", 0) >= PASS_ACCURACY)
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -46,7 +50,7 @@ async def main() -> int:
         print("WARNING: 本次没有调用 LLM；结果是规则兜底基线，不代表真实 Tool Use 质量。")
     elif metrics.get("llm_success", 0) == 0:
         print(f"WARNING: LLM 调用全部失败，已使用 fallback；失败类型={metrics.get('last_error')}")
-    return 0 if metrics["accuracy"] >= 0.75 else 1
+    return 0 if metrics["status"] == "passed" else 1
 
 
 if __name__ == "__main__":

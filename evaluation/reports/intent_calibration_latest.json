@@ -16,8 +16,7 @@
   "brier_before": 0.168457,
   "brier_after": 0.11471,
   "thresholds": {
-    "clarify": 0.6,
-    "handoff": 0.35
+    "clarify": 0.6
   },
   "status": "passed"
 }
