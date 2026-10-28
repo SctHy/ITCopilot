@@ -1,11 +1,10 @@
 #!/bin/sh
 set -eu
 
-cat >/usr/share/nginx/html/runtime-config.js <<EOF
+cat >/usr/share/nginx/html/runtime-config.js <<CONFIG
 window.__IT_COPILOT_CONFIG__ = {
-  pythonApiUrl: "${PYTHON_API_URL:-/api/python}",
-  javaApiUrl: "${JAVA_API_URL:-/api/java}"
+  pythonApiUrl: "${PYTHON_API_URL:-/api}"
 };
-EOF
+CONFIG
 
 exec nginx -g "daemon off;"

@@ -4,14 +4,14 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { createRequestState } from '../src/lib/requestState.js'
 
-function state() { return { backend:'python', userId:'a', conversationId:'', endpoints:{python:'/py',java:'/java'} } }
+function state() { return { backend:'python', userId:'a', conversationId:'', endpoints:{python:'/py'} } }
 
-test('switching away and back invalidates old responses', () => {
+test('changing the endpoint and back invalidates old responses', () => {
   const settings = state()
   const requests = createRequestState(settings)
   const old = requests.begin('stats')
-  settings.backend = 'java'; requests.invalidate()
-  settings.backend = 'python'; requests.invalidate()
+  settings.endpoints.python = '/other'; requests.invalidate()
+  settings.endpoints.python = '/py'; requests.invalidate()
   assert.equal(old.isCurrent(), false)
   assert.equal(requests.begin('stats').isCurrent(), true)
 })
@@ -39,7 +39,8 @@ function loadFunction(name, context) {
 
 for (const [name, requestName, field, result] of [
   ['loadStats','requestKnowledgeStats','knowledgeCount',{total_chunks: 99}],
-  ['loadMonitor','requestMonitor','monitorData',{agent_stats:{old:true}}],
+  ['loadMonitor','requestMonitor','monitorData',{agents:{old:true}}],
+  ['loadReports','requestEvaluationReports','evalReports',{gate:{all_passed:true},suites:[]}],
   ['loadSkills','requestSkills','skillsData',{skills:['old']}],
 ]) {
   for (const fail of [false,true]) {
@@ -51,24 +52,10 @@ for (const [name, requestName, field, result] of [
       const context = vm.createContext({settings,requestState:requests,[field]:{value:'new'},[requestName]:()=>pending})
       loadFunction(name,context)
       const task = context[name]()
-      settings.backend='java'; requests.invalidate()
+      settings.endpoints.python='/other'; requests.invalidate()
       if (fail) reject(new Error('old')); else resolve(result)
       await task
       assert.equal(context[field].value,'new')
     })
   }
 }
-
-test('stale eval response does not clear a new operation busy state', async () => {
-  const settings=state(), requests=createRequestState(settings)
-  let resolve
-  const context=vm.createContext({settings, requestState:requests, busy:{value:false},evalData:{value:'new'},
-    statusText:{value:''}, showToast:()=>assert.fail('stale toast'), requestEvaluation:()=>new Promise(a=>{resolve=a})})
-  loadFunction('runEvaluation',context)
-  const task=context.runEvaluation()
-  settings.backend='java'; requests.invalidate(); context.busy.value=true
-  resolve({avg_scores:{accuracy:0.5}})
-  await task
-  assert.equal(context.evalData.value,'new')
-  assert.equal(context.busy.value,true)
-})

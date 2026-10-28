@@ -56,17 +56,6 @@
             <i :class="healthOk ? 'online' : 'offline'"></i>
             {{ healthOk ? '已连接' : healthLabel === '未检查' ? '连接中' : '未连接' }}
           </span>
-          <div class="backend-tabs" aria-label="选择后端">
-            <button
-              v-for="backend in ['java', 'python']"
-              :key="backend"
-              :class="{ active: settings.backend === backend }"
-              :aria-pressed="settings.backend === backend"
-              @click="switchBackend(backend)"
-            >
-              {{ backend === 'java' ? 'Java' : 'Python' }}
-            </button>
-          </div>
           <button class="icon-button settings-button" aria-label="连接配置" title="连接配置" @click="openConnection">
             <AppIcon name="sliders" />
           </button>
@@ -309,92 +298,96 @@
       <section v-else class="page page-evaluation">
         <div class="page-heading">
           <div class="heading-copy">
-            <span class="kicker">EVALUATION LAB</span>
-            <h1>评测中心</h1>
-            <p>检查意图识别、回复质量与回归结果。</p>
+            <span class="kicker">OPERATIONS</span>
+            <h1>运行与评测</h1>
+            <p>实时 SLO 燃烧率、告警与 Agent 健康度，以及最新离线评测结果。</p>
           </div>
-          <button @click="performAction('evaluation', runEvaluation)" :disabled="busy">
-            <AppIcon :name="busy && pendingAction === 'evaluation' ? 'refresh' : 'play'" :class="{ spinning: busy && pendingAction === 'evaluation' }" />
-            {{ busy && pendingAction === 'evaluation' ? '评测运行中' : '运行评测' }}
+          <button @click="performAction('operations', loadOperations)" :disabled="busy">
+            <AppIcon name="refresh" :class="{ spinning: busy && pendingAction === 'operations' }" />
+            刷新
           </button>
         </div>
-        <div v-if="evalData" class="evaluation-content">
+        <div class="evaluation-content">
           <div class="evaluation-summary">
             <div class="score-hero">
-              <span>PASS RATE · 通过率</span>
-              <strong :class="{ 'no-score': evalData.valid_total === 0 }">{{ evalData.valid_total === 0 ? '无有效评分' : formatPercent(evalData.pass_rate) }}</strong>
-              <small>{{ evalData.passed }} / {{ evalData.valid_total ?? evalData.total }} 有效用例通过</small>
+              <span>SERVICE STATUS · 服务状态</span>
+              <strong :class="serviceStatus.className">{{ serviceStatus.label }}</strong>
+              <small>{{ monitorSummary.last_tick ? `最近评估 ${formatTime(monitorSummary.last_tick)}` : '等待监控首次评估' }}</small>
+            </div>
+            <div v-for="slo in monitorSummary.slos" :key="slo.name">
+              <span>{{ sloLabels[slo.name] || slo.name }} · 1h 燃烧率</span>
+              <strong :class="slo.burn_rate['1h'] > 6 ? 'danger' : 'success'">{{ slo.burn_rate['1h'] }}x</strong>
+              <small>目标 {{ formatPercent(slo.target) }} · 近 1h {{ slo.requests_1h }} 次 / {{ slo.bad_1h }} 次不达标</small>
             </div>
             <div>
-              <span>通过用例</span>
-              <strong>{{ evalData.passed }}</strong>
-            </div>
-            <div>
-              <span>总数 / 评分失败</span>
-              <strong>
-                {{ evalData.total }}
-                <small> / {{ evalData.evaluation_errors ?? 0 }}</small>
-              </strong>
-            </div>
-            <div>
-              <span>回归问题</span>
-              <strong :class="evalData.regressions?.length ? 'danger' : 'success'">{{ evalData.regressions?.length || 0 }}</strong>
+              <span>触发中的告警</span>
+              <strong :class="monitorSummary.alerts.length ? 'danger' : 'success'">{{ monitorSummary.alerts.length }}</strong>
+              <small>近期已恢复 {{ monitorSummary.recent_resolved.length }} 条</small>
             </div>
           </div>
           <div class="evaluation-layout">
             <section class="workspace-card">
               <div class="card-heading">
                 <div>
-                  <span class="kicker">QUALITY SCORES</span>
-                  <h2>平均评分</h2>
+                  <span class="kicker">ALERTS</span>
+                  <h2>告警与处置建议</h2>
                 </div>
               </div>
-              <p v-if="!Object.keys(evalData.avg_scores || {}).length" class="muted">没有有效评分，请查看失败原因。</p>
-              <div class="score-list">
-                <div v-for="(value, key) in evalData.avg_scores" :key="key">
-                  <span>{{ key }}</span>
-                  <i>
-                    <b :style="{ width: `${Math.max(0, Math.min(Number(value) * 100, 100))}%` }"></b>
-                  </i>
-                  <strong>{{ Number(value).toFixed(2) }}</strong>
-                </div>
+              <p v-if="!monitorSummary.alerts.length" class="muted">当前没有触发中的告警。</p>
+              <div v-for="alert in monitorSummary.alerts" :key="alert.key" class="evaluation-warning">
+                <strong :class="alert.severity === 'critical' ? 'danger' : 'warning'">{{ alert.severity === 'critical' ? '严重' : '警告' }} · {{ alert.key }}</strong>
+                <p>{{ alert.message }}</p>
+                <small v-if="alert.action">{{ alert.action }}</small>
               </div>
             </section>
             <section class="workspace-card">
               <div class="card-heading">
                 <div>
-                  <span class="kicker">RECOMMENDATIONS</span>
-                  <h2>优化建议</h2>
+                  <span class="kicker">AGENTS · TOOLS</span>
+                  <h2>组件健康度</h2>
                 </div>
               </div>
-              <p v-if="evalData.regression_note" class="muted">{{ evalData.regression_note }}</p>
-              <div v-if="evalData.recommendations?.length" class="recommendations">
-                <p v-for="(item, index) in evalData.recommendations" :key="index">{{ item }}</p>
+              <div class="score-list">
+                <div v-for="(agent, key) in monitorData.agents" :key="key">
+                  <span>{{ key }} · {{ agentStateLabels[agent.state] || agent.state }}</span>
+                  <i>
+                    <b :style="{ width: `${agent.recent_total ? agent.recent_success_rate * 100 : 0}%` }"></b>
+                  </i>
+                  <strong>{{ agent.recent_total ? formatPercent(agent.recent_success_rate) : '—' }}</strong>
+                </div>
               </div>
-              <p v-else class="muted">本次评测没有返回额外建议。</p>
-              <div v-for="(result, index) in evalData.regressions || []" :key="index" class="evaluation-warning">
-                <strong class="danger">回归问题</strong>
-                <p>{{ typeof result === 'string' ? result : formatJson(result) }}</p>
-              </div>
-              <div v-for="result in (evalData.results || []).filter(item => item.metadata?.judge_failed)" :key="result.test_id" class="evaluation-warning">
-                <strong class="danger">{{ result.test_id }}：评分失败</strong>
-                <p>{{ result.metadata.judge_error || '模型未返回有效评分' }}</p>
-                <small>{{ result.metadata.judge_attempts ?? '—' }} 次尝试</small>
+              <div class="health-rows">
+                <p v-for="(tool, name) in monitorData.tools" :key="name">
+                  <span>{{ name }}</span>
+                  <strong :class="tool.circuit_state === 'closed' ? 'success' : 'danger'">{{ tool.circuit_state }}</strong>
+                </p>
+                <p v-for="server in monitorData.mcp?.servers || []" :key="server.name">
+                  <span>MCP · {{ server.name }}（{{ server.tools.length }} 个工具）</span>
+                  <strong :class="server.state === 'connected' ? 'success' : 'danger'">{{ server.state }}</strong>
+                </p>
+                <p v-if="!monitorData.mcp?.servers?.length" class="muted">未启用外部 MCP 服务。</p>
               </div>
             </section>
           </div>
-        </div>
-        <div v-else class="evaluation-empty">
-          <span class="empty-emblem">
-            <AppIcon name="chart" />
-          </span>
-          <h2>{{ busy && pendingAction === 'evaluation' ? '正在检验每一份答案。' : '了解 Agent 的表现' }}</h2>
-          <p>{{ busy && pendingAction === 'evaluation' ? '评测需要一些时间，结果返回后会显示在这里。' : '运行一次评测，了解 Agent 的表现与改进空间。' }}</p>
-          <div class="evaluation-dimensions">
-            <span>意图识别</span>
-            <span>回复质量</span>
-            <span>回归检测</span>
-          </div>
+          <section class="workspace-card">
+            <div class="card-heading">
+              <div>
+                <span class="kicker">OFFLINE EVALUATION</span>
+                <h2>离线评测</h2>
+              </div>
+              <span class="count-tag" :class="evalReports?.gate.all_passed ? 'success' : 'danger'">{{ evalReports ? (evalReports.gate.all_passed ? '门禁通过' : '门禁未通过') : '未加载' }}</span>
+            </div>
+            <p class="muted">由 <code>scripts/evaluate_all.py</code> 基于固定数据集生成，页面只读取报告，不在线调用模型。</p>
+            <div class="report-grid">
+              <div v-for="suite in evalReports?.suites || []" :key="suite.id" class="report-card">
+                <strong>{{ suite.title }} <small :class="suite.status === 'passed' ? 'success' : 'danger'">{{ suite.status }}</small></strong>
+                <p v-for="metric in suite.metrics" :key="metric.label">
+                  <span>{{ metric.label }}</span>
+                  <b>{{ formatMetric(metric) }}</b>
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -435,8 +428,8 @@
           <span>会话 ID</span>
           <input v-model="connectionDraft.conversationId" placeholder="留空以自动生成" />
         </label>
-        <label v-if="settings.backend === 'python'">
-          <span>API 访问 Token（启用鉴权时填写，仅本页保存）</span>
+        <label>
+          <span>管理员 Token（服务端设置了 IT_COPILOT_ADMIN_TOKEN 时，知识库写入与审批需要；仅保存在本页）</span>
           <input v-model="connectionDraft.pythonToken" type="password" autocomplete="off" placeholder="不是模型 API Key" />
         </label>
         <div class="dialog-health">
@@ -478,7 +471,7 @@ import {
   requestSearch,
   requestToolTrace,
   requestSkills,
-  runEvaluation as requestEvaluation,
+  requestEvaluationReports,
   saveSettings,
   uploadKnowledge
 } from './lib/backends'
@@ -513,7 +506,7 @@ const searched = ref(false)
 const views = [
   { id: 'chat', label: '对话', icon: 'chat' },
   { id: 'knowledge', label: '知识库', icon: 'book' },
-  { id: 'evaluation', label: '评测', icon: 'chart' }
+  { id: 'evaluation', label: '运行与评测', icon: 'chart' }
 ]
 const prompts = [
   { label: 'VPN 连不上', text: 'VPN 连不上，错误码 VPN-691，应该怎么排查？' },
@@ -521,11 +514,21 @@ const prompts = [
   { label: '申请权限', text: '请帮我申请 GitLab 项目只读权限。' }
 ]
 const currentView = computed(() => views.find(view => view.id === activeView.value))
-const monitorData = ref({ agent_stats: {}, tool_stats: {}, active_alerts: [], suggestions: [] })
+const emptyMonitor = () => ({ agents: {}, tools: {}, monitor: null, mcp: { servers: [] } })
+const monitorData = ref(emptyMonitor())
 const skillsData = ref({ count: 0, skills: [], errors: [] })
 const lastResponse = ref(null)
 const lastTrace = ref(null)
-const evalData = ref(null)
+const evalReports = ref(null)
+const sloLabels = { chat_availability: '可用性', chat_latency: '延迟达标率' }
+const agentStateLabels = { healthy: '健康', cooling: '降级冷却', half_open: '待探测', probing: '探测中' }
+const monitorSummary = computed(() => monitorData.value.monitor || { status: 'unknown', slos: [], alerts: [], recent_resolved: [], last_tick: null })
+const serviceStatus = computed(() => ({
+  ok: { label: '正常', className: 'success' },
+  degraded: { label: '降级', className: 'warning' },
+  critical: { label: '严重', className: 'danger' }
+}[monitorSummary.value.status] || { label: monitorData.value.loaded ? '未知' : '未连接', className: '' }))
+let operationsTimer
 const toast = ref('')
 let toastTimer
 let messageSequence = 0
@@ -535,10 +538,17 @@ const docsUrl = computed(() => `${currentBackend.value.baseUrl}/docs`)
 const userInitial = computed(() => (settings.userId || 'U').slice(0, 1).toUpperCase())
 
 watch(() => settings.conversationId, persist)
+watch(activeView, view => {
+  clearInterval(operationsTimer)
+  if (view !== 'evaluation') return
+  loadOperations()
+  operationsTimer = setInterval(loadOperations, 15000)
+})
 onMounted(refreshConsole)
 onBeforeUnmount(() => {
   requestState.invalidate()
   clearTimeout(toastTimer)
+  clearInterval(operationsTimer)
 })
 
 function persist() { saveSettings(settings) }
@@ -579,8 +589,8 @@ function saveConnection() {
     lastTrace.value = null
     searchResults.value = []
     searched.value = false
-    evalData.value = null
-    monitorData.value = { agent_stats: {}, tool_stats: {}, active_alerts: [], suggestions: [] }
+    evalReports.value = null
+    monitorData.value = emptyMonitor()
     skillsData.value = { count: 0, skills: [], errors: [] }
     knowledgeCount.value = '—'
     healthOk.value = false
@@ -607,26 +617,6 @@ async function copyMessage(content) {
   }
 }
 
-function switchBackend(type) {
-  if (settings.backend === type) return
-  searched.value = false
-  requestState.invalidate()
-  busy.value = false
-  statusText.value = ''
-  knowledgeCount.value = '-'
-  monitorData.value = { agent_stats: {}, tool_stats: {}, active_alerts: [], suggestions: [] }
-  skillsData.value = { count: 0, skills: [], errors: [] }
-  evalData.value = null
-  settings.backend = type
-  persist()
-  healthOk.value = false
-  healthLabel.value = '未检查'
-  messages.value = []
-  searchResults.value = []
-  lastResponse.value = null
-  lastTrace.value = null
-  refreshConsole()
-}
 
 async function refreshConsole() {
   await Promise.allSettled([checkHealth(), loadStats(), loadMonitor(), loadSkills()])
@@ -667,7 +657,7 @@ async function loadMonitor() {
     const data = await requestMonitor(request.backend, request.settings)
     if (request.isCurrent()) monitorData.value = { ...data, loaded: true }
   } catch {
-    if (request.isCurrent()) monitorData.value = { agent_stats: {}, tool_stats: {}, active_alerts: [], suggestions: [] }
+    if (request.isCurrent()) monitorData.value = emptyMonitor()
   }
 }
 
@@ -811,24 +801,18 @@ async function handleUpload(event) {
   } finally { if (request.isCurrent()) busy.value = false }
 }
 
-async function runEvaluation() {
-  const request = requestState.begin('action')
-  busy.value = true
+async function loadReports() {
+  const request = requestState.begin('reports')
   try {
-    const data = await requestEvaluation(request.backend, request.settings, null, {
-      isCurrent: request.isCurrent,
-      onProgress: job => {
-        if (request.isCurrent()) statusText.value = `评测任务 ${job.job_id}：${job.status === 'queued' ? '排队中' : '运行中'}，已完成 ${job.completed}/${job.total} 组`
-      }
-    })
-    if (!request.isCurrent()) return
-    evalData.value = data
-    showToast(data.status === 'failed' ? '评测执行失败，请查看结果' : data.status === 'partial' ? '评测部分完成，请查看失败原因' : '评测完成')
-  } catch (error) {
-    if (!request.isCurrent()) return
-    statusText.value = error.message
-    showToast('评测运行失败')
-  } finally { if (request.isCurrent()) busy.value = false }
+    const data = await requestEvaluationReports(request.backend, request.settings)
+    if (request.isCurrent()) evalReports.value = data
+  } catch {
+    if (request.isCurrent()) evalReports.value = null
+  }
+}
+
+async function loadOperations() {
+  await Promise.allSettled([loadMonitor(), loadReports()])
 }
 
 async function loadToolTrace(requestId, request = requestState.begin('trace')) {
@@ -842,6 +826,16 @@ async function loadToolTrace(requestId, request = requestState.begin('trace')) {
 function formatPercent(value) {
   const number = Number(value || 0)
   return `${(number <= 1 ? number * 100 : number).toFixed(1)}%`
+}
+
+function formatMetric(metric) {
+  if (metric.value === null || metric.value === undefined) return '—'
+  return metric.format === 'percent' ? formatPercent(metric.value) : String(metric.value)
+}
+
+function formatTime(iso) {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString()
 }
 
 function formatJson(value) {

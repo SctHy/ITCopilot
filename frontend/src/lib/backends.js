@@ -1,16 +1,9 @@
-import { pollEvaluation } from './evaluationJobs.js'
 const DEFAULT_BACKENDS = {
   python: {
     id: 'python',
     label: 'Python',
     baseUrl: runtimeConfig().pythonApiUrl || import.meta.env?.VITE_PYTHON_API_URL || 'http://127.0.0.1:8001',
     port: '8001'
-  },
-  java: {
-    id: 'java',
-    label: 'Java',
-    baseUrl: runtimeConfig().javaApiUrl || import.meta.env?.VITE_JAVA_API_URL || '/api/java',
-    port: '8080'
   }
 }
 
@@ -19,12 +12,11 @@ export function createInitialSettings() {
   const savedPythonEndpoint = saved.endpoints?.python === '/api/python' ? 'http://127.0.0.1:8001' : saved.endpoints?.python
   return {
     pythonToken: '',
-    backend: saved.backend || import.meta.env.VITE_DEFAULT_BACKEND || 'python',
+    backend: 'python',
     userId: saved.userId || 'u1001',
     conversationId: saved.conversationId || '',
     endpoints: {
-      python: savedPythonEndpoint || DEFAULT_BACKENDS.python.baseUrl,
-      java: saved.endpoints?.java || DEFAULT_BACKENDS.java.baseUrl
+      python: savedPythonEndpoint || DEFAULT_BACKENDS.python.baseUrl
     }
   }
 }
@@ -34,7 +26,7 @@ export function saveSettings(settings) {
 }
 
 export function backendMeta(type, settings) {
-  const meta = DEFAULT_BACKENDS[type] || DEFAULT_BACKENDS.java
+  const meta = DEFAULT_BACKENDS[type] || DEFAULT_BACKENDS.python
   return {
     ...meta,
     baseUrl: normalizeBaseUrl(settings.endpoints[type] || meta.baseUrl)
@@ -61,25 +53,9 @@ export async function requestKnowledgeStats(type, settings) {
   return requestFor(type, settings, '/knowledge/stats')
 }
 
-export async function runEvaluation(type, settings, body = null, options = {}) {
-  const taskKey = `it-copilot.eval:${type}:${backendMeta(type, settings).baseUrl}:${settings.userId}`
-  const savedJob = type === 'python' ? sessionStorage.getItem(taskKey) : null
-  const initial = savedJob ? {job_id: savedJob, status: 'queued', completed: 0, total: 0} : await requestFor(type, settings, '/eval/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  })
-  if (!initial.job_id) return initial // Java 后端仍兼容同步报告。
-  sessionStorage.setItem(taskKey, initial.job_id)
-  try {
-    const result = await pollEvaluation(initial, jobId => requestFor(type, settings,
-      `/eval/jobs/${encodeURIComponent(jobId)}`), options)
-    if (result) sessionStorage.removeItem(taskKey)
-    return result
-  } catch (error) {
-    if (error.terminal || error.status === 404) sessionStorage.removeItem(taskKey)
-    throw error
-  }
+// 离线评测报告（scripts/evaluate_all.py 生成）；只读，不在线触发 LLM 评测。
+export async function requestEvaluationReports(type, settings) {
+  return requestFor(type, settings, '/eval/reports')
 }
 
 export async function requestSearch(type, settings, query, topK = 5) {
@@ -91,13 +67,11 @@ export async function requestChat(type, settings, message) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
   const attemptKey = JSON.stringify([type, meta.baseUrl, settings.userId, settings.conversationId, message])
-  if (type === 'python') {
-    if (!chatAttempts.has(attemptKey)) {
-      if (chatAttempts.size > 100) chatAttempts.clear()
-      chatAttempts.set(attemptKey, crypto.randomUUID())
-    }
-    payload.client_request_id = chatAttempts.get(attemptKey)
+  if (!chatAttempts.has(attemptKey)) {
+    if (chatAttempts.size > 100) chatAttempts.clear()
+    chatAttempts.set(attemptKey, crypto.randomUUID())
   }
+  payload.client_request_id = chatAttempts.get(attemptKey)
   const raw = await requestFor(type, settings, '/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -108,7 +82,6 @@ export async function requestChat(type, settings, message) {
 }
 
 export async function requestChatStream(type, settings, message, onEvent = () => {}) {
-  if (type !== 'python') return requestChat(type, settings, message)
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
   const attemptKey = JSON.stringify([type, meta.baseUrl, settings.userId, settings.conversationId, message])
@@ -215,7 +188,7 @@ export function normalizeToolTraceResponse(raw) {
 const chatAttempts = new Map()
 async function requestFor(type, settings, path, options = {}) {
   const headers = new Headers(options.headers || {})
-  if (type === 'python' && settings.pythonToken) headers.set('Authorization', `Bearer ${settings.pythonToken}`)
+  if (settings.pythonToken) headers.set('Authorization', `Bearer ${settings.pythonToken}`)
   return requestJson(backendMeta(type, settings).baseUrl, path, { ...options, headers,
     signal: options.signal || AbortSignal.timeout(path === '/chat' || path === '/chat/stream' ? 120000 : 20000) })
 }

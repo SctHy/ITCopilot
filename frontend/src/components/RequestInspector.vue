@@ -100,7 +100,7 @@
       </div>
       <p v-if="activeAlerts.length" class="alert-note">
         <AppIcon name="alert" />
-        {{ activeAlerts[0].detail || activeAlerts[0].title }}
+        {{ activeAlerts[0].message }}
       </p>
       <p v-else class="runtime-note">{{ monitorData.loaded ? '当前没有活跃告警' : '连接服务后查看运行状态' }}</p>
     </section>
@@ -118,9 +118,10 @@ const props = defineProps({
   monitorData: { type: Object, required: true }
 })
 defineEmits(['refresh'])
-const activeAlerts = computed(() => props.monitorData.active_alerts || [])
-const agentCount = computed(() => Object.keys(props.monitorData.agent_stats || {}).length)
-const totalRequests = computed(() => Object.values(props.monitorData.agent_stats || {}).reduce((sum, item) => sum + Number(item.total || 0), 0))
+// /monitor 响应：{ agents, tools, monitor: { alerts, slos, ... }, mcp }
+const activeAlerts = computed(() => props.monitorData.monitor?.alerts || [])
+const agentCount = computed(() => Object.keys(props.monitorData.agents || {}).length)
+const totalRequests = computed(() => Object.values(props.monitorData.agents || {}).reduce((sum, item) => sum + Number(item.total || 0), 0))
 function formatPercent(value) {
   const number = Number(value || 0)
   return `${(number <= 1 ? number * 100 : number).toFixed(1)}%`

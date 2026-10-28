@@ -1,115 +1,24 @@
 # IT-Copilot Frontend
 
-独立 Vue 前端项目，可同时连接 IT-Copilot Python 版本和 IT-Copilot Java 版本。
+Vue 3 + Vite 前端，对接本仓库的 IT-Copilot API。
 
-项目目录：
+| 页面 | 内容 |
+|---|---|
+| 对话 | SSE 流式回复、意图 / 路由 / 工具调用追踪、审批状态 |
+| 知识库 | 混合检索调试、文档录入与 TXT / Markdown / JSON 导入 |
+| 运行与评测 | 实时 SLO 燃烧率、告警与处置建议、Agent / 工具 / MCP 健康度，最新离线评测报告（每 15 秒刷新） |
 
-```text
-./IT-CopilotFrontend
-```
-
-## 功能
-
-- 在页面中切换 Java / Python 后端。
-- 统一适配 `/chat` 响应字段：
-  - Python：`conv_id`、`agent_type`、`latency_ms`
-  - Java：`conversation_id`、`agent_type`、`latency_ms`
-- 支持聊天调试、健康检查、监控摘要、知识库检索、知识库文档导入、文件上传。
-- 支持 Docker + Nginx 部署。
-
-## 默认后端地址
-
-| 后端 | 默认地址 |
-|------|----------|
-| Python | `http://localhost:8000` |
-| Java | `http://localhost:8080` |
-
-开发模式下，Vite 会代理：
-
-| 前端路径 | 代理到 |
-|----------|--------|
-| `/api/python` | `http://localhost:8000` |
-| `/api/java` | `http://localhost:8080` |
-
-Docker 模式下，Nginx 会通过运行时注入的地址访问后端。默认仍指向宿主机上的 Python / Java 服务。
-
-## 本地运行
-
-安装依赖：
+## 本地开发
 
 ```bash
-npm install
+npm ci
+npm run dev -- --host 127.0.0.1 --port 5173   # 默认连接 http://127.0.0.1:8001
+npm test                                      # node:test
+npm run build
 ```
 
-启动：
+API 地址可在页面右上角“连接配置”中修改，也可用 `VITE_PYTHON_API_URL` 覆盖默认值。服务端设置了 `IT_COPILOT_ADMIN_TOKEN` 时，在连接配置中填写管理员 Token 后才能写入知识库和处理审批。
 
-```bash
-npm run dev
-```
+## Docker
 
-访问：
-
-```text
-http://localhost:5173
-```
-
-如果后端端口不是默认值，可以启动时覆盖：
-
-```bash
-VITE_PYTHON_API_URL=http://localhost:8000 \
-VITE_JAVA_API_URL=http://localhost:8080 \
-npm run dev
-```
-
-## Docker 部署
-
-先分别配置 `../IT-Copilot/.env` 和 `../IT-CopilotJava/.env`，再启动完整服务：
-
-```bash
-docker compose up -d --build
-```
-
-前提是 `IT-CopilotFrontend` 的父目录下有这三个目录：
-
-```text
-../IT-Copilot
-../IT-CopilotJava
-./
-```
-
-访问前端：
-
-```text
-http://localhost
-```
-
-如果只想暴露前端端口，可改 `FRONTEND_PORT`，默认仍可通过 `80` 统一入口访问。
-
-停止：
-
-```bash
-docker compose down
-```
-
-## 后端启动参考
-
-Python 版默认：
-
-```text
-http://localhost:8000
-```
-
-Java 版默认：
-
-```text
-http://localhost:8080
-```
-
-两个后端不需要同时启动。前端页面里选择当前要调试的后端即可。
-
-
-后端 Compose 服务通过 `env_file` 自动读取各自项目的 `.env`，普通启动不再需要额外 `--env-file`。
-共享 Redis 的密码和前端端口仍由前端目录的 `.env`、shell 或显式 `--env-file` 提供；
-Compose 中的 Redis 连接配置会覆盖后端文件内的 Redis 设置，保证两个后端连接同一个服务。
-Python 文件中的 `EVAL_JUDGE_MODEL`、`EVAL_JUDGE_MAX_TOKENS` 等配置也会完整传入容器。
-手动选择的后端不会因健康检查失败而改变；切换后端后，旧请求不能覆盖新页面的状态或回复。
+由仓库根目录的 `docker-compose.yml` 构建：nginx 托管静态资源，并把 `/api/` 同源反向代理到 api 服务（对 SSE 关闭缓冲）。容器启动时 `docker/entrypoint.sh` 按 `PYTHON_API_URL`（默认 `/api`）生成 `runtime-config.js`。
