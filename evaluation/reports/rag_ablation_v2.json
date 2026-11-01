@@ -11,7 +11,7 @@
       "recall_at_3": 0.95,
       "mrr": 0.8833333333333334,
       "department_leaks": 0,
-      "mean_latency_ms": 0.788884325811523,
+      "mean_latency_ms": 0.7865156254410977,
       "cases": [
         {
           "id": "vpn809-semantic",
@@ -22,7 +22,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1.1322499922243878
+          "latency_ms": 1.0525830002734438
         },
         {
           "id": "vpn809-exact",
@@ -32,7 +32,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.3224579995730892
+          "latency_ms": 0.3030840016435832
         },
         {
           "id": "vpn691-semantic",
@@ -43,7 +43,7 @@
             "VPN-809 UDP端口排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.8708340028533712
+          "latency_ms": 0.7507080008508638
         },
         {
           "id": "vpn691-exact",
@@ -54,7 +54,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.481250011944212
+          "latency_ms": 0.45820800005458295
         },
         {
           "id": "dns-semantic",
@@ -65,7 +65,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 1.2344169954303652
+          "latency_ms": 1.168042013887316
         },
         {
           "id": "dns-exact",
@@ -76,7 +76,7 @@
             "企业密码重置流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.3496249992167577
+          "latency_ms": 0.3149590047542006
         },
         {
           "id": "wifi-semantic",
@@ -87,7 +87,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 1.1765000090235844
+          "latency_ms": 1.312459004111588
         },
         {
           "id": "wifi-exact",
@@ -96,7 +96,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.2252500125905499
+          "latency_ms": 0.28941700293216854
         },
         {
           "id": "gitlab-semantic",
@@ -107,7 +107,7 @@
             "软件授权席位耗尽"
           ],
           "department_leak": false,
-          "latency_ms": 1.24095800856594
+          "latency_ms": 1.324042008491233
         },
         {
           "id": "gitlab-exact",
@@ -118,7 +118,7 @@
             "账户锁定解锁流程"
           ],
           "department_leak": false,
-          "latency_ms": 0.5731249984819442
+          "latency_ms": 0.576916994759813
         },
         {
           "id": "jira-semantic",
@@ -129,7 +129,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 1.1673750123009086
+          "latency_ms": 1.181249986984767
         },
         {
           "id": "jira-exact",
@@ -139,7 +139,7 @@
             "Jira权限申请流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.24270798894576728
+          "latency_ms": 0.24320899683516473
         },
         {
           "id": "mfa-semantic",
@@ -150,7 +150,7 @@
             "会议屏幕共享故障"
           ],
           "department_leak": false,
-          "latency_ms": 1.2030000070808455
+          "latency_ms": 1.1669999948935583
         },
         {
           "id": "mfa-exact",
@@ -161,7 +161,7 @@
             "企业密码重置流程"
           ],
           "department_leak": false,
-          "latency_ms": 0.41354200220666826
+          "latency_ms": 0.38716600101906806
         },
         {
           "id": "password-semantic",
@@ -172,7 +172,7 @@
             "更换手机后的MFA迁移"
           ],
           "department_leak": false,
-          "latency_ms": 1.2236250040587038
+          "latency_ms": 1.1704579956131056
         },
         {
           "id": "password-exact",
@@ -183,7 +183,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.6896670092828572
+          "latency_ms": 0.6799169932492077
         },
         {
           "id": "unlock-semantic",
@@ -194,7 +194,7 @@
             "账户锁定解锁流程"
           ],
           "department_leak": false,
-          "latency_ms": 1.188666996313259
+          "latency_ms": 1.165166002465412
         },
         {
           "id": "unlock-exact",
@@ -205,7 +205,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.4171250038780272
+          "latency_ms": 0.40175000322051346
         },
         {
           "id": "monitor-semantic",
@@ -216,7 +216,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 1.3094589958200231
+          "latency_ms": 1.280790995224379
         },
         {
           "id": "monitor-exact",
@@ -227,7 +227,7 @@
             "显示器黑屏排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.6424159946618602
+          "latency_ms": 0.6514160049846396
         },
         {
           "id": "keyboard-semantic",
@@ -238,7 +238,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 1.0395840072305873
+          "latency_ms": 1.0325839975848794
         },
         {
           "id": "keyboard-exact",
@@ -249,7 +249,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 0.3083750052610412
+          "latency_ms": 0.3321249969303608
         },
         {
           "id": "printer-semantic",
@@ -260,7 +260,7 @@
             "会议屏幕共享故障"
           ],
           "department_leak": false,
-          "latency_ms": 1.2483329919632524
+          "latency_ms": 1.2267909914953634
         },
         {
           "id": "printer-exact",
@@ -271,7 +271,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.5110830097692087
+          "latency_ms": 0.41929200233425945
         },
         {
           "id": "install-semantic",
@@ -282,7 +282,7 @@
             "办公无线网络排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1.031166990287602
+          "latency_ms": 0.9732089965837076
         },
         {
           "id": "install-exact",
@@ -293,7 +293,7 @@
             "软件授权席位耗尽（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 0.5625409976346418
+          "latency_ms": 0.5505840090336278
         },
         {
           "id": "license-semantic",
@@ -304,7 +304,7 @@
             "显示器黑屏排障"
           ],
           "department_leak": false,
-          "latency_ms": 1.0339999862480909
+          "latency_ms": 1.0975409968523309
         },
         {
           "id": "license-exact",
@@ -315,7 +315,7 @@
             "磁盘空间不足处理"
           ],
           "department_leak": false,
-          "latency_ms": 0.48820801021065563
+          "latency_ms": 0.5158330022823066
         },
         {
           "id": "mail-semantic",
@@ -326,7 +326,7 @@
             "邮件退信排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1.2229580024722964
+          "latency_ms": 1.2331670004641637
         },
         {
           "id": "mail-exact",
@@ -337,7 +337,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 0.5369579885154963
+          "latency_ms": 0.47133299813140184
         },
         {
           "id": "meeting-semantic",
@@ -348,7 +348,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.9963330085156485
+          "latency_ms": 1.0333329992135987
         },
         {
           "id": "meeting-exact",
@@ -359,7 +359,7 @@
             "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 0.5716250016121194
+          "latency_ms": 0.5635410052491352
         },
         {
           "id": "sla-semantic",
@@ -370,7 +370,7 @@
             "办公无线网络排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1.2743749975925311
+          "latency_ms": 1.281750010093674
         },
         {
           "id": "sla-exact",
@@ -379,7 +379,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 0.273290992481634
+          "latency_ms": 0.3014579997397959
         },
         {
           "id": "asset-semantic",
@@ -390,7 +390,7 @@
             "显示器黑屏排障"
           ],
           "department_leak": false,
-          "latency_ms": 1.234916999237612
+          "latency_ms": 1.299499999731779
         },
         {
           "id": "asset-exact",
@@ -401,7 +401,7 @@
             "显示器黑屏排障"
           ],
           "department_leak": false,
-          "latency_ms": 0.5862499965587631
+          "latency_ms": 0.6372079951688647
         },
         {
           "id": "proxy-semantic",
@@ -412,7 +412,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 0.931125003262423
+          "latency_ms": 0.9686669945949689
         },
         {
           "id": "proxy-exact",
@@ -421,7 +421,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 0.22170800366438925
+          "latency_ms": 0.2417920040898025
         },
         {
           "id": "disk-semantic",
@@ -432,7 +432,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 0.9642499935580418
+          "latency_ms": 0.9900000004563481
         },
         {
           "id": "disk-exact",
@@ -443,7 +443,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 0.4140410019317642
+          "latency_ms": 0.4123750113649294
         }
       ]
     },
@@ -452,7 +452,7 @@
       "recall_at_3": 0.925,
       "mrr": 0.85,
       "department_leaks": 0,
-      "mean_latency_ms": 5.272351050007273,
+      "mean_latency_ms": 4.864513449865626,
       "cases": [
         {
           "id": "vpn809-semantic",
@@ -463,7 +463,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.3580419985810295
+          "latency_ms": 6.640624997089617
         },
         {
           "id": "vpn809-exact",
@@ -474,7 +474,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.824082999723032
+          "latency_ms": 3.7534579896600917
         },
         {
           "id": "vpn691-semantic",
@@ -485,7 +485,7 @@
             "VPN-809 UDP端口排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.358125002705492
+          "latency_ms": 4.115916002774611
         },
         {
           "id": "vpn691-exact",
@@ -496,7 +496,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.534208004362881
+          "latency_ms": 3.7924159987596795
         },
         {
           "id": "dns-semantic",
@@ -507,7 +507,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 2.6386669924249873
+          "latency_ms": 3.6239170003682375
         },
         {
           "id": "dns-exact",
@@ -518,7 +518,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 4.696457996033132
+          "latency_ms": 9.868083012406714
         },
         {
           "id": "wifi-semantic",
@@ -529,7 +529,7 @@
             "会议屏幕共享故障"
           ],
           "department_leak": false,
-          "latency_ms": 4.284458002075553
+          "latency_ms": 5.7452079927315935
         },
         {
           "id": "wifi-exact",
@@ -540,7 +540,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 4.3956250010523945
+          "latency_ms": 4.507833000388928
         },
         {
           "id": "gitlab-semantic",
@@ -551,7 +551,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 5.320999989635311
+          "latency_ms": 3.442125002038665
         },
         {
           "id": "gitlab-exact",
@@ -562,7 +562,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 6.328082992695272
+          "latency_ms": 7.370042003458366
         },
         {
           "id": "jira-semantic",
@@ -573,7 +573,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 8.570500009227544
+          "latency_ms": 11.468165990663692
         },
         {
           "id": "jira-exact",
@@ -584,7 +584,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 2.176499998313375
+          "latency_ms": 3.516374999890104
         },
         {
           "id": "mfa-semantic",
@@ -595,7 +595,7 @@
             "更换手机后的MFA迁移（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.7440419944468886
+          "latency_ms": 3.77558299805969
         },
         {
           "id": "mfa-exact",
@@ -606,7 +606,7 @@
             "显示器黑屏排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.1535830057691783
+          "latency_ms": 2.9275410051923245
         },
         {
           "id": "password-semantic",
@@ -617,7 +617,7 @@
             "企业密码重置流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.9627919904887676
+          "latency_ms": 4.468082988751121
         },
         {
           "id": "password-exact",
@@ -628,7 +628,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 2.621207997435704
+          "latency_ms": 3.361458992003463
         },
         {
           "id": "unlock-semantic",
@@ -639,7 +639,7 @@
             "账户锁定解锁流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 4.139833996305242
+          "latency_ms": 9.344624995719641
         },
         {
           "id": "unlock-exact",
@@ -650,7 +650,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 5.934042012086138
+          "latency_ms": 2.9444169922498986
         },
         {
           "id": "monitor-semantic",
@@ -661,7 +661,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 6.7119590094080195
+          "latency_ms": 7.663458003662527
         },
         {
           "id": "monitor-exact",
@@ -672,7 +672,7 @@
             "键盘无响应排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 11.290916008874774
+          "latency_ms": 4.559459004667588
         },
         {
           "id": "keyboard-semantic",
@@ -683,7 +683,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 11.259332997724414
+          "latency_ms": 4.0914160053944215
         },
         {
           "id": "keyboard-exact",
@@ -694,7 +694,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 9.367999999085441
+          "latency_ms": 2.653292001923546
         },
         {
           "id": "printer-semantic",
@@ -705,7 +705,7 @@
             "键盘无响应排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.5864999915938824
+          "latency_ms": 3.140792003250681
         },
         {
           "id": "printer-exact",
@@ -716,7 +716,7 @@
             "办公无线网络排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 13.258874998427927
+          "latency_ms": 6.444416998419911
         },
         {
           "id": "install-semantic",
@@ -727,7 +727,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 14.869334001559764
+          "latency_ms": 6.642958003794774
         },
         {
           "id": "install-exact",
@@ -738,7 +738,7 @@
             "软件授权席位耗尽（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 7.29587500973139
+          "latency_ms": 2.8203750116517767
         },
         {
           "id": "license-semantic",
@@ -749,7 +749,7 @@
             "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 4.548832992441021
+          "latency_ms": 2.98941700020805
         },
         {
           "id": "license-exact",
@@ -760,7 +760,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.2900420046644285
+          "latency_ms": 7.04183398920577
         },
         {
           "id": "mail-semantic",
@@ -771,7 +771,7 @@
             "企业密码重置流程"
           ],
           "department_leak": false,
-          "latency_ms": 4.246000011335127
+          "latency_ms": 3.1900409958325326
         },
         {
           "id": "mail-exact",
@@ -782,7 +782,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.2065830018837005
+          "latency_ms": 4.067583009600639
         },
         {
           "id": "meeting-semantic",
@@ -793,7 +793,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 4.048707996844314
+          "latency_ms": 4.262500006007031
         },
         {
           "id": "meeting-exact",
@@ -804,7 +804,7 @@
             "GitLab权限申请流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 4.556291998596862
+          "latency_ms": 5.125750001752749
         },
         {
           "id": "sla-semantic",
@@ -815,7 +815,7 @@
             "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 8.889250006177463
+          "latency_ms": 6.747541992808692
         },
         {
           "id": "sla-exact",
@@ -826,7 +826,7 @@
             "VPN-809 UDP端口排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.621958996518515
+          "latency_ms": 2.705417005927302
         },
         {
           "id": "asset-semantic",
@@ -837,7 +837,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 5.178999999770895
+          "latency_ms": 7.384083000943065
         },
         {
           "id": "asset-exact",
@@ -848,7 +848,7 @@
             "企业软件安装规范（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.647791003459133
+          "latency_ms": 3.9501249993918464
         },
         {
           "id": "proxy-semantic",
@@ -859,7 +859,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 3.592791996197775
+          "latency_ms": 3.1050830002641305
         },
         {
           "id": "proxy-exact",
@@ -870,7 +870,7 @@
             "VPN-809 UDP端口排障"
           ],
           "department_leak": false,
-          "latency_ms": 2.8737499960698187
+          "latency_ms": 3.4143329976359382
         },
         {
           "id": "disk-semantic",
@@ -881,7 +881,7 @@
             "企业软件安装规范"
           ],
           "department_leak": false,
-          "latency_ms": 4.847042000619695
+          "latency_ms": 5.468916002428159
         },
         {
           "id": "disk-exact",
@@ -892,7 +892,7 @@
             "键盘无响应排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 4.663957995944656
+          "latency_ms": 2.445874997647479
         }
       ]
     },
@@ -901,7 +901,7 @@
       "recall_at_3": 1.0,
       "mrr": 0.9083333333333334,
       "department_leaks": 0,
-      "mean_latency_ms": 5.9449885000503855,
+      "mean_latency_ms": 6.753189624578226,
       "cases": [
         {
           "id": "vpn809-semantic",
@@ -912,7 +912,7 @@
             "键盘无响应排障"
           ],
           "department_leak": false,
-          "latency_ms": 5.025458012823947
+          "latency_ms": 5.844832994625904
         },
         {
           "id": "vpn809-exact",
@@ -923,7 +923,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.7235420022625476
+          "latency_ms": 4.760375013574958
         },
         {
           "id": "vpn691-semantic",
@@ -934,7 +934,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 5.16924999828916
+          "latency_ms": 5.311083994456567
         },
         {
           "id": "vpn691-exact",
@@ -945,7 +945,7 @@
             "企业密码重置流程"
           ],
           "department_leak": false,
-          "latency_ms": 3.2904169929679483
+          "latency_ms": 6.82333399890922
         },
         {
           "id": "dns-semantic",
@@ -956,7 +956,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 3.9025409932946786
+          "latency_ms": 6.13283300481271
         },
         {
           "id": "dns-exact",
@@ -967,7 +967,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 7.421332993544638
+          "latency_ms": 6.145249994006008
         },
         {
           "id": "wifi-semantic",
@@ -978,7 +978,7 @@
             "办公无线网络排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.9964579918887466
+          "latency_ms": 4.494916996918619
         },
         {
           "id": "wifi-exact",
@@ -989,7 +989,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.597166007035412
+          "latency_ms": 3.648666010121815
         },
         {
           "id": "gitlab-semantic",
@@ -1000,7 +1000,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 4.320917010772973
+          "latency_ms": 5.73916599387303
         },
         {
           "id": "gitlab-exact",
@@ -1011,7 +1011,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 7.332249995670281
+          "latency_ms": 5.894999994779937
         },
         {
           "id": "jira-semantic",
@@ -1022,7 +1022,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 7.888416002970189
+          "latency_ms": 8.017208994715475
         },
         {
           "id": "jira-exact",
@@ -1033,7 +1033,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.2102090044645593
+          "latency_ms": 3.0470420024357736
         },
         {
           "id": "mfa-semantic",
@@ -1044,7 +1044,7 @@
             "更换手机后的MFA迁移（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 5.728083007852547
+          "latency_ms": 4.751667001983151
         },
         {
           "id": "mfa-exact",
@@ -1055,7 +1055,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.407583004445769
+          "latency_ms": 6.149292006739415
         },
         {
           "id": "password-semantic",
@@ -1066,7 +1066,7 @@
             "公司代理配置指南（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 4.013042009319179
+          "latency_ms": 5.913667002459988
         },
         {
           "id": "password-exact",
@@ -1077,7 +1077,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 6.4879580022534356
+          "latency_ms": 4.161000004387461
         },
         {
           "id": "unlock-semantic",
@@ -1088,7 +1088,7 @@
             "更换手机后的MFA迁移"
           ],
           "department_leak": false,
-          "latency_ms": 4.573416998027824
+          "latency_ms": 4.8176659911405295
         },
         {
           "id": "unlock-exact",
@@ -1099,7 +1099,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.0532080127159134
+          "latency_ms": 8.563791998312809
         },
         {
           "id": "monitor-semantic",
@@ -1110,7 +1110,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 6.615999998757616
+          "latency_ms": 4.14924998767674
         },
         {
           "id": "monitor-exact",
@@ -1121,7 +1121,7 @@
             "键盘无响应排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.640750001068227
+          "latency_ms": 2.6091659965459257
         },
         {
           "id": "keyboard-semantic",
@@ -1132,7 +1132,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 5.503749998752028
+          "latency_ms": 5.215833996771835
         },
         {
           "id": "keyboard-exact",
@@ -1143,7 +1143,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 2.6564159925328568
+          "latency_ms": 5.362625000998378
         },
         {
           "id": "printer-semantic",
@@ -1154,7 +1154,7 @@
             "键盘无响应排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 10.124250009539537
+          "latency_ms": 4.562125002848916
         },
         {
           "id": "printer-exact",
@@ -1165,7 +1165,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 4.992374990251847
+          "latency_ms": 6.205041994689964
         },
         {
           "id": "install-semantic",
@@ -1176,7 +1176,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 7.931999993161298
+          "latency_ms": 9.072332992218435
         },
         {
           "id": "install-exact",
@@ -1187,7 +1187,7 @@
             "软件授权席位耗尽（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.1144579988904297
+          "latency_ms": 7.160209002904594
         },
         {
           "id": "license-semantic",
@@ -1198,7 +1198,7 @@
             "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 3.920290997484699
+          "latency_ms": 4.278000007616356
         },
         {
           "id": "license-exact",
@@ -1209,7 +1209,7 @@
             "办公无线网络排障"
           ],
           "department_leak": false,
-          "latency_ms": 6.585583003470674
+          "latency_ms": 7.9051670036278665
         },
         {
           "id": "mail-semantic",
@@ -1220,7 +1220,7 @@
             "公司代理配置指南（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 10.157750002690591
+          "latency_ms": 10.122915991814807
         },
         {
           "id": "mail-exact",
@@ -1231,7 +1231,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 14.418374994420446
+          "latency_ms": 13.790915996651165
         },
         {
           "id": "meeting-semantic",
@@ -1242,7 +1242,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 3.8394579896703362
+          "latency_ms": 10.42208400031086
         },
         {
           "id": "meeting-exact",
@@ -1253,7 +1253,7 @@
             "GitLab权限申请流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 11.652417000732385
+          "latency_ms": 9.469917000387795
         },
         {
           "id": "sla-semantic",
@@ -1264,7 +1264,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 14.17320899781771
+          "latency_ms": 10.45499999599997
         },
         {
           "id": "sla-exact",
@@ -1275,7 +1275,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.7413339994382113
+          "latency_ms": 10.389542003395036
         },
         {
           "id": "asset-semantic",
@@ -1286,7 +1286,7 @@
             "键盘无响应排障"
           ],
           "department_leak": false,
-          "latency_ms": 6.517582995002158
+          "latency_ms": 3.7777920078951865
         },
         {
           "id": "asset-exact",
@@ -1297,7 +1297,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 6.893084006151184
+          "latency_ms": 5.928999991738237
         },
         {
           "id": "proxy-semantic",
@@ -1308,7 +1308,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 3.705334005644545
+          "latency_ms": 3.972125006839633
         },
         {
           "id": "proxy-exact",
@@ -1319,7 +1319,7 @@
             "VPN-809 UDP端口排障"
           ],
           "department_leak": false,
-          "latency_ms": 3.8524999981746078
+          "latency_ms": 14.823499994236045
         },
         {
           "id": "disk-semantic",
@@ -1330,7 +1330,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 15.7924999948591
+          "latency_ms": 10.624583010212518
         },
         {
           "id": "disk-exact",
@@ -1341,16 +1341,16 @@
             "键盘无响应排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.8288749929051846
+          "latency_ms": 9.613665999495424
         }
       ]
     },
-    "hybrid_rewrite_rerank_subset": {
-      "n": 12,
+    "hybrid_rewrite_rerank": {
+      "n": 40,
       "recall_at_3": 1.0,
       "mrr": 1.0,
       "department_leaks": 0,
-      "mean_latency_ms": 2055.2663264170405,
+      "mean_latency_ms": 2714.3453249493177,
       "cases": [
         {
           "id": "vpn809-semantic",
@@ -1361,7 +1361,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 2051.5487079974264,
+          "latency_ms": 2837.961124998401,
           "success": true,
           "reranked": true,
           "error": null
@@ -1372,10 +1372,10 @@
           "titles": [
             "VPN-809 UDP端口排障",
             "VPN-809 UDP端口排障（历史背景）",
-            "键盘无响应排障"
+            "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 1987.0115000085207,
+          "latency_ms": 3252.388124994468,
           "success": true,
           "reranked": true,
           "error": null
@@ -1385,11 +1385,11 @@
           "rank": 1,
           "titles": [
             "VPN-691认证排障",
-            "账户锁定解锁流程",
-            "VPN-691认证排障（历史背景）"
+            "VPN-691认证排障（历史背景）",
+            "账户锁定解锁流程"
           ],
           "department_leak": false,
-          "latency_ms": 2079.368874998181,
+          "latency_ms": 3415.7108329964103,
           "success": true,
           "reranked": true,
           "error": null
@@ -1403,7 +1403,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1949.1616669984069,
+          "latency_ms": 3089.0305829962017,
           "success": true,
           "reranked": true,
           "error": null
@@ -1417,7 +1417,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 2004.29370799975,
+          "latency_ms": 2895.0238329998683,
           "success": true,
           "reranked": true,
           "error": null
@@ -1431,7 +1431,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 2198.0442500062054,
+          "latency_ms": 2361.04499999783,
           "success": true,
           "reranked": true,
           "error": null
@@ -1445,7 +1445,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 1764.5728750067065,
+          "latency_ms": 2785.1403749955352,
           "success": true,
           "reranked": true,
           "error": null
@@ -1459,7 +1459,7 @@
             "内网DNS解析故障"
           ],
           "department_leak": false,
-          "latency_ms": 1882.8209999919636,
+          "latency_ms": 2939.4741249998333,
           "success": true,
           "reranked": true,
           "error": null
@@ -1473,7 +1473,7 @@
             "GitLab权限申请流程（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 1781.1213329987368,
+          "latency_ms": 2534.8109580081655,
           "success": true,
           "reranked": true,
           "error": null
@@ -1487,7 +1487,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 2119.417624999187,
+          "latency_ms": 2128.0449589976342,
           "success": true,
           "reranked": true,
           "error": null
@@ -1501,7 +1501,7 @@
             "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 2553.7136670027394,
+          "latency_ms": 2165.418000004138,
           "success": true,
           "reranked": true,
           "error": null
@@ -1512,22 +1512,414 @@
           "titles": [
             "Jira权限申请流程",
             "Jira权限申请流程（历史背景）",
-            "工单优先级定义（历史背景）"
+            "GitLab权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 2292.120708996663,
+          "latency_ms": 2691.2192500021774,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "mfa-semantic",
+          "rank": 1,
+          "titles": [
+            "更换手机后的MFA迁移",
+            "更换手机后的MFA迁移（历史背景）",
+            "企业密码重置流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 2544.383457992808,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "mfa-exact",
+          "rank": 1,
+          "titles": [
+            "更换手机后的MFA迁移",
+            "企业密码重置流程",
+            "账户锁定解锁流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 2452.08045799518,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "password-semantic",
+          "rank": 1,
+          "titles": [
+            "企业密码重置流程",
+            "账户锁定解锁流程",
+            "VPN-691认证排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 3006.848208999145,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "password-exact",
+          "rank": 1,
+          "titles": [
+            "企业密码重置流程",
+            "VPN-691认证排障",
+            "更换手机后的MFA迁移"
+          ],
+          "department_leak": false,
+          "latency_ms": 2010.729250003351,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "unlock-semantic",
+          "rank": 1,
+          "titles": [
+            "账户锁定解锁流程",
+            "VPN-691认证排障",
+            "企业密码重置流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 3121.9935000117403,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "unlock-exact",
+          "rank": 1,
+          "titles": [
+            "账户锁定解锁流程",
+            "VPN-691认证排障",
+            "账户锁定解锁流程（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 2280.142915988108,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "monitor-semantic",
+          "rank": 1,
+          "titles": [
+            "显示器黑屏排障",
+            "显示器黑屏排障（历史背景）",
+            "会议屏幕共享故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2739.3122500070604,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "monitor-exact",
+          "rank": 1,
+          "titles": [
+            "显示器黑屏排障",
+            "显示器黑屏排障（历史背景）",
+            "键盘无响应排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2967.8924170002574,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "keyboard-semantic",
+          "rank": 1,
+          "titles": [
+            "键盘无响应排障",
+            "键盘无响应排障（历史背景）",
+            "显示器黑屏排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 3450.7211659947643,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "keyboard-exact",
+          "rank": 1,
+          "titles": [
+            "键盘无响应排障",
+            "键盘无响应排障（历史背景）",
+            "显示器黑屏排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2847.126582986675,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "printer-semantic",
+          "rank": 1,
+          "titles": [
+            "打印队列阻塞排障",
+            "打印队列阻塞排障（历史背景）",
+            "键盘无响应排障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 3038.211417006096,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "printer-exact",
+          "rank": 1,
+          "titles": [
+            "打印队列阻塞排障",
+            "打印队列阻塞排障（历史背景）",
+            "磁盘空间不足处理"
+          ],
+          "department_leak": false,
+          "latency_ms": 2294.481082994025,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "install-semantic",
+          "rank": 1,
+          "titles": [
+            "企业软件安装规范",
+            "企业软件安装规范（历史背景）",
+            "软件授权席位耗尽"
+          ],
+          "department_leak": false,
+          "latency_ms": 2289.8945000051754,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "install-exact",
+          "rank": 1,
+          "titles": [
+            "企业软件安装规范",
+            "企业软件安装规范（历史背景）",
+            "软件授权席位耗尽（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 2868.9880409947364,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "license-semantic",
+          "rank": 1,
+          "titles": [
+            "软件授权席位耗尽",
+            "软件授权席位耗尽（历史背景）",
+            "GitLab权限申请流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 2267.369166991557,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "license-exact",
+          "rank": 1,
+          "titles": [
+            "软件授权席位耗尽",
+            "软件授权席位耗尽（历史背景）",
+            "企业软件安装规范"
+          ],
+          "department_leak": false,
+          "latency_ms": 2499.1257499932544,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "mail-semantic",
+          "rank": 1,
+          "titles": [
+            "邮件退信排障",
+            "邮件退信排障（历史背景）",
+            "VPN-691认证排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 3039.7780000057537,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "mail-exact",
+          "rank": 1,
+          "titles": [
+            "邮件退信排障",
+            "邮件退信排障（历史背景）",
+            "内网DNS解析故障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 2802.8647499886574,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "meeting-semantic",
+          "rank": 1,
+          "titles": [
+            "会议屏幕共享故障",
+            "会议屏幕共享故障（历史背景）",
+            "显示器黑屏排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2305.6399170018267,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "meeting-exact",
+          "rank": 1,
+          "titles": [
+            "会议屏幕共享故障",
+            "办公无线网络排障",
+            "会议屏幕共享故障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 2384.291166992625,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "sla-semantic",
+          "rank": 1,
+          "titles": [
+            "工单优先级定义",
+            "工单优先级定义（历史背景）",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2880.5460000003222,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "sla-exact",
+          "rank": 1,
+          "titles": [
+            "工单优先级定义",
+            "工单优先级定义（历史背景）",
+            "办公无线网络排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2941.394958004821,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "asset-semantic",
+          "rank": 1,
+          "titles": [
+            "新员工设备申领",
+            "新员工设备申领（历史背景）",
+            "显示器黑屏排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2354.6680830040714,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "asset-exact",
+          "rank": 1,
+          "titles": [
+            "新员工设备申领",
+            "新员工设备申领（历史背景）",
+            "Jira权限申请流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 3124.699874999351,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "proxy-semantic",
+          "rank": 1,
+          "titles": [
+            "公司代理配置指南",
+            "内网DNS解析故障",
+            "公司代理配置指南（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 2621.385874997941,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "proxy-exact",
+          "rank": 1,
+          "titles": [
+            "公司代理配置指南",
+            "公司代理配置指南（历史背景）",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2140.800167006091,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "disk-semantic",
+          "rank": 1,
+          "titles": [
+            "磁盘空间不足处理",
+            "磁盘空间不足处理（历史背景）",
+            "新员工设备申领"
+          ],
+          "department_leak": false,
+          "latency_ms": 3215.395625011297,
+          "success": true,
+          "reranked": true,
+          "error": null
+        },
+        {
+          "id": "disk-exact",
+          "rank": 1,
+          "titles": [
+            "磁盘空间不足处理",
+            "磁盘空间不足处理（历史背景）",
+            "公司代理配置指南"
+          ],
+          "department_leak": false,
+          "latency_ms": 2987.781250005355,
           "success": true,
           "reranked": true,
           "error": null
         }
       ]
     },
-    "hybrid_paired_subset": {
-      "n": 12,
+    "hybrid_paired": {
+      "n": 40,
       "recall_at_3": 1.0,
-      "mrr": 0.9444444444444445,
+      "mrr": 0.9083333333333334,
       "department_leaks": 0,
-      "mean_latency_ms": 4.82316308383209,
+      "mean_latency_ms": 6.753189624578226,
       "cases": [
         {
           "id": "vpn809-semantic",
@@ -1538,7 +1930,7 @@
             "键盘无响应排障"
           ],
           "department_leak": false,
-          "latency_ms": 5.025458012823947
+          "latency_ms": 5.844832994625904
         },
         {
           "id": "vpn809-exact",
@@ -1549,7 +1941,7 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.7235420022625476
+          "latency_ms": 4.760375013574958
         },
         {
           "id": "vpn691-semantic",
@@ -1560,7 +1952,7 @@
             "VPN-691认证排障"
           ],
           "department_leak": false,
-          "latency_ms": 5.16924999828916
+          "latency_ms": 5.311083994456567
         },
         {
           "id": "vpn691-exact",
@@ -1571,7 +1963,7 @@
             "企业密码重置流程"
           ],
           "department_leak": false,
-          "latency_ms": 3.2904169929679483
+          "latency_ms": 6.82333399890922
         },
         {
           "id": "dns-semantic",
@@ -1582,7 +1974,7 @@
             "公司代理配置指南"
           ],
           "department_leak": false,
-          "latency_ms": 3.9025409932946786
+          "latency_ms": 6.13283300481271
         },
         {
           "id": "dns-exact",
@@ -1593,7 +1985,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 7.421332993544638
+          "latency_ms": 6.145249994006008
         },
         {
           "id": "wifi-semantic",
@@ -1604,7 +1996,7 @@
             "办公无线网络排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.9964579918887466
+          "latency_ms": 4.494916996918619
         },
         {
           "id": "wifi-exact",
@@ -1615,7 +2007,7 @@
             "VPN-809 UDP端口排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 2.597166007035412
+          "latency_ms": 3.648666010121815
         },
         {
           "id": "gitlab-semantic",
@@ -1626,7 +2018,7 @@
             "Jira权限申请流程"
           ],
           "department_leak": false,
-          "latency_ms": 4.320917010772973
+          "latency_ms": 5.73916599387303
         },
         {
           "id": "gitlab-exact",
@@ -1637,7 +2029,7 @@
             "工单优先级定义"
           ],
           "department_leak": false,
-          "latency_ms": 7.332249995670281
+          "latency_ms": 5.894999994779937
         },
         {
           "id": "jira-semantic",
@@ -1648,7 +2040,7 @@
             "新员工设备申领"
           ],
           "department_leak": false,
-          "latency_ms": 7.888416002970189
+          "latency_ms": 8.017208994715475
         },
         {
           "id": "jira-exact",
@@ -1659,7 +2051,315 @@
             "VPN-691认证排障（历史背景）"
           ],
           "department_leak": false,
-          "latency_ms": 3.2102090044645593
+          "latency_ms": 3.0470420024357736
+        },
+        {
+          "id": "mfa-semantic",
+          "rank": 1,
+          "titles": [
+            "更换手机后的MFA迁移",
+            "企业密码重置流程",
+            "更换手机后的MFA迁移（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.751667001983151
+        },
+        {
+          "id": "mfa-exact",
+          "rank": 2,
+          "titles": [
+            "显示器黑屏排障",
+            "更换手机后的MFA迁移",
+            "VPN-691认证排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 6.149292006739415
+        },
+        {
+          "id": "password-semantic",
+          "rank": 1,
+          "titles": [
+            "企业密码重置流程",
+            "更换手机后的MFA迁移",
+            "公司代理配置指南（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 5.913667002459988
+        },
+        {
+          "id": "password-exact",
+          "rank": 1,
+          "titles": [
+            "企业密码重置流程",
+            "企业密码重置流程（历史背景）",
+            "VPN-691认证排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.161000004387461
+        },
+        {
+          "id": "unlock-semantic",
+          "rank": 1,
+          "titles": [
+            "账户锁定解锁流程",
+            "企业密码重置流程",
+            "更换手机后的MFA迁移"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.8176659911405295
+        },
+        {
+          "id": "unlock-exact",
+          "rank": 1,
+          "titles": [
+            "账户锁定解锁流程",
+            "账户锁定解锁流程（历史背景）",
+            "VPN-691认证排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 8.563791998312809
+        },
+        {
+          "id": "monitor-semantic",
+          "rank": 1,
+          "titles": [
+            "显示器黑屏排障",
+            "显示器黑屏排障（历史背景）",
+            "新员工设备申领"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.14924998767674
+        },
+        {
+          "id": "monitor-exact",
+          "rank": 1,
+          "titles": [
+            "显示器黑屏排障",
+            "显示器黑屏排障（历史背景）",
+            "键盘无响应排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 2.6091659965459257
+        },
+        {
+          "id": "keyboard-semantic",
+          "rank": 2,
+          "titles": [
+            "键盘无响应排障（历史背景）",
+            "键盘无响应排障",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 5.215833996771835
+        },
+        {
+          "id": "keyboard-exact",
+          "rank": 1,
+          "titles": [
+            "键盘无响应排障",
+            "键盘无响应排障（历史背景）",
+            "工单优先级定义"
+          ],
+          "department_leak": false,
+          "latency_ms": 5.362625000998378
+        },
+        {
+          "id": "printer-semantic",
+          "rank": 1,
+          "titles": [
+            "打印队列阻塞排障",
+            "打印队列阻塞排障（历史背景）",
+            "键盘无响应排障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.562125002848916
+        },
+        {
+          "id": "printer-exact",
+          "rank": 2,
+          "titles": [
+            "打印队列阻塞排障（历史背景）",
+            "打印队列阻塞排障",
+            "办公无线网络排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 6.205041994689964
+        },
+        {
+          "id": "install-semantic",
+          "rank": 1,
+          "titles": [
+            "企业软件安装规范",
+            "企业软件安装规范（历史背景）",
+            "公司代理配置指南"
+          ],
+          "department_leak": false,
+          "latency_ms": 9.072332992218435
+        },
+        {
+          "id": "install-exact",
+          "rank": 1,
+          "titles": [
+            "企业软件安装规范",
+            "企业软件安装规范（历史背景）",
+            "软件授权席位耗尽（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 7.160209002904594
+        },
+        {
+          "id": "license-semantic",
+          "rank": 2,
+          "titles": [
+            "软件授权席位耗尽（历史背景）",
+            "软件授权席位耗尽",
+            "GitLab权限申请流程"
+          ],
+          "department_leak": false,
+          "latency_ms": 4.278000007616356
+        },
+        {
+          "id": "license-exact",
+          "rank": 1,
+          "titles": [
+            "软件授权席位耗尽",
+            "软件授权席位耗尽（历史背景）",
+            "办公无线网络排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 7.9051670036278665
+        },
+        {
+          "id": "mail-semantic",
+          "rank": 1,
+          "titles": [
+            "邮件退信排障",
+            "邮件退信排障（历史背景）",
+            "公司代理配置指南（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 10.122915991814807
+        },
+        {
+          "id": "mail-exact",
+          "rank": 1,
+          "titles": [
+            "邮件退信排障",
+            "邮件退信排障（历史背景）",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 13.790915996651165
+        },
+        {
+          "id": "meeting-semantic",
+          "rank": 1,
+          "titles": [
+            "会议屏幕共享故障",
+            "办公无线网络排障",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 10.42208400031086
+        },
+        {
+          "id": "meeting-exact",
+          "rank": 1,
+          "titles": [
+            "会议屏幕共享故障",
+            "会议屏幕共享故障（历史背景）",
+            "GitLab权限申请流程（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 9.469917000387795
+        },
+        {
+          "id": "sla-semantic",
+          "rank": 2,
+          "titles": [
+            "工单优先级定义（历史背景）",
+            "工单优先级定义",
+            "新员工设备申领"
+          ],
+          "department_leak": false,
+          "latency_ms": 10.45499999599997
+        },
+        {
+          "id": "sla-exact",
+          "rank": 1,
+          "titles": [
+            "工单优先级定义",
+            "VPN-809 UDP端口排障（历史背景）",
+            "VPN-691认证排障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 10.389542003395036
+        },
+        {
+          "id": "asset-semantic",
+          "rank": 1,
+          "titles": [
+            "新员工设备申领",
+            "新员工设备申领（历史背景）",
+            "键盘无响应排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 3.7777920078951865
+        },
+        {
+          "id": "asset-exact",
+          "rank": 2,
+          "titles": [
+            "新员工设备申领（历史背景）",
+            "新员工设备申领",
+            "工单优先级定义"
+          ],
+          "department_leak": false,
+          "latency_ms": 5.928999991738237
+        },
+        {
+          "id": "proxy-semantic",
+          "rank": 1,
+          "titles": [
+            "公司代理配置指南",
+            "公司代理配置指南（历史背景）",
+            "内网DNS解析故障"
+          ],
+          "department_leak": false,
+          "latency_ms": 3.972125006839633
+        },
+        {
+          "id": "proxy-exact",
+          "rank": 1,
+          "titles": [
+            "公司代理配置指南",
+            "VPN-809 UDP端口排障（历史背景）",
+            "VPN-809 UDP端口排障"
+          ],
+          "department_leak": false,
+          "latency_ms": 14.823499994236045
+        },
+        {
+          "id": "disk-semantic",
+          "rank": 1,
+          "titles": [
+            "磁盘空间不足处理",
+            "企业软件安装规范",
+            "新员工设备申领"
+          ],
+          "department_leak": false,
+          "latency_ms": 10.624583010212518
+        },
+        {
+          "id": "disk-exact",
+          "rank": 1,
+          "titles": [
+            "磁盘空间不足处理",
+            "磁盘空间不足处理（历史背景）",
+            "键盘无响应排障（历史背景）"
+          ],
+          "department_leak": false,
+          "latency_ms": 9.613665999495424
         }
       ]
     }

@@ -1,7 +1,7 @@
 """60 authored documents / 40 fixed queries, ACL distractors and rank diagnostics.
 
-Optional live rewrite+rerank is measured on a fixed 12-query subset, with a paired
-plain-hybrid baseline. Citation presence is not labelled faithfulness.
+Optional live rewrite+rerank is measured on the first --live-limit queries (default: all),
+with a paired plain-hybrid baseline. Citation presence is not labelled faithfulness.
 """
 
 import argparse
@@ -50,6 +50,7 @@ def scored(case, items, started):
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--live-limit", type=int, default=0, help="live rewrite+rerank on the first N queries; 0 = all")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
@@ -79,7 +80,8 @@ async def main():
                 Tool("knowledge_search", "IT knowledge", kb.search_handler, KNOWLEDGE_SEARCH_SCHEMA)
             )
             rows = []
-            for case in queries[:12]:
+            live_cases = queries[: args.live_limit or len(queries)]
+            for case in live_cases:
                 started = time.monotonic()
                 result = await manager.search_with_rewrite(
                     "knowledge_search", case["query"], top_k=3, department=case["department"]
@@ -87,8 +89,8 @@ async def main():
                 row = scored(case, result.data or [], started)
                 row.update(success=result.success, reranked=result.reranked, error=result.error)
                 rows.append(row)
-            reports["hybrid_rewrite_rerank_subset"] = summarize(rows)
-            reports["hybrid_paired_subset"] = summarize(reports["hybrid"]["cases"][:12])
+            reports["hybrid_rewrite_rerank"] = summarize(rows)
+            reports["hybrid_paired"] = summarize(reports["hybrid"]["cases"][: len(live_cases)])
     write_report(
         "rag_ablation_v2.json",
         {

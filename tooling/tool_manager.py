@@ -18,6 +18,7 @@ import hashlib
 import inspect
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -345,6 +346,37 @@ class MCPToolManager:
             logger.warning(f"查询改写失败，使用原始查询: {ex}")
             return [query]
 
+    @staticmethod
+    def _invalid_search(tool_name: str, query: Any, top_k: Any) -> Optional[ToolResult]:
+        if type(top_k) is not int or not 1 <= top_k <= 20:
+            return ToolResult(False, [], tool_name, error="top_k 必须是 1–20 的整数")
+        if not isinstance(query, str) or not query.strip() or len(query) > 2000:
+            return ToolResult(False, [], tool_name, error="query 必须是 1–2000 字符的非空文本")
+        return None
+
+    async def search(
+        self,
+        tool_name: str,
+        query: str,
+        top_k: int = 5,
+        context: Optional[Dict[str, Any]] = None,
+        department: Optional[str] = None,
+    ) -> ToolResult:
+        """
+        Agent 检索入口：默认一次 hybrid 检索；IT_COPILOT_RAG_REWRITE=true 时走改写 + 重排。
+
+        中文 embedding 下 rag-v2 40 条查询的 hybrid 已接近满分，改写重排每次多两次 LLM 调用、约 2 秒，
+        收益见 docs/design-tradeoffs.md，因此默认关闭。
+        """
+        if os.getenv("IT_COPILOT_RAG_REWRITE", "false").lower() in {"1", "true", "yes"}:
+            return await self.search_with_rewrite(tool_name, query, top_k=top_k, context=context, department=department)
+        if invalid := self._invalid_search(tool_name, query, top_k):
+            return invalid
+        result = await self.call(tool_name, {"query": query, "top_k": top_k, "department": department, "mode": "hybrid"}, context, use_cache=True)
+        if result.success and not result.data:
+            return ToolResult(False, [], tool_name, error="检索无可用结果", outcome="empty")
+        return result
+
     async def search_with_rewrite(
         self,
         tool_name: str,
@@ -358,10 +390,8 @@ class MCPToolManager:
 
         这是解决"检索不全、召回不好"的完整方案。
         """
-        if type(top_k) is not int or not 1 <= top_k <= 20:
-            return ToolResult(False, [], tool_name, error="top_k 必须是 1–20 的整数")
-        if not isinstance(query, str) or not query.strip() or len(query) > 2000:
-            return ToolResult(False, [], tool_name, error="query 必须是 1–2000 字符的非空文本")
+        if invalid := self._invalid_search(tool_name, query, top_k):
+            return invalid
         # 1. 查询改写：生成多角度子查询
         sub_queries = await self.rewrite_query(query, n=3)
         logger.info(f"查询改写: {query!r} → {sub_queries}")

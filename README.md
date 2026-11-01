@@ -103,7 +103,7 @@ flowchart LR
 | 实验 | 结果与口径 |
 |---|---|
 | 意图消融 | 88 条人工编写样本，44 校准 / 44 留出；真实 DeepSeek Flash：LLM 与融合均 44/44；未证明融合更优，默认采用较简单的 LLM 路由 |
-| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 1.0（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；12 条配对子集 hybrid 1.0、MRR 0.944，改写重排后 MRR 1.0，多约 2 秒 |
+| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 1.0（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；LLM 改写重排（默认关闭）在 40 条上 MRR 0.908→1.0、Recall 不变，每次检索多约 2.7 秒 |
 | 业务开发集 | 24 场景 × 2 策略，真实模型与 Redis/Chroma/SQLite；组合修复前 single/bounded 均 13/24，之后 23/24 与 22/24；这是开发集回归 |
 | 独立应用验证 | 另冻结 12 场景，每策略重复 3 次：single 36/36、bounded 33/36（3 次预算停止）；详见 `evaluation/reports/application_holdout_live.json`，不将开发集改善当泛化结果 |
 | 记忆对照 | 每模式 4 项确定性上下文检查：working 2/4、state 3/4、full 4/4；不是用户对话成功率 |

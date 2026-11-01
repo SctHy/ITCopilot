@@ -211,3 +211,47 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
     model = OpenAIChatModel("m", provider=provider, settings=_thinking_settings())
     assert asyncio.run(complete_text(model, "hi", max_tokens=8)).text == "ok"
     assert seen["body"]["thinking"] == {"type": "disabled"}
+
+
+def _search_manager(rows):
+    from tooling.tool_manager import Tool
+
+    manager = MCPToolManager("sk-local")
+    calls = []
+
+    async def knowledge(params, ctx=None):
+        calls.append(params)
+        return rows
+
+    manager.register(Tool("knowledge_search", "kb", knowledge, {"type": "object", "properties": {}}))
+    return manager, calls
+
+
+def test_search_defaults_to_single_hybrid_query_without_llm(monkeypatch):
+    monkeypatch.delenv("IT_COPILOT_RAG_REWRITE", raising=False)
+    manager, calls = _search_manager([{"title": "VPN", "content": "证书"}])
+
+    async def no_llm(messages, info):
+        raise AssertionError("default search must not call the model")
+
+    manager._llm = FunctionModel(no_llm)
+    result = asyncio.run(manager.search("knowledge_search", "VPN 连不上", top_k=3, department="研发"))
+    assert result.success and not result.reranked and result.data[0]["title"] == "VPN"
+    assert calls == [{"query": "VPN 连不上", "top_k": 3, "department": "研发", "mode": "hybrid"}]
+    assert asyncio.run(_search_manager([])[0].search("knowledge_search", "无结果")).outcome == "empty"
+    assert not asyncio.run(manager.search("knowledge_search", "", top_k=3)).success
+
+
+def test_search_uses_rewrite_and_rerank_when_enabled(monkeypatch):
+    monkeypatch.setenv("IT_COPILOT_RAG_REWRITE", "true")
+    manager, calls = _search_manager([{"title": "VPN", "content": "证书"}])
+    seen = []
+
+    async def respond(messages, info):
+        seen.append(info.output_tools[0].name)
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"response": ["VPN 证书过期"]})])
+
+    manager._llm = FunctionModel(respond)
+    result = asyncio.run(manager.search("knowledge_search", "VPN 连不上", top_k=3))
+    assert result.success and seen == ["return_sub_queries"]
+    assert sorted(c["query"] for c in calls) == ["VPN 证书过期", "VPN 连不上"]

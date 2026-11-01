@@ -39,6 +39,7 @@
 - 集合名带模型后缀（如 `knowledge_base__bge-small-zh-v1.5`）；新集合为空时从同名旧集合复制文本与元数据并重新向量化，旧集合保留。
 - rag-v2（60 文档 / 40 查询）：vector Recall@3 0.525→0.925、MRR 0.446→0.850；hybrid Recall@3 0.725→1.0、MRR 0.654→0.908；检索延迟约 50ms→5ms。12 条配对子集上普通 hybrid 已达 Recall@3 1.0 / MRR 0.944，LLM 改写重排为 1.0 / 1.0（多约 2 秒）。去掉查询指令的对照：vector MRR 0.875、hybrid Recall@3 0.975，差异在一条查询以内。记忆消融结果不变。
 - 镜像构建期预下载模型（`FASTEMBED_CACHE_PATH`），不再预下载 MiniLM。
+- Agent 知识检索默认只做一次 hybrid 检索（`MCPToolManager.search`），LLM 查询改写 + 重排改为 `IT_COPILOT_RAG_REWRITE=true` 时启用。rag-v2 全部 40 条：hybrid Recall@3 1.0 / MRR 0.908 / 约 7ms，改写重排 1.0 / 1.0 / 约 2.7 秒，只改善了 7 条的排序。`evaluate_rag_ablation.py --live` 默认在全部查询上对照（`--live-limit` 可截取）。
 
 ## v2 — 可验证业务执行与对照评测
 

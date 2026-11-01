@@ -67,6 +67,8 @@ PydanticAI 可以直接把 MCP 服务挂成 toolset，但那样外部工具会�
 
 Embedding 用 fastembed 在本地跑 `BAAI/bge-small-zh-v1.5`（ONNX，约 95MB，不依赖 torch，不调用外部 API）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。集合名带模型后缀，换模型时新建集合并从旧集合重新向量化，不会把不同模型的向量混在一起。
 
+LLM 查询改写 + 重排默认关闭（`IT_COPILOT_RAG_REWRITE`）。英文 embedding 时它是在补向量召回的短板（12 条子集 Recall@3 0.75→0.917）；换中文 embedding 后，40 条查询上普通 hybrid 已经 Recall@3 1.0，改写重排只把 7 条命中从第 2、3 位挪到第 1 位（MRR 0.908→1.0），代价是每次检索多两次模型调用、平均延迟从约 7ms 变成约 2.7 秒。Agent 一次读取前 5 条结果，排第 1 还是第 2 对回答影响很小，不值得默认开启。
+
 每条结果携带 source/department/updated_at/chunk_id，回答必须带 citation；无证据时明确说未检索到。
 
 ## 置信度校准
