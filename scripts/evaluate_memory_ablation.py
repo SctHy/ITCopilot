@@ -1,6 +1,6 @@
 """Compare context availability, correction precedence and isolation (not answer quality).
 
-Four fixtures per mode with real memory code, temporary Chroma and fakeredis.
+Four fixtures per mode with real memory code, temporary SQLite and fakeredis.
 No language model is used; these are deterministic context-contract checks.
 """
 

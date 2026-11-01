@@ -3,13 +3,13 @@
 
 三级记忆架构，模拟人类记忆机制：
   1. 工作记忆（Redis）—— 当前会话的最近 N 条消息，毫秒级读写
-  2. 情景记忆（ChromaDB）—— 跨会话的历史对话，按语义相似度检索
-  3. 用户画像（ChromaDB）—— 从对话中提炼的长期偏好和实体
+  2. 情景记忆（向量表）—— 跨会话的历史对话，按语义相似度检索
+  3. 用户画像（向量表）—— 从对话中提炼的长期偏好和实体
 
 关键设计：
   - 上下文构建时三级记忆融合，按重要性 + 时效性排序
   - 工作记忆超过阈值时自动压缩（LLM 摘要），防止 context 爆炸
-  - Embedding 由 ChromaDB 默认模型生成，LLM 用于摘要和画像提炼
+  - Embedding 由本地中文模型生成（core/embedding.py），LLM 用于摘要和画像提炼
 """
 import hashlib
 import asyncio
@@ -23,7 +23,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import chromadb
 import redis.asyncio as redis
 from redis.exceptions import WatchError
 from pydantic import BaseModel, ConfigDict
@@ -31,7 +30,7 @@ from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
-from core.embedding import open_collection
+from core.vector_store import VectorStore
 from core.llm import build_model, close_model, complete_text
 from core.concurrency import KeyedLocks, redis_lease
 
@@ -100,7 +99,7 @@ class MemoryManager:
     """
     三级记忆管理器。
 
-    工作记忆存 Redis（TTL 24h），情景记忆和用户画像存 ChromaDB（持久化）。
+    工作记忆存 Redis（TTL 24h），情景记忆和用户画像存应用数据库的向量表（持久化）。
     """
 
     WORKING_MAX   = 20    # 工作记忆最大条数，超过则触发压缩
@@ -114,9 +113,7 @@ class MemoryManager:
     def __init__(
         self,
         redis_url:    str = "redis://localhost:6379/0",
-        chroma_host:  str = "localhost",
-        chroma_port:  int = 8000,
-        chroma_path:  str = "./data/chroma",
+        database_url: str = "sqlite:///data/it_copilot.sqlite3",
         api_key:      str = "",
         base_url:     Optional[str] = None,
         model:        str = "claude-3-5-sonnet-20241022",
@@ -130,29 +127,11 @@ class MemoryManager:
         if self.context_mode not in {"working", "state", "full"}:
             raise ValueError("unknown memory mode")
 
-        # ChromaDB：优先连接独立服务（docker compose 模式），连不上则降级为本地嵌入式
-        try:
-            # HttpClient 默认也会初始化 ChromaDB telemetry；显式关闭避免 posthog 兼容性错误日志。
-            chroma = chromadb.HttpClient(
-                host=chroma_host,
-                port=chroma_port,
-                settings=chromadb.Settings(anonymized_telemetry=False),
-            )
-            chroma.heartbeat()  # 测试连接
-            logger.info(f"ChromaDB 已连接: {chroma_host}:{chroma_port}")
-        except Exception as ex:
-            if os.getenv("IT_COPILOT_ENV", "development").lower() == "production":
-                raise RuntimeError("生产环境记忆 ChromaDB 不可用，禁止切换到本地库") from ex
-            logger.info(f"ChromaDB 服务不可用，使用本地嵌入式模式: {chroma_path}")
-            chroma = chromadb.PersistentClient(
-                path=chroma_path,
-                settings=chromadb.Settings(anonymized_telemetry=False),
-            )
-
-        # 情景记忆：存储历史对话片段
-        self._episodic = open_collection(chroma, "episodic")
+        # 情景记忆与用户画像存在应用数据库的向量表（PostgreSQL + pgvector / 本地 SQLite）
+        store = VectorStore(database_url)
+        self._episodic = store.collection("episodic")
         # 用户画像：存储提炼出的偏好和实体
-        self._profile  = open_collection(chroma, "user_profile")
+        self._profile  = store.collection("user_profile")
 
     @asynccontextmanager
     async def conversation(self, user_id: str, conv_id: str):
@@ -217,7 +196,7 @@ class MemoryManager:
     async def _update_profile(self, user_id: str, conv_id: str) -> None:
         """
         从当前工作记忆中提炼用户偏好，更新用户画像。
-        用 LLM 提炼偏好，然后存入 ChromaDB（ChromaDB 内置 embedding，不依赖外部 API）。
+        用 LLM 提炼偏好，然后写入用户画像集合。
         """
         user_id = self._safe_text(user_id)
         conv_id = self._safe_text(conv_id)
@@ -249,7 +228,6 @@ class MemoryManager:
             doc_id = self._profile_doc_id(user_id)
             doc_text = self._safe_text(json.dumps(profile_data, ensure_ascii=False))
 
-            # 直接传 documents，让 ChromaDB 内置模型生成 embedding（不依赖 Voyage API）
             await asyncio.to_thread(
                 self._profile.upsert,
                 ids=[doc_id],
@@ -360,7 +338,7 @@ class MemoryManager:
         工作记忆压缩：
           1. 用 LLM 对旧消息生成摘要
           2. 摘要存 Redis（覆盖旧摘要）
-          3. 旧消息存入情景记忆（ChromaDB）供跨会话检索
+          3. 旧消息存入情景记忆供跨会话检索
           4. 工作记忆只保留最近 5 条
         """
         key = self._wm_key(user_id, conv_id)
@@ -424,7 +402,7 @@ class MemoryManager:
         return self._messages_from_raw(raws)
 
     async def _search_episodic(self, user_id: str, conv_id: str, query: str, intent_group: Optional[str] = None, entities: Optional[Dict[str, Any]] = None, max_tokens: int = MEMORY_MAX_TOKENS) -> List[str]:
-        """语义检索情景记忆。ChromaDB 内置 embedding，不依赖外部 API。"""
+        """语义检索情景记忆（本地 embedding，不依赖外部 API）。"""
         query_text = self._safe_text(query).strip()
         if not query_text:
             return []
@@ -454,14 +432,13 @@ class MemoryManager:
             return []
 
     async def _store_episodic(self, user_id: str, conv_id: str, text: str, summary: str) -> None:
-        """将压缩后的对话片段存入情景记忆。ChromaDB 内置 embedding，不依赖外部 API。"""
+        """将压缩后的对话片段存入情景记忆。"""
         try:
             user_id = self._safe_text(user_id)
             conv_id = self._safe_text(conv_id)
             text = self._safe_text(text)
             summary = self._safe_text(summary)
             doc_id = hashlib.md5(f"{user_id}{conv_id}{time.time()}".encode()).hexdigest()
-            # 直接传 documents，ChromaDB 内置模型自动生成 embedding
             await asyncio.to_thread(
                 self._episodic.add,
                 ids=[doc_id],
@@ -473,7 +450,7 @@ class MemoryManager:
             logger.warning(f"存储情景记忆失败: {ex}")
 
     async def store_episodic_turn(self, user_id: str, conv_id: str, request_id: str, message: str, response: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        """Phase 2：每轮将非敏感对话摘要写入 Chroma，支持跨会话语义召回。"""
+        """Phase 2：每轮将非敏感对话摘要写入情景记忆，支持跨会话语义召回。"""
         try:
             safe_message = self._safe_text(message)[:2000]
             safe_response = self._safe_text(response)[:3000]
@@ -534,7 +511,7 @@ class MemoryManager:
 
     @staticmethod
     def _safe_text(value: Any) -> str:
-        """转成 ChromaDB 可接受的普通 UTF-8 字符串。"""
+        """转成数据库可接受的普通 UTF-8 字符串。"""
         if value is None:
             return ""
         if not isinstance(value, str):

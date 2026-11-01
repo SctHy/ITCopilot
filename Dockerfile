@@ -18,7 +18,7 @@ COPY requirements.txt ./
 RUN uv pip install --system -r requirements.txt
 
 # data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
-RUN mkdir -p /app/data/chroma && chown -R app:app /app/data
+RUN mkdir -p /app/data && chown -R app:app /app/data
 
 # 构建期预下载中文 embedding 模型（与 core/embedding.py 默认值一致），避免首次请求时在线下载导致超时。
 USER app

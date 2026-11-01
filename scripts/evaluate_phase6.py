@@ -55,7 +55,7 @@ def check_department_boundary() -> bool:
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     try:
         with tempfile.TemporaryDirectory(prefix="it-copilot-safety-") as path:
-            kb = KnowledgeBase(chroma_path=path)
+            kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
             kb.add_documents([
                 {"title": "研发 VPN 指南", "content": "研发网段 VPN 客户端配置与排障", "department": "研发"},
                 {"title": "财务 ERP 权限", "content": "财务 ERP 系统 VPN 访问与审批", "department": "财务"},

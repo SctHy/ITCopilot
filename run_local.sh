@@ -18,9 +18,9 @@ export APP_ENV="${APP_ENV:-development}"
 export IT_COPILOT_PORT="${IT_COPILOT_PORT:-8001}"
 export NO_PROXY="127.0.0.1,localhost"; export no_proxy="$NO_PROXY"
 export REDIS_URL="${REDIS_URL:-redis://:it-copilot123@127.0.0.1:6379/0}"
-export CHROMA_PERSIST_DIRECTORY="${CHROMA_PERSIST_DIRECTORY:-$HERE/data/chroma}"
+export IT_COPILOT_DATA_DIR="${IT_COPILOT_DATA_DIR:-$HERE/data}"
 export IT_COPILOT_SKILLS_DIR="${IT_COPILOT_SKILLS_DIR:-$HERE/skills}"
-mkdir -p "$CHROMA_PERSIST_DIRECTORY"
+mkdir -p "$IT_COPILOT_DATA_DIR"
 if command -v lsof >/dev/null 2>&1; then
   OLD_PIDS="$(lsof -nP -tiTCP:"$IT_COPILOT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "$OLD_PIDS" ]]; then

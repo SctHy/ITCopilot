@@ -153,14 +153,6 @@ def _request_id(principal: Principal, client_request_id: Optional[str]) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"it-copilot:{principal.tenant}:{principal.subject}:{client_request_id}"))
 
 
-def _chroma_settings() -> Dict[str, Any]:
-    return {
-        "chroma_host": os.getenv("CHROMA_HOST", "127.0.0.1"),
-        "chroma_port": int(os.getenv("CHROMA_PORT", "8000")),
-        "chroma_path": os.getenv("CHROMA_PERSIST_DIRECTORY", str(pathlib.Path(_ROOT) / "data/chroma")),
-    }
-
-
 def _env_flag(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() in {"1", "true", "yes"}
 
@@ -197,7 +189,9 @@ async def lifespan(app: FastAPI):
     _skills = SkillManager(os.getenv("IT_COPILOT_SKILLS_DIR", str(pathlib.Path(_ROOT) / "skills")))
     _skills.load()
     _tool_manager = MCPToolManager(**llm)
-    _kb = KnowledgeBase(**_chroma_settings())
+    # 审批、执行与向量（知识库、记忆）同库：本地 SQLite，部署 PostgreSQL + pgvector。
+    db_url = database_url(os.getenv("IT_COPILOT_DATA_DIR", str(pathlib.Path(_ROOT) / "data")))
+    _kb = KnowledgeBase(db_url)
 
     async def knowledge(params, ctx=None):
         return await _kb.search_handler(params, ctx)
@@ -208,7 +202,7 @@ async def lifespan(app: FastAPI):
     ))
     _orchestrator = AgentOrchestrator(**llm, skill_manager=_skills, rag_tool_manager=_tool_manager)
     try:
-        _memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), **_chroma_settings(), **llm)
+        _memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=db_url, **llm)
         # Redis 属于正确性边界：锁和幂等不可省略，仅构造惰性客户端不足以证明可用。
         await _memory.ping()
     except Exception as exc:
@@ -217,8 +211,8 @@ async def lifespan(app: FastAPI):
             logger.error("Redis is required for safe startup: %s", type(exc).__name__)
             raise RuntimeError("Redis 不可用，拒绝启动：会话锁和幂等保护不能被绕过") from exc
         logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
-    # 审批与执行状态的唯一来源是工作流数据库（SQLite 本地 / PostgreSQL 部署），不放在 Redis 里。
-    _workflow = await asyncio.to_thread(WorkflowStore, database_url(_chroma_settings()["chroma_path"]))
+    # 审批与执行状态的唯一来源是应用数据库，不放在 Redis 里。
+    _workflow = await asyncio.to_thread(WorkflowStore, db_url)
     _registry = build_registry(_workflow)
     _workflow.route = lambda action: _registry.for_action(action).name
     _worker = ExecutionWorker(_workflow, _registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))

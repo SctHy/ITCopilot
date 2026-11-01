@@ -65,9 +65,13 @@ PydanticAI 可以直接把 MCP 服务挂成 toolset，但那样外部工具会�
 
 向量检索适合语义改写，BM25 对错误码、命令和产品名更稳；Hybrid 用 RRF 融合两者，不让任一分数标度主导。
 
-Embedding 用 fastembed 在本地跑 `BAAI/bge-small-zh-v1.5`（ONNX，约 95MB，不依赖 torch，不调用外部 API）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。集合名带模型后缀，换模型时新建集合并从旧集合重新向量化，不会把不同模型的向量混在一起。
+Embedding 用 fastembed 在本地跑 `BAAI/bge-small-zh-v1.5`（ONNX，约 95MB，不依赖 torch，不调用外部 API）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。每行向量记录生成它的模型，换模型时按新模型重新向量化，不会把不同模型的向量混在一起。
 
-LLM 查询改写 + 重排默认关闭（`IT_COPILOT_RAG_REWRITE`）。英文 embedding 时它是在补向量召回的短板（12 条子集 Recall@3 0.75→0.917）；换中文 embedding 后，40 条查询上普通 hybrid 已经 Recall@3 1.0，改写重排只把 7 条命中从第 2、3 位挪到第 1 位（MRR 0.908→1.0），代价是每次检索多两次模型调用、平均延迟从约 7ms 变成约 2.7 秒。Agent 一次读取前 5 条结果，排第 1 还是第 2 对回答影响很小，不值得默认开启。
+向量不单独起服务，存在应用数据库的 `vector_documents` 表里：PostgreSQL 用 pgvector（`embedding <=> :q` 余弦距离），本地与测试用 SQLite 存 float32、numpy 计算相似度，两边跑同一组契约测试，rag-v2 指标一致。理由是数据量只有千级片段，复用已有的 PostgreSQL 比多维护一套向量库（Chroma 及其 35 个独占依赖，或 Milvus 的 milvus + etcd + minio）划算；部门过滤也能在 SQL 里召回前完成。现在是精确检索，片段到十万级再加 HNSW 索引，千万级再考虑 Milvus。
+
+部门过滤放进 SQL 后，向量这一路的名次只在本部门可见的文档里计算，和 BM25 一路口径一致（之前向量名次包含其他部门文档）。40 条查询里 5 条排序变化、有升有降，hybrid Recall@3 1.0→0.975、MRR 0.908→0.900，差一条查询；没有为这 40 条回调参数。
+
+LLM 查询改写 + 重排默认关闭（`IT_COPILOT_RAG_REWRITE`）。英文 embedding 时它是在补向量召回的短板（12 条子集 Recall@3 0.75→0.917）；换中文 embedding 后，40 条上普通 hybrid Recall@3 0.975、MRR 0.900，改写重排为 1.0 / 1.0，代价是每次检索多两次模型调用、平均延迟从约 5ms 变成约 2.4 秒。Agent 一次读取前 5 条结果，用 2.4 秒换 1/40 的召回不值得默认开启。
 
 每条结果携带 source/department/updated_at/chunk_id，回答必须带 citation；无证据时明确说未检索到。
 
@@ -81,7 +85,7 @@ LLM 查询改写 + 重排默认关闭（`IT_COPILOT_RAG_REWRITE`）。英文 emb
 
 ## 生产替换路线
 
-优先替换 AD/LDAP、ITSM、CMDB、审批中心和设备库存适配器，保留 schema、审计和最小权限边界；再接入真实身份、租户隔离、告警与分布式 Chroma/Redis。公开仓库只展示 mock 与接口，不包含任何密钥或企业数据。
+优先替换 AD/LDAP、ITSM、CMDB、审批中心和设备库存适配器，保留 schema、审计和最小权限边界；再接入真实身份、租户隔离、告警与高可用 PostgreSQL/Redis。公开仓库只展示 mock 与接口，不包含任何密钥或企业数据。
 
 ## v2 实验边界
 

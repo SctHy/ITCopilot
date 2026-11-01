@@ -191,7 +191,7 @@ def test_rerank_invalid_index_falls_back_to_original_order():
 def test_thinking_type_reaches_upstream_request(monkeypatch):
     import json
 
-    import httpx
+    import httpx2 as httpx
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 

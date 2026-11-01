@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: pgvector/pgvector:0.8.3-pg18
         env:
           POSTGRES_USER: itc
           POSTGRES_PASSWORD: itc-pass
@@ -48,8 +48,8 @@ jobs:
         with:
           python-version: "3.14"
       - run: uv pip install --system -r requirements-dev.txt
-      # Same migrations and CAS/lease tests as SQLite, against PostgreSQL READ COMMITTED.
-      - run: pytest -q -p no:warnings tests/test_workflow.py
+      # Same migrations, CAS/lease and vector-store tests as SQLite, against PostgreSQL + pgvector.
+      - run: pytest -q -p no:warnings tests/test_workflow.py tests/test_vector_store.py
 
   integration:
     runs-on: ubuntu-latest

@@ -1,4 +1,7 @@
-"""Workflow database schema and engine factory (SQLite for local/tests, PostgreSQL in compose).
+"""Application database schema and engine factory (SQLite for local/tests, PostgreSQL in compose).
+
+Holds the approval workflow tables and ``vector_documents`` (knowledge base and memory
+embeddings, see ``core/vector_store.py``).
 
 Schema changes go through Alembic (``migrations/``); ``migrate()`` runs at startup so
 tests exercise the same migrations that deployments do.
@@ -10,9 +13,12 @@ from __future__ import annotations
 
 import pathlib
 
-from sqlalchemy import (JSON, Column, Float, Index, Integer, MetaData, PrimaryKeyConstraint, String, Table, Text,
-                        UniqueConstraint, create_engine, event)
+import numpy as np
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (JSON, Column, Float, Index, Integer, LargeBinary, MetaData, PrimaryKeyConstraint, String, Table,
+                        Text, UniqueConstraint, create_engine, event)
 from sqlalchemy.engine import Engine
+from sqlalchemy.types import TypeDecorator
 
 metadata = MetaData()
 
@@ -137,6 +143,44 @@ directory_effects = Table(
     "directory_effects", metadata,
     Column("operation_id", String(64), primary_key=True),
     Column("result", JSON),
+)
+
+
+# ── Embeddings ────────────────────────────────────────────────────────────────
+
+class Embedding(TypeDecorator):
+    """pgvector ``vector`` on PostgreSQL; float32 bytes on SQLite, where similarity is computed in Python."""
+
+    impl = LargeBinary
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(Vector() if dialect.name == "postgresql" else LargeBinary())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        array = np.asarray(value, dtype=np.float32)
+        return array if dialect.name == "postgresql" else array.tobytes()
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return np.asarray(value, dtype=np.float32) if dialect.name == "postgresql" else np.frombuffer(value, dtype=np.float32)
+
+
+# One table for every collection; ``model`` records which embedding model produced the vector
+# so a model change re-embeds old rows instead of mixing vector spaces.
+vector_documents = Table(
+    "vector_documents", metadata,
+    Column("collection", String(80), nullable=False),
+    Column("id", String(200), nullable=False),
+    Column("document", Text, nullable=False),
+    Column("meta", JSON, nullable=False),
+    Column("embedding", Embedding, nullable=False),
+    Column("model", String(120), nullable=False),
+    Column("updated_at", Float, nullable=False),
+    PrimaryKeyConstraint("collection", "id", name="pk_vector_documents"),
 )
 
 

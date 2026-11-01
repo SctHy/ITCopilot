@@ -1,7 +1,7 @@
 """Isolated evaluation of the SAME application lifespan and HTTP handlers.
 
 Offline uses only a model substitute and fakeredis. Live uses a dedicated Redis
-DB/server supplied by the caller. All Chroma/SQLite files are temporary. Requests
+DB/server supplied by the caller. All SQLite files are temporary. Requests
 authenticate with dev-mode tokens (default caller: alice; pass ``headers=auth(...)``
 for approvers or other identities). No flush
 of a user database, external MCP connection, or notification webhook is performed.
@@ -28,14 +28,13 @@ async def application(*, model=None, redis_url=None, documents=()):
 
     with tempfile.TemporaryDirectory(prefix="it-copilot-eval-") as directory:
         env = {
-            "CHROMA_PERSIST_DIRECTORY": directory,
-            "CHROMA_PORT": "18998",
+            "IT_COPILOT_DATA_DIR": directory,
             "IT_COPILOT_ENV": "development",
             "IT_COPILOT_SEED_DEMO_DOCS": "false",
             "IT_COPILOT_MCP_ENABLED": "false",
             "IT_COPILOT_ALERT_WEBHOOK": "",
             "IT_COPILOT_AUTH_MODE": "dev",
-            "IT_COPILOT_DATABASE_URL": f"sqlite:///{directory}/workflow.sqlite3",
+            "IT_COPILOT_DATABASE_URL": f"sqlite:///{directory}/it_copilot.sqlite3",
             "IT_COPILOT_GITEA_REPOS": "",
             "IT_COPILOT_APPROVAL_WAIT_S": "10",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "",

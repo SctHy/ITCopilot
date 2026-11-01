@@ -50,6 +50,7 @@ def scored(case, items, started):
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--database-url", help="empty database to evaluate on (default: temporary SQLite)")
     parser.add_argument("--live-limit", type=int, default=0, help="live rewrite+rerank on the first N queries; 0 = all")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
@@ -59,7 +60,7 @@ async def main():
     queries = json.loads((DATASETS_DIR / "rag_v2_queries.json").read_text())
     reports = {}
     with tempfile.TemporaryDirectory(prefix="rag-ablation-") as path:
-        kb = KnowledgeBase(chroma_port=18998, chroma_path=path)
+        kb = KnowledgeBase(args.database_url or f"sqlite:///{path}/kb.sqlite3")
         await kb.add_documents_async(docs)
         for mode in ("bm25", "vector", "hybrid"):
             rows = []

@@ -103,4 +103,4 @@ def test_eval_reports_summarize_committed_offline_reports(client):
     assert all(suites[name]["status"] == "passed" and suites[name]["metrics"] for name in ("intent", "calibration", "rag", "memory", "planner", "safety"))
     assert suites["intent_v2"]["title"] == "意图留出集 · 真实模型"
     rag = {m["label"]: m["value"] for m in suites["rag"]["metrics"]}
-    assert rag["Hybrid Recall@5"] == 1.0 and rag["Vector Recall@5"] == 0.8
+    assert rag["Hybrid Recall@5"] == 1.0 and rag["Vector Recall@5"] == 1.0

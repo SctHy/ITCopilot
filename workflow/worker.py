@@ -206,8 +206,8 @@ def database_url(default_dir: Optional[str] = None) -> str:
     url = os.getenv("IT_COPILOT_DATABASE_URL")
     if url:
         return url
-    base = default_dir or os.getenv("CHROMA_PERSIST_DIRECTORY", "data/chroma")
-    return f"sqlite:///{os.path.abspath(os.path.join(base, 'workflow.sqlite3'))}"
+    base = default_dir or os.getenv("IT_COPILOT_DATA_DIR", "data")
+    return f"sqlite:///{os.path.abspath(os.path.join(base, 'it_copilot.sqlite3'))}"
 
 
 async def _main() -> None:

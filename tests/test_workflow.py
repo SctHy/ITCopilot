@@ -4,8 +4,6 @@ Runs on SQLite by default. Set IT_COPILOT_TEST_DATABASE_URL=postgresql+psycopg:/
 same tests on PostgreSQL (each test gets its own schema).
 """
 import asyncio
-import os
-import uuid
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -36,23 +34,6 @@ class Clock:
 
 def access(employee="1001", role="readonly", system="GitLab", **extra):
     return {"tool_name": "request_access", "arguments": {"employee_id": employee, "system": system, "role": role, "reason": "代码审阅", **extra}}
-
-
-@pytest.fixture
-def db_url(tmp_path):
-    base = os.getenv("IT_COPILOT_TEST_DATABASE_URL")
-    if not base:
-        yield f"sqlite:///{tmp_path / 'wf.sqlite3'}"
-        return
-    from sqlalchemy import create_engine, text
-    schema = "t_" + uuid.uuid4().hex[:12]
-    admin = create_engine(base)
-    with admin.begin() as db:
-        db.execute(text(f"CREATE SCHEMA {schema}"))
-    yield f"{base}{'&' if '?' in base else '?'}options=-csearch_path%3D{schema}"
-    with admin.begin() as db:
-        db.execute(text(f"DROP SCHEMA {schema} CASCADE"))
-    admin.dispose()
 
 
 @pytest.fixture

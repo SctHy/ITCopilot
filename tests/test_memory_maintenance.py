@@ -44,7 +44,7 @@ def test_maintain_compresses_working_memory_written_by_chat_path():
             return ModelResponse(parts=[TextPart("用户反复反馈 VPN-691，已建议检查账号与系统时间。")])
 
         with tempfile.TemporaryDirectory() as path:
-            manager = MemoryManager(redis_url="redis://127.0.0.1:6399/0", chroma_host="127.0.0.1", chroma_port=8999, chroma_path=path, api_key="sk-local")
+            manager = MemoryManager(redis_url="redis://127.0.0.1:6399/0", database_url=f"sqlite:///{path}/memory.sqlite3", api_key="sk-local")
             manager._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
             manager._llm = FunctionModel(summarize)
             stored, profiles = [], []

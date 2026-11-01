@@ -1,15 +1,12 @@
 """
-RAG 知识库 —— 基于 ChromaDB 的真实检索实现。
+RAG 知识库：文档切片写入应用数据库的向量表（core/vector_store.py），BM25 + 向量两路召回后用 RRF 融合。
 
 功能：
-  1. 文档导入：将文本切片后存入 ChromaDB（自动生成 Embedding）
-  2. 语义检索：根据 query 从知识库中检索最相关的文档片段
+  1. 文档导入：将文本切片后写入向量表（本地中文 embedding 自动生成向量）
+  2. 检索：vector / bm25 / hybrid 三种模式，按部门隔离
   3. 与 MCP 工具框架集成：作为 knowledge_search 工具的真实 handler
 
-ChromaDB 在这里的角色：
-  - memory/ 中用于存储对话记忆（情景记忆 + 用户画像）
-  - 这里用于存储知识库文档（RAG 检索）
-  两者是不同的 collection，互不干扰。
+memory/ 的情景记忆与用户画像在同一张表的不同 collection 里，互不干扰。
 """
 import asyncio
 import hashlib
@@ -23,57 +20,29 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-import chromadb
-
-from core.embedding import open_collection
+from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-# BM25 索引的兜底刷新周期（秒）：覆盖共享 Chroma 服务时其他进程写入、片段数不变的更新。
+# BM25 索引的兜底刷新周期（秒）：覆盖其他进程写入同一数据库、片段数不变的更新。
 LEXICAL_INDEX_TTL_S = 30
 
 
 class KnowledgeBase:
     """
-    基于 ChromaDB 的 RAG 知识库。
-
-    集合绑定本地中文 embedding（core/embedding.py，默认 bge-small-zh-v1.5），
-    写入时自动生成向量，query() 时自动做语义匹配，不调用外部 Embeddings API。
+    RAG 知识库。向量由本地中文 embedding（core/embedding.py，默认 bge-small-zh-v1.5）生成，
+    存在 PostgreSQL（pgvector）或本地 SQLite，不调用外部 Embeddings API。
     """
 
     COLLECTION_NAME = "knowledge_base"
 
-    def __init__(
-        self,
-        chroma_host: str = "localhost",
-        chroma_port: int = 8000,
-        chroma_path: str = "./data/chroma",
-    ):
-        # 优先连接独立 ChromaDB 服务；默认 embedding_function 在客户端生成向量。
+    def __init__(self, database_url: str):
         self._write_lock = threading.RLock()
         self._index_lock = threading.RLock()
         self._lexical_index: Dict[str, Dict[str, Any]] = {}
         self._indexed_count, self._indexed_at = -1, 0.
-        try:
-            # 显式关闭 ChromaDB 匿名遥测，避免把使用数据发送到外部。
-            self._client = chromadb.HttpClient(
-                host=chroma_host,
-                port=chroma_port,
-                settings=chromadb.Settings(anonymized_telemetry=False),
-            )
-            self._client.heartbeat()
-            logger.info(f"知识库 ChromaDB 已连接: {chroma_host}:{chroma_port}")
-        except Exception as ex:
-            if os.getenv("IT_COPILOT_ENV", "development").lower() == "production":
-                raise RuntimeError("生产环境知识库 ChromaDB 不可用，禁止切换到本地库") from ex
-            logger.info(f"知识库 ChromaDB 服务不可用，使用本地模式: {chroma_path}")
-            self._client = chromadb.PersistentClient(
-                path=chroma_path,
-                settings=chromadb.Settings(anonymized_telemetry=False),
-            )
-
-        # 中文 embedding（core/embedding.py）；Docker 已预下载模型，本地首次使用会下载。
-        self._collection = open_collection(self._client, self.COLLECTION_NAME, metadata={"description": "IT-Copilot 企业 IT 服务台知识库"})
+        # Docker 已预下载 embedding 模型，本地首次使用会下载。
+        self._collection = VectorStore(database_url).collection(self.COLLECTION_NAME)
 
         # 如果知识库为空，导入默认文档
         seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}
@@ -131,20 +100,20 @@ class KnowledgeBase:
 
     def _existing_chunk_ids(self, document_id: str, title: str, explicit_id: Optional[str]) -> set:
         """同一文档已有的片段 ID（含旧版 ID 方案写入的片段），用于替换时清理过期片段。"""
-        existing = set(self._collection.get(where={"document_id": document_id}, include=["metadatas"])["ids"])
+        existing = set(self._collection.get(where={"document_id": document_id})["ids"])
         # 仅迁移归属可验证的旧身份；旧显式 ID 与 title: 前缀冲突时保留旧记录供核验。
         if not explicit_id or not explicit_id.startswith("title:"):
             legacy_id = hashlib.sha256((explicit_id or f"title:{title}").encode()).hexdigest()
-            previous = self._collection.get(where={"document_id": legacy_id}, include=["metadatas"])
+            previous = self._collection.get(where={"document_id": legacy_id})
             existing.update(i for i, meta in zip(previous["ids"], previous["metadatas"]) if (meta or {}).get("title") == title)
         if not explicit_id:
             # 兼容旧版只有 title/chunk_index 元数据的片段。
-            legacy = self._collection.get(where={"title": title}, include=["metadatas"])
+            legacy = self._collection.get(where={"title": title})
             existing.update(i for i, meta in zip(legacy["ids"], legacy["metadatas"]) if not (meta or {}).get("document_id"))
         return existing
 
     async def add_documents_async(self, documents: List[Dict[str, str]]) -> int:
-        """异步导入文档；ChromaDB 客户端为同步实现，因此放入线程池执行。"""
+        """异步导入文档；embedding 与数据库访问是同步的，因此放入线程池执行。"""
         return await asyncio.to_thread(self.add_documents, documents)
 
     @staticmethod
@@ -157,7 +126,7 @@ class KnowledgeBase:
 
     def _rebuild_lexical_index(self):
         with self._index_lock:
-            data = self._collection.get(include=["documents", "metadatas"])
+            data = self._collection.get()
             self._lexical_index = {
                 doc_id: {"id": doc_id, "document": document, "metadata": metadata or {}, "tokens": self._tokens(document)}
                 for doc_id, document, metadata in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))
@@ -165,7 +134,7 @@ class KnowledgeBase:
             self._indexed_count, self._indexed_at = len(self._lexical_index), time.monotonic()
 
     def _ensure_lexical_index(self, count: int) -> None:
-        """片段数变化或超过刷新周期时重建 BM25 索引；本进程写入后已立即重建，周期刷新兜底其他写入方（共享 Chroma 服务）。"""
+        """片段数变化或超过刷新周期时重建 BM25 索引；本进程写入后已立即重建，周期刷新兜底其他写入方（共享数据库）。"""
         if count != self._indexed_count or time.monotonic() - self._indexed_at > LEXICAL_INDEX_TTL_S:
             self._rebuild_lexical_index()
 
@@ -190,7 +159,7 @@ class KnowledgeBase:
     def search(self, query: str, top_k: int = 5, *, department: Optional[str] = None,
                mode: str = "hybrid", rrf_k: int = 60) -> List[Dict[str, Any]]:
         """
-        检索文档片段：vector（Chroma 语义）、bm25（词法）或 hybrid（两路排名用 RRF 融合）。
+        检索文档片段：vector（语义）、bm25（词法）或 hybrid（两路排名用 RRF 融合）。
 
         department 给定时只返回该部门与公共（"*"）文档。
         """
@@ -212,17 +181,11 @@ class KnowledgeBase:
             entry = merged.setdefault(doc_id, {"doc": document, "meta": metadata, "vector_score": vector_score, "bm25_score": bm25_score, "rrf": 0.})
             entry["rrf"] += 1 / (rrf_k + rank)
 
-        # 不用 Chroma 的 where 过滤：不同版本服务端的元数据过滤行为不一致，部门隔离在查询后统一校验（纵深防御）。
-        # 只做查询后过滤时，其他部门的文档可能占满候选窗口；允许命中不足时逐步扩大窗口，等价于召回前过滤。
+        # 部门隔离在 SQL 里做（召回前过滤，其他部门的文档不会占满候选窗口），下面合并时再按 allowed 校验一次（纵深防御）。
         results = {}
         if mode != "bm25":
-            n_results = min(top_k * 4, count)
-            while True:
-                results = self._collection.query(query_texts=[query], n_results=n_results, include=["documents", "metadatas", "distances"])
-                hits = sum(1 for doc_id in results.get("ids", [[]])[0] if doc_id in allowed)
-                if hits >= min(top_k * 2, len(allowed)) or n_results >= count:
-                    break
-                n_results = min(n_results * 4, count)
+            where = {"department": {"$in": ["*", department]}} if department else None
+            results = self._collection.query(query_texts=[query], n_results=min(top_k * 4, count), where=where)
         lexical_scores = self._bm25(query, allowed) if mode != "vector" else {}
         vector_hits = zip(results.get("ids", [[]])[0], results.get("documents", [[]])[0], results.get("metadatas", [[]])[0], results.get("distances", [[]])[0])
         for rank, (doc_id, document, metadata, distance) in enumerate(vector_hits, 1):
@@ -251,7 +214,7 @@ class KnowledgeBase:
         }
 
     async def search_async(self, query: str, top_k: int = 5, **kwargs) -> List[Dict[str, Any]]:
-        """异步检索；ChromaDB 客户端为同步实现，因此放入线程池执行。"""
+        """异步检索；embedding 与数据库访问是同步的，因此放入线程池执行。"""
         return await asyncio.to_thread(self.search, query, top_k, **kwargs)
 
     async def doc_count_async(self) -> int:

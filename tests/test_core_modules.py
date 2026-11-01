@@ -65,7 +65,7 @@ def test_intent_metrics_expose_disabled_fallback():
 def test_rag_hybrid_returns_citations_and_department_scope():
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:
-        kb = KnowledgeBase(chroma_path=path)
+        kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
         kb.add_documents([
             {"title": "研发 VPN SOP", "content": "研发 VPN DNS 排障和客户端版本检查", "department": "研发", "source": "sop/vpn.md"},
             {"title": "财务 ERP SOP", "content": "财务 ERP 权限申请和审批", "department": "财务", "source": "sop/erp.md"},

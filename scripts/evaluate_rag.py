@@ -44,7 +44,7 @@ def main():
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     try:
         with tempfile.TemporaryDirectory(prefix="it-copilot-rag-") as path:
-            kb = KnowledgeBase(chroma_path=path)
+            kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
             kb.add_documents(CORPUS)
             vector, hybrid = score(kb, cases, "vector"), score(kb, cases, "hybrid")
     finally:

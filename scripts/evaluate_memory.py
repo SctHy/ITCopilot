@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 3 记忆质量离线评测（临时 Persistent ChromaDB）：情景召回、意图过滤、无关注入与画像命中。"""
+"""Phase 3 记忆质量离线评测（临时 SQLite 向量表）：情景召回、意图过滤、无关注入与画像命中。"""
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +20,7 @@ USER, HISTORY_CONV, NEW_CONV = "phase3-eval-user", "historical-conversation", "n
 
 async def main():
     root = pathlib.Path(tempfile.mkdtemp(prefix="it-copilot-memory-eval-"))
-    manager = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), chroma_host="127.0.0.1", chroma_port=8999, chroma_path=str(root / "chroma"), api_key="sk-local")
+    manager = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=f"sqlite:///{root}/memory.sqlite3", api_key="sk-local")
     try:
         await manager.store_episodic_turn(USER, HISTORY_CONV, "mem-net", "VPN 错误码 VPN-1002", "网络排障建议", {"intent": "vpn_issue", "intent_group": "network", "entities": {"error_code": ["VPN-1002"]}})
         await manager.store_episodic_turn(USER, HISTORY_CONV, "mem-access", "申请 GitLab 权限", "权限审批建议", {"intent": "permission_request", "intent_group": "access", "entities": {"system": ["GitLab"]}})

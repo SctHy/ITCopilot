@@ -41,6 +41,15 @@
 - 镜像构建期预下载模型（`FASTEMBED_CACHE_PATH`），不再预下载 MiniLM。
 - Agent 知识检索默认只做一次 hybrid 检索（`MCPToolManager.search`），LLM 查询改写 + 重排改为 `IT_COPILOT_RAG_REWRITE=true` 时启用。rag-v2 全部 40 条：hybrid Recall@3 1.0 / MRR 0.908 / 约 7ms，改写重排 1.0 / 1.0 / 约 2.7 秒，只改善了 7 条的排序。`evaluate_rag_ablation.py --live` 默认在全部查询上对照（`--live-limit` 可截取）。
 
+## v3.4 — 向量存入 PostgreSQL（pgvector），移除 Chroma
+
+- 知识库、情景记忆、用户画像的向量改存应用数据库的 `vector_documents` 表（Alembic 0003，PostgreSQL 上创建 `vector` 扩展）：部署用 pgvector `<=>` 余弦距离在库内检索，本地与测试用 SQLite 存 float32、numpy 计算。`core/vector_store.py` 提供 upsert / get / query / delete / count，过滤支持字符串等值、`$in`、`$and`，在 SQL 里求值。
+- 每行记录生成向量的模型；换 `IT_COPILOT_EMBEDDING_MODEL` 后首次打开集合时按新模型重新向量化。
+- 知识库部门过滤从“查询后过滤 + 扩窗重查”改为 SQL 召回前过滤；向量名次与 BM25 一样只在可见文档中计算。rag-v2：hybrid Recall@3 1.0→0.975、MRR 0.908→0.900（5 条排序有升有降），vector 与 BM25 不变；SQLite 与 pgvector 结果一致。LLM 改写重排 1.0 / 1.0，约 2.4 秒，仍默认关闭。记忆消融结果不变。
+- 移除 chromadb（及 35 个只被它使用的间接依赖）；新增 pgvector、numpy。compose 与 CI 的 Postgres 镜像改为 `pgvector/pgvector:0.8.3-pg18`。
+- `CHROMA_PERSIST_DIRECTORY` 改为 `IT_COPILOT_DATA_DIR`（默认 `data`），本地库文件改为 `data/it_copilot.sqlite3`。旧 Chroma 数据用 `scripts/migrate_chroma.py` 一次性迁入（需临时安装 chromadb）。
+- 测试的 `db_url` fixture 移到 `tests/conftest.py`，PostgreSQL 下 search_path 带上 public；新增 `tests/test_vector_store.py`，SQLite 与 PostgreSQL 跑同一组用例。
+
 ## v2 — 可验证业务执行与对照评测
 
 - 新增 SQLite 本地业务适配器：冻结审批参数和哈希、批准/执行状态分离、幂等操作记录、事务回滚、重启重试与审计。聊天阶段仅准备申请，不再写入会阻塞恢复的旧“结果未知”回执。

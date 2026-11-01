@@ -64,7 +64,7 @@ install_requirements() {
 }
 
 ensure_python_deps() {
-  if ! "$PYTHON_BIN" -c 'import fastapi, uvicorn, pydantic_ai, redis, chromadb, dotenv' >/dev/null 2>&1; then
+  if ! "$PYTHON_BIN" -c 'import fastapi, uvicorn, pydantic_ai, redis, fastembed, pgvector, dotenv' >/dev/null 2>&1; then
     echo "Python 依赖不完整，使用 $PYTHON_BIN 安装 requirements.txt ..."
     install_requirements "$HERE/requirements.txt"
   fi
@@ -117,9 +117,9 @@ free_port "$IT_COPILOT_FRONTEND_PORT"
 export IT_COPILOT_PYTHON="$PYTHON_BIN"
 export PYTHONPATH="$HERE"
 export REDIS_URL="${REDIS_URL:-redis://:it-copilot123@127.0.0.1:6379/0}"
-export CHROMA_PERSIST_DIRECTORY="${CHROMA_PERSIST_DIRECTORY:-$HERE/data/chroma}"
+export IT_COPILOT_DATA_DIR="${IT_COPILOT_DATA_DIR:-$HERE/data}"
 export IT_COPILOT_SKILLS_DIR="${IT_COPILOT_SKILLS_DIR:-$HERE/skills}"
-mkdir -p "$HERE/logs" "$CHROMA_PERSIST_DIRECTORY"
+mkdir -p "$HERE/logs" "$IT_COPILOT_DATA_DIR"
 
 API_PID=""; FRONTEND_PID=""
 cleanup() {

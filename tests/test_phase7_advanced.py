@@ -64,7 +64,7 @@ def test_memory_sensitive_profile_is_redacted():
 def test_rag_vector_bm25_hybrid_and_citation():
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:
-        kb = KnowledgeBase(chroma_path=path)
+        kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
         kb.add_documents([{"title": "研发 VPN", "content": "VPN DNS 客户端排障", "department": "研发"}, {"title": "财务 ERP", "content": "ERP 权限审批", "department": "财务"}])
         for mode in ("vector", "bm25", "hybrid"):
             rows = kb.search("VPN DNS", mode=mode, department="研发")

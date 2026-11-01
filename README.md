@@ -37,8 +37,8 @@ flowchart LR
   A --> G[PydanticAI Agent / 工具循环 / 结构化输出]
   G --> GW[OpenAI-compatible 模型服务（DeepSeek）]
   A --> T[工具治理 / Schema / TTL / timeout / circuit breaker]
-  A --> R[混合 RAG / BM25 + Chroma（bge-small-zh）+ RRF]
-  A --> M[三级记忆 / Redis + Chroma]
+  A --> R[混合 RAG / BM25 + pgvector（bge-small-zh）+ RRF]
+  A --> M[三级记忆 / Redis + pgvector]
   T --> H{审批门 / 策略 + 职责分离}
   H -->|approved: 同事务写入 outbox| DB[(PostgreSQL 审批 / 动作 / 授权台账 / 审计)]
   DB --> W[执行 worker / 租约 + CAS / 回查对账 / 到期回收]
@@ -73,7 +73,7 @@ flowchart LR
 | Agent 框架 | PydanticAI：Agent 工具循环、`Tool.from_schema`、`ToolOutput` 结构化输出、`UsageLimits` 轮数上限 |
 | 模型接入 | PydanticAI `OpenAIChatModel` 直连 OpenAI-compatible 服务（默认 DeepSeek），换厂商只改 `OPENAI_*` 环境变量 |
 | 身份 | OIDC（Keycloak 26，授权码 + PKCE；API 侧 JWKS 校验 RS256），开发/评测用本地签发令牌；RBAC：employee / approver / it_admin / auditor |
-| 存储 | PostgreSQL 18（审批、动作 outbox、授权台账、审计；本地与测试用 SQLite），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流）、Chroma（知识与向量记忆） |
+| 存储 | PostgreSQL 18 + pgvector（审批、动作 outbox、授权台账、审计，以及知识库与记忆的向量；本地与测试用 SQLite，向量相似度用 numpy 计算），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流） |
 | 执行 | outbox + 租约 worker（API 内与独立进程可并存），适配器：Gitea REST（真实权限系统沙箱）、本地目录 |
 | RAG | BM25、向量检索（fastembed 本地 bge-small-zh-v1.5）、RRF、部门过滤 |
 | 前端 | Vue 3、Vite 8、原生 SSE |
@@ -103,8 +103,8 @@ flowchart LR
 | 实验 | 结果与口径 |
 |---|---|
 | 意图消融 | 88 条人工编写样本，44 校准 / 44 留出；真实 DeepSeek Flash：LLM 与融合均 44/44；未证明融合更优，默认采用较简单的 LLM 路由 |
-| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 1.0（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；LLM 改写重排（默认关闭）在 40 条上 MRR 0.908→1.0、Recall 不变，每次检索多约 2.7 秒 |
-| 业务开发集 | 24 场景 × 2 策略，真实模型与 Redis/Chroma/SQLite；组合修复前 single/bounded 均 13/24，之后 23/24 与 22/24；这是开发集回归 |
+| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 0.975（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；SQLite 与 pgvector 结果一致；LLM 改写重排（默认关闭）Recall@3 1.0、MRR 0.900→1.0，每次检索多约 2.4 秒 |
+| 业务开发集 | 24 场景 × 2 策略，真实模型与 Redis/Chroma/SQLite（v3 时）；组合修复前 single/bounded 均 13/24，之后 23/24 与 22/24；这是开发集回归 |
 | 独立应用验证 | 另冻结 12 场景，每策略重复 3 次：single 36/36、bounded 33/36（3 次预算停止）；详见 `evaluation/reports/application_holdout_live.json`，不将开发集改善当泛化结果 |
 | 记忆对照 | 每模式 4 项确定性上下文检查：working 2/4、state 3/4、full 4/4；不是用户对话成功率 |
 | 故障恢复 | 并发批准/拒绝、重复执行、批次回滚、子进程退出后重试有回归测试；10 次模型故障注入验证降级和单探针恢复 |
@@ -120,7 +120,7 @@ cp .env.example .env                                  # 填写 OPENAI_API_KEY �
 ./start_local.sh
 ```
 
-脚本会确保 Redis 容器 `it-copilot-redis`、8001 API 和 5173 前端就绪。本地默认 `IT_COPILOT_AUTH_MODE=dev`：前端自动以演示员工 alice 登录，可在“连接配置”切换为审批人 bob/carol、管理员 erin 或审计员 grace 体验职责分离；审批库默认是 `data/chroma/workflow.sqlite3`。模型由 PydanticAI 按 `.env` 中的 `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` 直连 OpenAI-compatible 服务。浏览器打开 <http://127.0.0.1:5173>，可尝试：`VPN 连不上`、`申请 GitLab 只读权限`、`查询我的工单`。API 文档：<http://127.0.0.1:8001/docs>。
+脚本会确保 Redis 容器 `it-copilot-redis`、8001 API 和 5173 前端就绪。本地默认 `IT_COPILOT_AUTH_MODE=dev`：前端自动以演示员工 alice 登录，可在“连接配置”切换为审批人 bob/carol、管理员 erin 或审计员 grace 体验职责分离；本地数据库默认是 `data/it_copilot.sqlite3`（审批、执行与向量同库）。模型由 PydanticAI 按 `.env` 中的 `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` 直连 OpenAI-compatible 服务。浏览器打开 <http://127.0.0.1:5173>，可尝试：`VPN 连不上`、`申请 GitLab 只读权限`、`查询我的工单`。API 文档：<http://127.0.0.1:8001/docs>。
 
 ### Docker Compose
 

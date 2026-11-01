@@ -1,6 +1,6 @@
 """Live full-application trials: HTTP chat -> frozen approval -> adapter -> state checks.
 
-Uses the production lifespan with isolated Chroma/SQLite and a dedicated Redis URL.
+Uses the production lifespan with isolated SQLite and a dedicated Redis URL.
 Each case runs as a fresh identity whose employee_id is the 工号 in the first turn
 (self-service policy); approvals are decided by separate approvers (bob, then carol when
 the policy requires two), so separation of duties is exercised on every write.
@@ -233,7 +233,7 @@ async def main():
         "source_calls": source_calls,
         "summary": summary,
         "trials": rows,
-        "limitations": "Authored local sandbox tasks; real model/Redis/Chroma/SQLite and ASGI HTTP handlers; no enterprise identity integration. Token totals cover agent runs only, excluding intent/rewrite/rerank. Single mode retains role-specific tools. Not a user study.",
+        "limitations": "Authored local sandbox tasks; real model/Redis/SQLite and ASGI HTTP handlers; no enterprise identity integration. Token totals cover agent runs only, excluding intent/rewrite/rerank. Single mode retains role-specific tools. Not a user study.",
     }
     write_report(args.output, report, echo=False)
     print(json.dumps(summary, ensure_ascii=False))

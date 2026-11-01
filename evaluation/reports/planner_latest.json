@@ -9,7 +9,7 @@
     {
       "message": "申请 GitLab 权限并准备一台新电脑",
       "complex": true,
-      "steps": 3,
+      "steps": 2,
       "bounded": true,
       "has_trace_fields": true
     },

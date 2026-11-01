@@ -15,7 +15,7 @@ x-backend: &backend
 
 x-app-env: &app-env
   REDIS_URL: redis://:${REDIS_PASSWORD:-it-copilot123}@redis:6379/0
-  CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+  IT_COPILOT_DATA_DIR: /app/data
   IT_COPILOT_DATABASE_URL: postgresql+psycopg://itc:${POSTGRES_PASSWORD:-itc-pass}@postgres:5432/it_copilot
   IT_COPILOT_AUTH_MODE: ${IT_COPILOT_AUTH_MODE:-oidc}
   # 浏览器拿到的 token 的 iss 是对外地址；JWKS 走 compose 内网。
@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:0.8.3-pg18   # PostgreSQL 18 + pgvector（知识库与记忆向量）
     environment:
       POSTGRES_USER: itc
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itc-pass}
