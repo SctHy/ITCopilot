@@ -31,6 +31,7 @@ from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
+from core.embedding import open_collection
 from core.llm import build_model, close_model, complete_text
 from core.concurrency import KeyedLocks, redis_lease
 
@@ -149,9 +150,9 @@ class MemoryManager:
             )
 
         # 情景记忆：存储历史对话片段
-        self._episodic = chroma.get_or_create_collection("episodic")
+        self._episodic = open_collection(chroma, "episodic")
         # 用户画像：存储提炼出的偏好和实体
-        self._profile  = chroma.get_or_create_collection("user_profile")
+        self._profile  = open_collection(chroma, "user_profile")
 
     @asynccontextmanager
     async def conversation(self, user_id: str, conv_id: str):

@@ -63,7 +63,11 @@ PydanticAI 可以直接把 MCP 服务挂成 toolset，但那样外部工具会�
 
 ## RAG 取舍
 
-向量检索适合语义改写，BM25 对错误码、命令和产品名更稳；Hybrid 用 RRF 融合两者，不让任一分数标度主导。每条结果携带 source/department/updated_at/chunk_id，回答必须带 citation；无证据时明确说未检索到。
+向量检索适合语义改写，BM25 对错误码、命令和产品名更稳；Hybrid 用 RRF 融合两者，不让任一分数标度主导。
+
+Embedding 用 fastembed 在本地跑 `BAAI/bge-small-zh-v1.5`（ONNX，约 95MB，不依赖 torch，不调用外部 API）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。集合名带模型后缀，换模型时新建集合并从旧集合重新向量化，不会把不同模型的向量混在一起。
+
+每条结果携带 source/department/updated_at/chunk_id，回答必须带 citation；无证据时明确说未检索到。
 
 ## 置信度校准
 

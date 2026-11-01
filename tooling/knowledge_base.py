@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional
 
 import chromadb
 
+from core.embedding import open_collection
+
 logger = logging.getLogger(__name__)
 
 # BM25 索引的兜底刷新周期（秒）：覆盖共享 Chroma 服务时其他进程写入、片段数不变的更新。
@@ -35,9 +37,8 @@ class KnowledgeBase:
     """
     基于 ChromaDB 的 RAG 知识库。
 
-    ChromaDB 内置了 Embedding 模型（all-MiniLM-L6-v2），
-    调用 add() 时自动生成向量，query() 时自动做语义匹配。
-    不需要额外调用 Anthropic Embeddings API。
+    集合绑定本地中文 embedding（core/embedding.py，默认 bge-small-zh-v1.5），
+    写入时自动生成向量，query() 时自动做语义匹配，不调用外部 Embeddings API。
     """
 
     COLLECTION_NAME = "knowledge_base"
@@ -71,12 +72,8 @@ class KnowledgeBase:
                 settings=chromadb.Settings(anonymized_telemetry=False),
             )
 
-        # 不传 embedding_function 时使用 ChromaDB 客户端默认模型；
-        # Docker 已预下载模型，本地运行首次使用可能触发下载。
-        self._collection = self._client.get_or_create_collection(
-            name=self.COLLECTION_NAME,
-            metadata={"description": "IT-Copilot 企业 IT 服务台知识库"},
-        )
+        # 中文 embedding（core/embedding.py）；Docker 已预下载模型，本地首次使用会下载。
+        self._collection = open_collection(self._client, self.COLLECTION_NAME, metadata={"description": "IT-Copilot 企业 IT 服务台知识库"})
 
         # 如果知识库为空，导入默认文档
         seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}

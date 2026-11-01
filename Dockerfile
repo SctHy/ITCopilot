@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     UV_NO_CACHE=1 \
     PYDANTIC_AI_NO_BANNER=1 \
+    FASTEMBED_CACHE_PATH=/home/app/.cache/fastembed \
     HOME=/home/app
 
 RUN useradd --create-home --uid 10001 app
@@ -19,9 +20,9 @@ RUN uv pip install --system -r requirements.txt
 # data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
 RUN mkdir -p /app/data/chroma && chown -R app:app /app/data
 
-# 构建期预下载 Chroma 默认 embedding 模型，避免首次请求时在线下载导致超时。
+# 构建期预下载中文 embedding 模型（与 core/embedding.py 默认值一致），避免首次请求时在线下载导致超时。
 USER app
-RUN python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFunction as E; E()(['warmup'])"
+RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('BAAI/bge-small-zh-v1.5').embed(['预热']))"
 
 COPY --chown=app:app . .
 

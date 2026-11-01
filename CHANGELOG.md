@@ -33,6 +33,13 @@
 - 镜像：PostgreSQL 18、Keycloak 26.8、Gitea 1.27。PG 18 镜像的数据目录改为 `/var/lib/postgresql/18/docker`，compose 改挂 `/var/lib/postgresql` 并换用新卷 `postgres18-data`；旧卷 `postgres-data` 不再使用，需要旧数据时用 `pg_upgrade` 或 dump/restore 迁移。
 - 验证：后端 200 项测试通过（3 项真实服务集成测试在 Keycloak 26.8 + Gitea 1.27 上通过）；工作流测试在 PostgreSQL 18 上连续 3 次通过；前端 18 项测试与构建通过。
 
+## v3.3 — 中文 embedding
+
+- 知识库、情景记忆、用户画像的 Chroma 集合改用 fastembed 本地加载 `BAAI/bge-small-zh-v1.5`（`core/embedding.py`，`IT_COPILOT_EMBEDDING_MODEL` 可换），替换 Chroma 默认的英文 all-MiniLM-L6-v2；bge 查询侧加官方检索指令。
+- 集合名带模型后缀（如 `knowledge_base__bge-small-zh-v1.5`）；新集合为空时从同名旧集合复制文本与元数据并重新向量化，旧集合保留。
+- rag-v2（60 文档 / 40 查询）：vector Recall@3 0.525→0.925、MRR 0.446→0.850；hybrid Recall@3 0.725→1.0、MRR 0.654→0.908；检索延迟约 50ms→5ms。12 条配对子集上普通 hybrid 已达 Recall@3 1.0 / MRR 0.944，LLM 改写重排为 1.0 / 1.0（多约 2 秒）。去掉查询指令的对照：vector MRR 0.875、hybrid Recall@3 0.975，差异在一条查询以内。记忆消融结果不变。
+- 镜像构建期预下载模型（`FASTEMBED_CACHE_PATH`），不再预下载 MiniLM。
+
 ## v2 — 可验证业务执行与对照评测
 
 - 新增 SQLite 本地业务适配器：冻结审批参数和哈希、批准/执行状态分离、幂等操作记录、事务回滚、重启重试与审计。聊天阶段仅准备申请，不再写入会阻塞恢复的旧“结果未知”回执。

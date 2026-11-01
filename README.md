@@ -37,7 +37,7 @@ flowchart LR
   A --> G[PydanticAI Agent / 工具循环 / 结构化输出]
   G --> GW[OpenAI-compatible 模型服务（DeepSeek）]
   A --> T[工具治理 / Schema / TTL / timeout / circuit breaker]
-  A --> R[混合 RAG / BM25 + Chroma + RRF]
+  A --> R[混合 RAG / BM25 + Chroma（bge-small-zh）+ RRF]
   A --> M[三级记忆 / Redis + Chroma]
   T --> H{审批门 / 策略 + 职责分离}
   H -->|approved: 同事务写入 outbox| DB[(PostgreSQL 审批 / 动作 / 授权台账 / 审计)]
@@ -75,7 +75,7 @@ flowchart LR
 | 身份 | OIDC（Keycloak 26，授权码 + PKCE；API 侧 JWKS 校验 RS256），开发/评测用本地签发令牌；RBAC：employee / approver / it_admin / auditor |
 | 存储 | PostgreSQL 18（审批、动作 outbox、授权台账、审计；本地与测试用 SQLite），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流）、Chroma（知识与向量记忆） |
 | 执行 | outbox + 租约 worker（API 内与独立进程可并存），适配器：Gitea REST（真实权限系统沙箱）、本地目录 |
-| RAG | BM25、向量检索、RRF、部门过滤 |
+| RAG | BM25、向量检索（fastembed 本地 bge-small-zh-v1.5）、RRF、部门过滤 |
 | 前端 | Vue 3、Vite 8、原生 SSE |
 | 工具协议 | MCP Python SDK 2.x（Streamable HTTP / stdio 客户端，MCPServer 服务端） |
 | 可观测性 | Prometheus 指标、OpenTelemetry（OTLP → Jaeger）、进程内 SLO 告警、Grafana 仪表盘 |
@@ -103,7 +103,7 @@ flowchart LR
 | 实验 | 结果与口径 |
 |---|---|
 | 意图消融 | 88 条人工编写样本，44 校准 / 44 留出；真实 DeepSeek Flash：LLM 与融合均 44/44；未证明融合更优，默认采用较简单的 LLM 路由 |
-| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.525 / hybrid 0.725；12 条配对子集改写重排后 0.9167，原 hybrid 0.75 |
+| RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 1.0（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；12 条配对子集 hybrid 1.0、MRR 0.944，改写重排后 MRR 1.0，多约 2 秒 |
 | 业务开发集 | 24 场景 × 2 策略，真实模型与 Redis/Chroma/SQLite；组合修复前 single/bounded 均 13/24，之后 23/24 与 22/24；这是开发集回归 |
 | 独立应用验证 | 另冻结 12 场景，每策略重复 3 次：single 36/36、bounded 33/36（3 次预算停止）；详见 `evaluation/reports/application_holdout_live.json`，不将开发集改善当泛化结果 |
 | 记忆对照 | 每模式 4 项确定性上下文检查：working 2/4、state 3/4、full 4/4；不是用户对话成功率 |

@@ -57,3 +57,19 @@ def test_department_filter_is_not_crowded_out_by_other_departments(kb):
     kb.add_documents([{"title": f"财务 VPN 证书 {i}", "content": f"VPN 客户端证书与 DNS 排障 财务版 {i}", "department": "财务"} for i in range(40)])
     rows = kb.search("VPN 客户端证书与 DNS 排障 财务版", top_k=3, department="研发", mode="vector")
     assert [r["title"] for r in rows] == ["VPN 指南"]
+
+
+def test_legacy_collection_is_reembedded_into_model_collection(tmp_path, monkeypatch):
+    import chromadb
+
+    from core.embedding import collection_name
+
+    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
+    client = chromadb.PersistentClient(path=str(tmp_path), settings=chromadb.Settings(anonymized_telemetry=False))
+    legacy = client.get_or_create_collection(KnowledgeBase.COLLECTION_NAME)
+    legacy.upsert(ids=["d1:0"], documents=["打印机驱动安装说明"], metadatas=[{"title": "打印机", "department": "*"}],
+                  embeddings=[[0.1] * 384])
+    base = KnowledgeBase(chroma_path=str(tmp_path))
+    assert base._collection.name == collection_name(KnowledgeBase.COLLECTION_NAME)
+    assert base._collection.count() == 1 and legacy.count() == 1
+    assert base.search("怎么装打印机", mode="vector")[0]["title"] == "打印机"
