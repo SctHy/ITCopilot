@@ -1,4 +1,4 @@
-# IT-Copilot 后端镜像：API（默认）与 Anthropic→OpenAI 协议网关共用，由 compose 的 command 区分。
+# IT-Copilot 后端镜像：API（默认）、独立 worker 与初始化任务共用，由 compose 的 command 区分。
 FROM python:3.14.10-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv

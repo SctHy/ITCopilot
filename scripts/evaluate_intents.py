@@ -35,9 +35,9 @@ async def main() -> int:
     args = parser.parse_args()
     cases = load_intent_cases(args.dataset)
     recognizer = IntentRecognizer(
-        os.getenv("ANTHROPIC_API_KEY", "sk-local"),
-        os.getenv("ANTHROPIC_BASE_URL") or None,
-        os.getenv("ANTHROPIC_MODEL", "deepseek-chat"),
+        os.getenv("OPENAI_API_KEY", "sk-local"),
+        os.getenv("OPENAI_BASE_URL") or None,
+        os.getenv("OPENAI_MODEL", "deepseek-chat"),
     )
     metrics = await IntentEvaluator(recognizer).evaluate(cases)
     metrics["status"] = status(metrics.get("accuracy", 0) >= PASS_ACCURACY)

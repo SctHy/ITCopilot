@@ -20,7 +20,6 @@ logs/
 .env
 .env.*
 !.env.example
-gateway/.env.gateway
 
 # 运行时数据（容器内使用卷）
 data/

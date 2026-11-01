@@ -24,6 +24,15 @@
 - 评测运行后段模型服务额度耗尽，部分分层没有有效数据，详见 docs/evaluation-v3.md 第 7 节。
 - 新增 ADR 0006（默认通用 Agent）、0007（待审批申请替代）。后端 200 项测试通过（另 3 项真实服务集成测试按需运行），前端 18 项；工作流测试在 PostgreSQL 17 上通过。
 
+## v3.2 — 依赖与镜像升级、删除协议网关
+
+- 删除 8082 Anthropic→OpenAI 协议网关（`gateway/`、compose 的 gateway 服务）：PydanticAI 用 `OpenAIChatModel` 直连 OpenAI-compatible 服务，配置统一为 `.env` 的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL`；原网关为 DeepSeek 关闭 thinking 的逻辑改为 `OPENAI_THINKING_TYPE` 经 `extra_body` 下发。移除 `ANTHROPIC_*` 与 `IT_COPILOT_LLM_PROVIDER`。错误码 `gateway_unavailable` 改为 `model_unavailable`，失败原因标签 `gateway` 改为 `model`（告警 `ITCopilotModelErrors`）。
+- requirements 去掉未直接使用的 `sse-starlette`、`pydantic-settings`（分别由 mcp、chromadb 间接引入），`pydantic-ai-slim` 只保留 `openai` extra。
+- Python 依赖：pydantic-ai-slim 2.64、pydantic 2.14.2、pydantic-settings 2.16.2、OpenTelemetry 1.45.2、python-multipart 0.0.33。Python 保持 3.14：onnxruntime（Chroma 默认 embedding）尚无 3.15 wheel。
+- 前端：Vite 8、@vitejs/plugin-vue 6.0.10、Vue 3.5.44；构建镜像 Node 26.13，CI 的 Node 从 24 升到 26。
+- 镜像：PostgreSQL 18、Keycloak 26.8、Gitea 1.27。PG 18 镜像的数据目录改为 `/var/lib/postgresql/18/docker`，compose 改挂 `/var/lib/postgresql` 并换用新卷 `postgres18-data`；旧卷 `postgres-data` 不再使用，需要旧数据时用 `pg_upgrade` 或 dump/restore 迁移。
+- 验证：后端 200 项测试通过（3 项真实服务集成测试在 Keycloak 26.8 + Gitea 1.27 上通过）；工作流测试在 PostgreSQL 18 上连续 3 次通过；前端 18 项测试与构建通过。
+
 ## v2 — 可验证业务执行与对照评测
 
 - 新增 SQLite 本地业务适配器：冻结审批参数和哈希、批准/执行状态分离、幂等操作记录、事务回滚、重启重试与审计。聊天阶段仅准备申请，不再写入会阻塞恢复的旧“结果未知”回执。

@@ -1,8 +1,7 @@
 """PydanticAI 模型工厂与单轮调用辅助。
 
-所有 LLM 调用统一经由 PydanticAI 的 Model 抽象：
-  - 默认 provider=anthropic：Anthropic Messages 协议，指向 ANTHROPIC_BASE_URL（默认 8082 协议网关）；
-  - provider=openai：直连 OpenAI-compatible 服务（OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL），可绕过网关。
+所有 LLM 调用统一经由 PydanticAI 的 OpenAIChatModel 直连 OpenAI-compatible 服务
+（OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL），例如 DeepSeek。
 """
 from __future__ import annotations
 import os
@@ -15,29 +14,29 @@ from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, ModelRequestTimeout, ModelServerError, ModelUnavailableError
 from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import Model
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 
 DEFAULT_MODEL = "deepseek-chat"
 
 
-def llm_provider() -> str:
-    return (os.getenv("IT_COPILOT_LLM_PROVIDER") or "anthropic").strip().lower()
+def _thinking_settings() -> Optional[ModelSettings]:
+    # DeepSeek 的 thinking 模式拒绝 required/指定函数的 tool_choice，结构化输出依赖它，需显式关闭。
+    thinking = (os.getenv("OPENAI_THINKING_TYPE") or "").strip().lower()
+    if not thinking:
+        return None
+    if thinking not in {"enabled", "disabled"}:
+        raise ValueError("OPENAI_THINKING_TYPE must be enabled or disabled")
+    return ModelSettings(extra_body={"thinking": {"type": thinking}})
 
 
 def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = "") -> Model:
-    """按 IT_COPILOT_LLM_PROVIDER 构造 PydanticAI Model；构造过程不发起网络请求。"""
-    if llm_provider() == "openai":
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
-        name = os.getenv("OPENAI_MODEL") or model or DEFAULT_MODEL
-        provider = OpenAIProvider(base_url=os.getenv("OPENAI_BASE_URL") or None, api_key=os.getenv("OPENAI_API_KEY") or api_key or "sk-local")
-        return OpenAIChatModel(name, provider=provider)
-    from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
-    name = model or os.getenv("ANTHROPIC_MODEL") or DEFAULT_MODEL
-    # 网关不校验入站 key；空 key 时给占位值，避免 SDK 在构造期报错。
-    provider = AnthropicProvider(api_key=api_key or os.getenv("ANTHROPIC_API_KEY") or "sk-local", base_url=base_url or None)
-    return AnthropicModel(name, provider=provider)
+    """构造 PydanticAI Model；参数为空时取 OPENAI_* 环境变量。构造过程不发起网络请求。"""
+    name = model or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
+    # 本地无鉴权服务不需要 key；空 key 时给占位值，避免 SDK 在构造期报错。
+    provider = OpenAIProvider(base_url=base_url or os.getenv("OPENAI_BASE_URL") or None, api_key=api_key or os.getenv("OPENAI_API_KEY") or "sk-local")
+    return OpenAIChatModel(name, provider=provider, settings=_thinking_settings())
 
 
 def model_base_url(model: Any) -> str:
@@ -54,8 +53,8 @@ async def close_model(model: Any) -> None:
         await close()
 
 
-def is_gateway_failure(exc: BaseException) -> bool:
-    """模型网关/上游不可达：连接失败、超时或 5xx。参数/鉴权类错误不算。"""
+def is_model_unavailable(exc: BaseException) -> bool:
+    """模型服务不可达：连接失败、超时或 5xx。参数/鉴权类错误不算。"""
     if isinstance(exc, (ModelConnectionError, ModelRequestTimeout, ModelServerError, ModelUnavailableError, TimeoutError)):
         return True
     status = getattr(exc, "status_code", None)

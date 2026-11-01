@@ -255,7 +255,7 @@ class PerformanceMonitor:
                     out[f"slo_burn:{name}"] = Condition(
                         "slo_burn_rate", severity,
                         f"{name} 错误预算燃烧率 {WINDOW_LABELS[long_s]}={long_rate:.1f}x / {WINDOW_LABELS[short_s]}={short_rate:.1f}x（阈值 {factor}x，目标 {slo.target:.2%}）",
-                        round(long_rate, 2), factor, "按 /trace 回放最近失败请求定位主要错误码；网关类错误优先检查 8082 网关与上游配额。",
+                        round(long_rate, 2), factor, "按 /trace 回放最近失败请求定位主要错误码；模型服务类错误优先检查 OPENAI_BASE_URL 与上游配额。",
                     )
                     break
         return out
@@ -270,7 +270,7 @@ class PerformanceMonitor:
                 severity = "critical" if success < t.agent_success_critical else "warning"
                 out[f"agent_success:{key}"] = Condition(
                     "agent_success_rate", severity, f"Agent {key} 近 5 分钟成功率 {success:.0%}（{n} 次）", round(success, 3), t.agent_success_warning,
-                    "查看 it_copilot_agent_failures_total 的 reason 分布：gateway 查网关，round_limit 查提示词与工具设计，bad_output 查模型输出格式。",
+                    "查看 it_copilot_agent_failures_total 的 reason 分布：model 查模型服务，round_limit 查提示词与工具设计，bad_output 查模型输出格式。",
                 )
             if n >= t.min_samples and latency > t.agent_latency_ms:
                 out[f"agent_latency:{key}"] = Condition(

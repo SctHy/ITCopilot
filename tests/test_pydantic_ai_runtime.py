@@ -7,7 +7,6 @@ from pydantic_ai.usage import RequestUsage
 
 from agents.agent_orchestrator import AgentCallError, AgentOrchestrator, AgentType, Request
 from core.intent_recognizer import IntentCategory, IntentRecognizer
-from gateway.anthropic_to_openai import convert_tool_choice
 from tooling.tool_manager import MCPToolManager
 
 
@@ -188,8 +187,27 @@ def test_rerank_invalid_index_falls_back_to_original_order():
     asyncio.run(run())
 
 
-def test_gateway_forwards_tool_choice():
-    assert convert_tool_choice({"type": "any"}) == "required"
-    assert convert_tool_choice({"type": "tool", "name": "classify_it_request"}) == {"type": "function", "function": {"name": "classify_it_request"}}
-    assert convert_tool_choice({"type": "none"}) == "none"
-    assert convert_tool_choice(None) == "auto" and convert_tool_choice({"type": "auto"}) == "auto"
+
+def test_thinking_type_reaches_upstream_request(monkeypatch):
+    import json
+
+    import httpx
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from core.llm import _thinking_settings, complete_text
+
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": "m",
+            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
+        })
+
+    monkeypatch.setenv("OPENAI_THINKING_TYPE", "disabled")
+    provider = OpenAIProvider(base_url="http://upstream.test/v1", api_key="k", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    model = OpenAIChatModel("m", provider=provider, settings=_thinking_settings())
+    assert asyncio.run(complete_text(model, "hi", max_tokens=8)).text == "ok"
+    assert seen["body"]["thinking"] == {"type": "disabled"}

@@ -397,7 +397,7 @@
     {
       "type": "timeseries",
       "title": "失败原因",
-      "description": "gateway / round_limit / bad_output / empty_output / busy",
+      "description": "model / round_limit / bad_output / empty_output / busy",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

@@ -71,9 +71,9 @@ async def main():
             reports[mode] = summarize(rows)
         if args.live:
             manager = MCPToolManager(
-                os.getenv("ANTHROPIC_API_KEY", "sk-local"),
-                os.getenv("ANTHROPIC_BASE_URL"),
-                os.getenv("ANTHROPIC_MODEL", ""),
+                os.getenv("OPENAI_API_KEY", "sk-local"),
+                os.getenv("OPENAI_BASE_URL"),
+                os.getenv("OPENAI_MODEL", ""),
             )
             manager.register(
                 Tool("knowledge_search", "IT knowledge", kb.search_handler, KNOWLEDGE_SEARCH_SCHEMA)

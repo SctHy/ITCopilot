@@ -278,7 +278,7 @@ class IntentRecognizer:
         return result
 
     def calibration_source(self, llm, embedding):
-        model = f"{os.getenv('IT_COPILOT_LLM_PROVIDER', 'anthropic')}:{self.model}" if llm.get("_llm_used") else "fallback"
+        model = f"openai:{self.model}" if llm.get("_llm_used") else "fallback"
         return f"{self.strategy}|{model}|{embedding.get('source', 'none')}"
 
     @classmethod

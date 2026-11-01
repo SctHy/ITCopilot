@@ -91,7 +91,7 @@ async def main():
     if args.tasks:
         wanted = set(args.tasks.split(","))
         tasks = [t for t in tasks if t["id"] in wanted]
-    user_llm = build_model(os.getenv("ANTHROPIC_API_KEY", "sk-local"), os.getenv("ANTHROPIC_BASE_URL"), os.getenv("ANTHROPIC_MODEL", "deepseek-chat"))
+    user_llm = build_model(os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), os.getenv("OPENAI_MODEL", "deepseek-chat"))
     from scripts.evaluate_application import upstream_model
 
     modes = args.strategies.split(",")

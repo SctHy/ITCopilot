@@ -150,9 +150,9 @@ def test_request_has_department_and_budget_fields():
     assert request.department == "研发" and request.request_id
 
 
-def test_agent_surfaces_gateway_connection_failure():
+def test_agent_surfaces_model_connection_failure():
     async def run():
-        orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:8082")
+        orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:9")
         agent = orchestrator._pool[AgentType.NETWORK_SOFTWARE][0]
 
         async def refuse(messages, info):
@@ -160,23 +160,23 @@ def test_agent_surfaces_gateway_connection_failure():
 
         agent._llm = FunctionModel(refuse)
         result = await agent.handle(Request("VPN 连不上"))
-        assert result.error_code == "gateway_unavailable"
-        assert "网关未启动" in result.content
+        assert result.error_code == "model_unavailable"
+        assert "模型服务暂时不可用" in result.content
 
     asyncio.run(run())
 
 
-def test_agent_surfaces_gateway_5xx_without_request_details():
+def test_agent_surfaces_model_5xx_without_request_details():
     async def run():
-        orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:8082")
+        orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:9")
         agent = orchestrator._pool[AgentType.TRIAGE][0]
 
-        async def bad_gateway(messages, info):
+        async def server_error(messages, info):
             raise ModelHTTPError(502, "test", body="upstream unavailable")
 
-        agent._llm = FunctionModel(bad_gateway)
+        agent._llm = FunctionModel(server_error)
         result = await agent.handle(Request("你是谁"))
-        assert result.error_code == "gateway_unavailable"
+        assert result.error_code == "model_unavailable"
         assert "upstream" not in result.content
 
     asyncio.run(run())

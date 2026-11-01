@@ -69,12 +69,12 @@ groups:
           summary: "Agent {{ $labels.agent }} 持续降级"
           description: 请求由 Triage 兜底；探针持续失败说明根因未消除。
 
-      - alert: ITCopilotGatewayErrors
-        expr: sum(increase(it_copilot_agent_failures_total{reason="gateway"}[5m])) > 3
+      - alert: ITCopilotModelErrors
+        expr: sum(increase(it_copilot_agent_failures_total{reason="model"}[5m])) > 3
         labels: {severity: critical}
         annotations:
-          summary: 模型网关故障
-          description: 5 分钟内超过 3 次网关连接失败/超时/5xx，检查 8082 网关与上游服务。
+          summary: 模型服务故障
+          description: 5 分钟内超过 3 次模型服务连接失败/超时/5xx，检查 OPENAI_BASE_URL 与上游配额。
 
       - alert: ITCopilotToolCircuitOpen
         expr: it_copilot_tool_circuit_state == 2

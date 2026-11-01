@@ -13,7 +13,7 @@
 
 ```bash
 redis-server --port 16379 --bind 127.0.0.1 --save '' --appendonly no
-./gateway/run_gateway.sh
+# v2 时模型经本地网关转发；网关已删除，现在由 .env 的 OPENAI_* 直连（含 OPENAI_THINKING_TYPE=disabled）
 
 # 新终端，已安装 requirements-dev.txt
 INTENT_EMBEDDING_PROVIDER=local .venv/bin/python -m pytest -q

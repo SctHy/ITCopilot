@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI):
     from workflow.worker import ExecutionWorker, build_registry, database_url
 
     _tracing = setup_tracing()
-    llm = {"api_key": os.getenv("ANTHROPIC_API_KEY", "sk-local"), "base_url": os.getenv("ANTHROPIC_BASE_URL") or None, "model": os.getenv("ANTHROPIC_MODEL", "deepseek-chat")}
+    llm = {"api_key": os.getenv("OPENAI_API_KEY", "sk-local"), "base_url": os.getenv("OPENAI_BASE_URL") or None, "model": os.getenv("OPENAI_MODEL", "deepseek-chat")}
     _skills = SkillManager(os.getenv("IT_COPILOT_SKILLS_DIR", str(pathlib.Path(_ROOT) / "skills")))
     _skills.load()
     _tool_manager = MCPToolManager(**llm)

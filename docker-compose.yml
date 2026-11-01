@@ -1,6 +1,6 @@
 # IT-Copilot 一键部署
 #
-#   cp .env.example .env && cp gateway/.env.gateway.example gateway/.env.gateway   # 填写上游模型配置
+#   cp .env.example .env                                                          # 填写 OPENAI_* 模型配置
 #   docker compose up -d --build                                                  # 前端 http://127.0.0.1:8080
 #   docker compose --profile observability up -d                                  # 另起 Prometheus / Grafana / Jaeger
 #
@@ -43,13 +43,14 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: itc
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itc-pass}
       POSTGRES_DB: it_copilot
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # 18 起镜像的 PGDATA 是 /var/lib/postgresql/18/docker，挂父目录；与 17 的数据卷不兼容，故换卷名。
+      - postgres18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U itc -d it_copilot"]
       interval: 5s
@@ -58,7 +59,7 @@ services:
     restart: unless-stopped
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.4
+    image: quay.io/keycloak/keycloak:26.8
     command: ["start-dev", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -78,7 +79,7 @@ services:
     restart: unless-stopped
 
   gitea:
-    image: gitea/gitea:1.24
+    image: gitea/gitea:1.27
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__database__DB_TYPE: sqlite3
@@ -97,7 +98,7 @@ services:
 
   # 一次性任务：创建 Gitea 服务账号（已存在则跳过），再建沙箱组织、私有仓库与员工账号。
   gitea-init:
-    image: gitea/gitea:1.24
+    image: gitea/gitea:1.27
     user: git
     entrypoint: ["/bin/sh", "-c", "gitea admin user create --admin --username itc-svc --password \"$$GITEA_SVC_PASSWORD\" --email svc@example.com --must-change-password=false --config /data/gitea/conf/app.ini || gitea admin user list --config /data/gitea/conf/app.ini | grep -q itc-svc"]
     environment:
@@ -121,24 +122,13 @@ services:
     healthcheck:
       disable: true
 
-  gateway:
-    <<: *backend
-    command: ["python", "gateway/anthropic_to_openai.py"]
-    env_file:
-      - path: gateway/.env.gateway
-        required: true
-    environment:
-      GATEWAY_PORT: "8082"
-      HEALTH_PORT: "8082"
-
   api:
     <<: *backend
     env_file:
       - path: .env
-        required: false
+        required: true
     environment:
       <<: *app-env
-      ANTHROPIC_BASE_URL: http://gateway:8082
       IT_COPILOT_SKILLS_DIR: /app/skills
       IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -156,8 +146,6 @@ services:
         condition: service_healthy
       gitea-bootstrap:
         condition: service_completed_successfully
-      gateway:
-        condition: service_healthy
 
   # 独立执行器：与 API 进程内 worker 共享同一 outbox，靠租约 + 版本号 CAS 保证同一动作只被一个 worker 执行。
   worker:
@@ -219,7 +207,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  postgres18-data:
   gitea-data:
   redis-data:
   api-data:

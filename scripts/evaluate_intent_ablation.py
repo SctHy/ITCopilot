@@ -49,9 +49,9 @@ async def main():
     assert len({r["message"] for r in cases}) == len(cases)
     strategies = ["pattern", "embedding"] + (["llm", "fusion"] if args.live else [])
     recognizer = IntentRecognizer(
-        os.getenv("ANTHROPIC_API_KEY", "sk-local"),
-        os.getenv("ANTHROPIC_BASE_URL"),
-        os.getenv("ANTHROPIC_MODEL", ""),
+        os.getenv("OPENAI_API_KEY", "sk-local"),
+        os.getenv("OPENAI_BASE_URL"),
+        os.getenv("OPENAI_MODEL", ""),
     )
     gate = asyncio.Semaphore(max(1, args.concurrency))
 

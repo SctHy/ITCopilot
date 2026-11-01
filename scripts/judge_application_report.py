@@ -34,10 +34,10 @@ async def main():
             (ROOT / data.get("dataset", "evaluation/datasets/application_v2.json")).read_text()
         )
     }
-    model = os.getenv("EVAL_JUDGE_MODEL") or os.getenv("ANTHROPIC_MODEL", "")
+    model = os.getenv("EVAL_JUDGE_MODEL") or os.getenv("OPENAI_MODEL", "")
     judge = LLMJudge(
         build_model(
-            os.getenv("ANTHROPIC_API_KEY", "sk-local"), os.getenv("ANTHROPIC_BASE_URL"), model
+            os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), model
         ),
         model,
     )

@@ -40,12 +40,7 @@ def requester_employee(case):
 
 
 def upstream_model():
-    try:
-        import httpx
-        health = httpx.get(os.getenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8082").rstrip("/") + "/health", timeout=5).json()
-        return {"base_url": health.get("openai_base_url"), "model": health.get("openai_model")}
-    except Exception as exc:
-        return {"error": type(exc).__name__}
+    return {"base_url": os.getenv("OPENAI_BASE_URL"), "model": os.getenv("OPENAI_MODEL")}
 
 
 def percentile(values, q):
@@ -228,8 +223,7 @@ async def main():
     report = {
         "suite": "application-v2",
         "status": "complete",
-        "model": os.getenv("ANTHROPIC_MODEL"),
-        # ANTHROPIC_MODEL is the name the app sends to the gateway; record what actually reached the provider.
+        "model": os.getenv("OPENAI_MODEL"),
         "upstream": upstream_model(),
         "started_at": started_at,
         "code_sha256": code_sha256,

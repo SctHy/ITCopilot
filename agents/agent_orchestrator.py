@@ -20,7 +20,7 @@ from pydantic_ai.usage import UsageLimits
 
 from agents.tools import access_tools, build_shared_rag_tools, endpoint_tools, network_software_tools, ticket_tools, triage_tools
 from core.intent_recognizer import INTENT_GROUPS, IntentCategory, IntentRecognizer, UrgencyLevel
-from core.llm import build_model, is_gateway_failure
+from core.llm import build_model, is_model_unavailable
 from core.planner import LLMPlanner, build_plan
 from core.redaction import redact
 from monitor import metrics
@@ -217,10 +217,10 @@ class AgentCallError(RuntimeError):
         self.reason = reason
 
 
-class GatewayUnavailableError(AgentCallError):
-    def __init__(self, message, tools_used, tool_traces, gateway_url):
-        super().__init__(message, tools_used, tool_traces, reason="gateway")
-        self.gateway_url = gateway_url
+class ModelUnavailableError(AgentCallError):
+    def __init__(self, message, tools_used, tool_traces, base_url):
+        super().__init__(message, tools_used, tool_traces, reason="model")
+        self.base_url = base_url
 
 
 @dataclass
@@ -333,9 +333,9 @@ class BaseAgent:
             ms = self._record(False, t0, req)
             logger.exception("%s LLM call failed", self.agent_type.value)
             tools_used, tool_traces = getattr(ex, "tools_used", []), getattr(ex, "tool_traces", [])
-            if isinstance(ex, GatewayUnavailableError):
-                logger.error("LLM gateway unavailable: url=%s error_type=%s detail=%s", ex.gateway_url, type(ex.__cause__ or ex).__name__, ex)
-                response = AgentResponse(self.agent_type, "模型网关未启动或不可用，请先启动网关后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="gateway_unavailable")
+            if isinstance(ex, ModelUnavailableError):
+                logger.error("LLM service unavailable: url=%s error_type=%s detail=%s", ex.base_url, type(ex.__cause__ or ex).__name__, ex)
+                response = AgentResponse(self.agent_type, "模型服务暂时不可用，请检查模型配置或稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="model_unavailable")
             else:
                 response = AgentResponse(self.agent_type, "抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
             return self._observe(response, getattr(ex, "reason", "exception"))
@@ -385,9 +385,9 @@ class BaseAgent:
         except UnexpectedModelBehavior as exc:
             raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output") from exc
         except Exception as exc:
-            if is_gateway_failure(exc):
-                gateway_url = os.getenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8082")
-                raise GatewayUnavailableError(f"模型网关请求失败（{type(exc).__name__}）", deps.used, deps.traces, gateway_url) from exc
+            if is_model_unavailable(exc):
+                base_url = os.getenv("OPENAI_BASE_URL", "")
+                raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url) from exc
             raise
         content = (result.output or "").strip()
         if not content:

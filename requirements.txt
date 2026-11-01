@@ -1,13 +1,13 @@
 # IT-Copilot 依赖清单（Python 3.14，uv 管理）
 
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
-pydantic-ai-slim[anthropic,openai]==2.63.0   # Agent/工具循环/结构化输出；anthropic 走 8082 网关，openai 可直连
+pydantic-ai-slim[openai]==2.64.0   # Agent/工具循环/结构化输出，直连 OpenAI-compatible 服务
 
 # ── Web 框架 ──────────────────────────────────────────────────────────────────
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
-pydantic==2.14.1
-python-multipart==0.0.32    # FastAPI 文件上传支持
+pydantic==2.14.2
+python-multipart==0.0.33    # FastAPI 文件上传支持
 
 # ── 数据存储 ──────────────────────────────────────────────────────────────────
 redis==8.1.0
@@ -21,8 +21,8 @@ pyjwt[crypto]==2.15.1      # OIDC（Keycloak）RS256/JWKS 校验与 dev 模式 H
 
 # ── 监控与链路追踪 ────────────────────────────────────────────────────────────
 prometheus-client==0.26.0
-opentelemetry-sdk==1.45.1                       # PydanticAI 埋点 → OTLP（设置 OTEL_EXPORTER_OTLP_ENDPOINT 时启用）
-opentelemetry-exporter-otlp-proto-grpc==1.45.1
+opentelemetry-sdk==1.45.2                       # PydanticAI 埋点 → OTLP（设置 OTEL_EXPORTER_OTLP_ENDPOINT 时启用）
+opentelemetry-exporter-otlp-proto-grpc==1.45.2
 
 # ── HTTP 客户端 ───────────────────────────────────────────────────────────────
 httpx==0.28.1              # 网关上游转发、告警 Webhook
@@ -34,6 +34,4 @@ pyyaml==6.0.3              # Skill front matter
 
 # 标准 Model Context Protocol SDK（客户端和服务端）
 mcp==2.3.0
-sse-starlette==3.6.0
-pydantic-settings==2.16.1
 jsonschema==4.26.0

@@ -18,7 +18,6 @@ output/playwright/
 
 # 环境变量（含敏感信息）
 .env
-gateway/.env.gateway
 
 # 运行时数据与日志（ChromaDB、Redis 导出等）
 data/

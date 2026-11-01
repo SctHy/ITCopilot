@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# IT-Copilot 一键开发启动器：网关(8082，provider=openai 直连时跳过) + API(8001) + Vue(5173)。
+# IT-Copilot 一键开发启动器：Redis + API(8001) + Vue(5173)；模型由 PydanticAI 直连 OPENAI_BASE_URL。
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_IT_COPILOT_PORT="${IT_COPILOT_PORT-}"
 CLI_IT_COPILOT_FRONTEND_PORT="${IT_COPILOT_FRONTEND_PORT-}"
-CLI_GATEWAY_PORT="${GATEWAY_PORT-}"
 
 if [[ -f "$HERE/.env" ]]; then
   set -a
@@ -17,10 +16,8 @@ fi
 # .env 提供默认值，但显式传入的环境变量优先级更高。
 [[ -n "$CLI_IT_COPILOT_PORT" ]] && IT_COPILOT_PORT="$CLI_IT_COPILOT_PORT"
 [[ -n "$CLI_IT_COPILOT_FRONTEND_PORT" ]] && IT_COPILOT_FRONTEND_PORT="$CLI_IT_COPILOT_FRONTEND_PORT"
-[[ -n "$CLI_GATEWAY_PORT" ]] && GATEWAY_PORT="$CLI_GATEWAY_PORT"
 export IT_COPILOT_PORT="${IT_COPILOT_PORT:-8001}"
 export IT_COPILOT_FRONTEND_PORT="${IT_COPILOT_FRONTEND_PORT:-5173}"
-export GATEWAY_PORT="${GATEWAY_PORT:-8082}"
 export NO_PROXY="127.0.0.1,localhost"; export no_proxy="$NO_PROXY"
 
 # 优先使用项目虚拟环境，其次使用本机已有的工作虚拟环境；绝不优先使用系统 Python。
@@ -77,7 +74,7 @@ ensure_redis() {
   command -v docker >/dev/null 2>&1 || { echo "未找到 Docker，无法启动必需的 Redis 容器。" >&2; return 1; }
   docker info >/dev/null 2>&1 || { echo "Docker 未运行，无法启动 it-copilot-redis。" >&2; return 1; }
   local container="${IT_COPILOT_REDIS_CONTAINER:-it-copilot-redis}"
-  local image="${IT_COPILOT_REDIS_IMAGE:-redis:7-alpine}"
+  local image="${IT_COPILOT_REDIS_IMAGE:-redis:8-alpine}"
   local password="${REDIS_PASSWORD:-it-copilot123}"
   if docker container inspect "$container" >/dev/null 2>&1; then
     local state
@@ -114,79 +111,27 @@ free_port() {
 
 ensure_python_deps
 ensure_redis
-free_port "$GATEWAY_PORT"
 free_port "$IT_COPILOT_PORT"
 free_port "$IT_COPILOT_FRONTEND_PORT"
 
 export IT_COPILOT_PYTHON="$PYTHON_BIN"
 export PYTHONPATH="$HERE"
-export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://127.0.0.1:${GATEWAY_PORT}}"
-export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-sk-local}"
-export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-deepseek-chat}"
 export REDIS_URL="${REDIS_URL:-redis://:it-copilot123@127.0.0.1:6379/0}"
 export CHROMA_PERSIST_DIRECTORY="${CHROMA_PERSIST_DIRECTORY:-$HERE/data/chroma}"
 export IT_COPILOT_SKILLS_DIR="${IT_COPILOT_SKILLS_DIR:-$HERE/skills}"
 mkdir -p "$HERE/logs" "$CHROMA_PERSIST_DIRECTORY"
 
-GATEWAY_PID=""; API_PID=""; FRONTEND_PID=""
+API_PID=""; FRONTEND_PID=""
 cleanup() {
   trap - INT TERM EXIT
-  for pid in "$FRONTEND_PID" "$API_PID" "$GATEWAY_PID"; do
+  for pid in "$FRONTEND_PID" "$API_PID"; do
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done
 }
 trap cleanup INT TERM EXIT
 
-LLM_PROVIDER="$(printf '%s' "${IT_COPILOT_LLM_PROVIDER:-anthropic}" | tr '[:upper:]' '[:lower:]')"
-if [[ "$LLM_PROVIDER" == "openai" ]]; then
-  [[ -n "${OPENAI_BASE_URL:-}" && -n "${OPENAI_API_KEY:-}" ]] || { echo "错误：IT_COPILOT_LLM_PROVIDER=openai 需要在 .env 中配置 OPENAI_BASE_URL 和 OPENAI_API_KEY。" >&2; exit 1; }
-  echo "LLM provider=openai：PydanticAI 直连 ${OPENAI_BASE_URL}，跳过 8082 网关。"
-elif [[ -f "$HERE/gateway/.env.gateway" ]]; then
-  :
-else
-  echo "错误：未找到 gateway/.env.gateway。请先复制 gateway/.env.gateway.example 并填写模型配置。" >&2
-  echo "网关未配置时不会启动 API；详细说明见 $HERE/logs/gateway.log（如已存在）。" >&2
-  exit 1
-fi
-
-if [[ "$LLM_PROVIDER" != "openai" ]]; then
-IT_COPILOT_PYTHON="$PYTHON_BIN" "$HERE/gateway/run_gateway.sh" >"$HERE/logs/gateway.log" 2>&1 & GATEWAY_PID=$!
-
-gateway_ready() {
-  local health
-  [[ -n "$GATEWAY_PID" ]] || return 1
-  kill -0 "$GATEWAY_PID" 2>/dev/null || return 1
-  health="$($PYTHON_BIN - "$GATEWAY_PORT" <<'PY' 2>/dev/null || true
-import json, sys, urllib.request
-port = sys.argv[1]
-try:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1.0) as response:
-        body = json.load(response)
-    print("ready" if body.get("status") == "ok" and body.get("key_configured") is True else "not-ready")
-except Exception:
-    print("not-ready")
-PY
-  )"
-  [[ "$health" == "ready" ]]
-}
-
-echo "等待 Anthropic→OpenAI 网关就绪（127.0.0.1:${GATEWAY_PORT}）..."
-GATEWAY_READY=false
-for _ in {1..20}; do
-  if gateway_ready; then GATEWAY_READY=true; break; fi
-  sleep 1
-done
-if [[ "$GATEWAY_READY" != true ]]; then
-  if ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
-    echo "错误：网关进程已退出，API 不会启动。" >&2
-  else
-    echo "错误：网关在等待窗口内未通过健康检查，或 key_configured=false；API 不会启动。" >&2
-  fi
-  echo "请检查 gateway/.env.gateway、8082 端口和上游配置；详细日志：$HERE/logs/gateway.log" >&2
-  exit 1
-fi
-echo "网关已就绪：status=ok，key_configured=true。"
-fi
+[[ -n "${OPENAI_BASE_URL:-}" && -n "${OPENAI_API_KEY:-}" ]] || { echo "错误：请在 .env 中配置 OPENAI_BASE_URL 和 OPENAI_API_KEY（见 .env.example）。" >&2; exit 1; }
+echo "模型：${OPENAI_MODEL:-deepseek-chat} @ ${OPENAI_BASE_URL}"
 
 IT_COPILOT_PYTHON="$PYTHON_BIN" "$HERE/run_local.sh" >"$HERE/logs/api.log" 2>&1 & API_PID=$!
 
@@ -206,5 +151,5 @@ npm run dev -- --host 127.0.0.1 --port "$IT_COPILOT_FRONTEND_PORT" >"$HERE/logs/
 echo "IT-Copilot 已启动："
 echo "  前端: http://127.0.0.1:${IT_COPILOT_FRONTEND_PORT}"
 echo "  API:  http://127.0.0.1:${IT_COPILOT_PORT}"
-echo "  日志: $HERE/logs/{gateway,api,frontend}.log"
+echo "  日志: $HERE/logs/{api,frontend}.log"
 wait "$API_PID"

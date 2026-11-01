@@ -35,7 +35,7 @@ flowchart LR
   I --> P[规划策略：默认通用 Agent / LLM 规划多 Agent + 性能路由]
   P --> A[Agent 池 / 通用 / Triage / Endpoint / Access / Network / Ticket]
   A --> G[PydanticAI Agent / 工具循环 / 结构化输出]
-  G --> GW[8082 Anthropic 协议网关 或 OpenAI 直连]
+  G --> GW[OpenAI-compatible 模型服务（DeepSeek）]
   A --> T[工具治理 / Schema / TTL / timeout / circuit breaker]
   A --> R[混合 RAG / BM25 + Chroma + RRF]
   A --> M[三级记忆 / Redis + Chroma]
@@ -71,15 +71,15 @@ flowchart LR
 |---|---|
 | API | Python 3.14（uv 管理）、FastAPI、Pydantic |
 | Agent 框架 | PydanticAI：Agent 工具循环、`Tool.from_schema`、`ToolOutput` 结构化输出、`UsageLimits` 轮数上限 |
-| 模型接入 | 默认 PydanticAI AnthropicModel → 本地 Anthropic→OpenAI 协议网关（8082）；`IT_COPILOT_LLM_PROVIDER=openai` 时直连 OpenAI-compatible |
+| 模型接入 | PydanticAI `OpenAIChatModel` 直连 OpenAI-compatible 服务（默认 DeepSeek），换厂商只改 `OPENAI_*` 环境变量 |
 | 身份 | OIDC（Keycloak 26，授权码 + PKCE；API 侧 JWKS 校验 RS256），开发/评测用本地签发令牌；RBAC：employee / approver / it_admin / auditor |
-| 存储 | PostgreSQL 17（审批、动作 outbox、授权台账、审计；本地与测试用 SQLite），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流）、Chroma（知识与向量记忆） |
+| 存储 | PostgreSQL 18（审批、动作 outbox、授权台账、审计；本地与测试用 SQLite），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流）、Chroma（知识与向量记忆） |
 | 执行 | outbox + 租约 worker（API 内与独立进程可并存），适配器：Gitea REST（真实权限系统沙箱）、本地目录 |
 | RAG | BM25、向量检索、RRF、部门过滤 |
-| 前端 | Vue 3、Vite、原生 SSE |
+| 前端 | Vue 3、Vite 8、原生 SSE |
 | 工具协议 | MCP Python SDK 2.x（Streamable HTTP / stdio 客户端，MCPServer 服务端） |
 | 可观测性 | Prometheus 指标、OpenTelemetry（OTLP → Jaeger）、进程内 SLO 告警、Grafana 仪表盘 |
-| 部署 | Docker Compose：postgres / keycloak / gitea（含初始化任务）/ redis / gateway / api / worker / frontend，`observability` profile 加 Prometheus / Grafana / Jaeger |
+| 部署 | Docker Compose：postgres / keycloak / gitea（含初始化任务）/ redis / api / worker / frontend，`observability` profile 加 Prometheus / Grafana / Jaeger |
 | 质量 | GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）、pytest、node:test、LLM-as-Judge 框架、离线评测脚本 |
 
 ## 实验与证据（v3 新增）
@@ -90,7 +90,7 @@ flowchart LR
 |---|---|
 | 安全回归 | 21 个攻击用例（伪造/篡改/过期/alg=none 令牌、请求体冒充、跨用户读取、职责分离、策略越界、哈希篡改与并发重放、知识库提示注入 + 完全听从注入的模型）：未授权写入 0、未授权读取 0；对两处防护做变异测试均被检出。离线脚本化模型，不代表真实攻击面全集 |
 | 实时事件流 | 真实 uvicorn + TCP、模拟 0.8s/次模型时延、20 次：首个执行事件 P50 0.93s，整轮完成 P50 2.56s；旧 SSE 在整轮完成后才发出首个执行事件 |
-| 工作流并发 | 13 项工作流测试（并发批准、双人审批并发投票、结果未知回查、worker 崩溃恢复、saga 补偿、到期回收与漂移保护、待审批申请替代）在 SQLite 与 PostgreSQL 17 上均通过；其中前 12 项各重复 5 次 |
+| 工作流并发 | 13 项工作流测试（并发批准、双人审批并发投票、结果未知回查、worker 崩溃恢复、saga 补偿、到期回收与漂移保护、待审批申请替代）在 SQLite 与 PostgreSQL 18 上均通过；其中前 12 项各重复 5 次 |
 | 真实系统集成 | Keycloak 令牌映射 / 篡改与受众校验；Gitea 授权 → 到期撤销 → 他人改动后不误删，均对真实服务运行 |
 | 单/多/通用 Agent 分层对照 | 64 场景（单领域/双领域/三领域/多轮/不应写入）× 2 个独立进程。修复前：single 40/64、多 Agent 44/64、通用 Agent 63/64，多 Agent 落后来自规则规划器漏领域、未要求时追加建单和预算不足。改为 LLM 规划器、只在用户要求时建单、按步骤数计算预算后，在完成重跑的 42 个场景上多 Agent 从 26/42 升到 41/42，每个 Agent 带全部工具的 bounded_all 为 42/42，通用 Agent 为 40/42，三者无显著差异；多 Agent token 多约 60% |
 | τ-bench 式多轮评测 | 50 个组合任务（1–3 个子任务 + 违规请求），LLM 模拟用户只在被问到时透露信息，按审批执行后的员工最终状态评分，报告 pass^1 / pass^2。评测发现四种策略共有的重复建单缺陷（修复前占失败的 72%），已改为同会话新申请替代仍待审批的旧单。服务端额度耗尽前完成的 33 个任务上，pass^1 为：多 Agent 0.85、bounded_all 0.80、通用 0.80、单专职 0.62 |
@@ -116,18 +116,16 @@ flowchart LR
 ```bash
 cd IT-Copilot
 uv venv --python 3.14 && uv pip install -r requirements-dev.txt   # start_local.sh 缺依赖时也会自动安装
-cp .env.example .env
-cp gateway/.env.gateway.example gateway/.env.gateway  # 填入未提交的兼容密钥
+cp .env.example .env                                  # 填写 OPENAI_API_KEY 等模型配置
 ./start_local.sh
 ```
 
-脚本会确保 Redis 容器 `it-copilot-redis`、8082 网关、8001 API 和 5173 前端就绪。本地默认 `IT_COPILOT_AUTH_MODE=dev`：前端自动以演示员工 alice 登录，可在“连接配置”切换为审批人 bob/carol、管理员 erin 或审计员 grace 体验职责分离；审批库默认是 `data/chroma/workflow.sqlite3`。若在 `.env` 中设置 `IT_COPILOT_LLM_PROVIDER=openai` 并填写 `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL`，PydanticAI 会直连上游，脚本跳过网关。浏览器打开 <http://127.0.0.1:5173>，可尝试：`VPN 连不上`、`申请 GitLab 只读权限`、`查询我的工单`。API 文档：<http://127.0.0.1:8001/docs>。
+脚本会确保 Redis 容器 `it-copilot-redis`、8001 API 和 5173 前端就绪。本地默认 `IT_COPILOT_AUTH_MODE=dev`：前端自动以演示员工 alice 登录，可在“连接配置”切换为审批人 bob/carol、管理员 erin 或审计员 grace 体验职责分离；审批库默认是 `data/chroma/workflow.sqlite3`。模型由 PydanticAI 按 `.env` 中的 `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` 直连 OpenAI-compatible 服务。浏览器打开 <http://127.0.0.1:5173>，可尝试：`VPN 连不上`、`申请 GitLab 只读权限`、`查询我的工单`。API 文档：<http://127.0.0.1:8001/docs>。
 
 ### Docker Compose
 
 ```bash
-cp .env.example .env
-cp gateway/.env.gateway.example gateway/.env.gateway   # 填入上游模型配置
+cp .env.example .env                                   # 填写 OPENAI_* 模型配置
 docker compose up -d --build                           # 前端 http://127.0.0.1:8080 · API http://127.0.0.1:8001/docs
                                                        # Keycloak :8180（演示账号 <用户名>-pass）· Gitea 沙箱 :3001
 docker compose --profile observability up -d           # Grafana :3000（admin / it-copilot）· Prometheus :9090 · Jaeger :16686
@@ -135,7 +133,7 @@ docker compose --profile observability up -d           # Grafana :3000（admin /
 
 Compose 默认 `IT_COPILOT_AUTH_MODE=oidc`，前端跳转 Keycloak 登录；`gitlab` 权限申请通过 Gitea 沙箱仓库 `it-sandbox/platform` 生效，可在 Gitea 中直接看到协作者变化。开启链路追踪：在 `.env` 中设置 `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` 后重启 api。对外部署前替换所有默认口令并关闭 Keycloak 密码模式（`directAccessGrantsEnabled`）。
 
-分步启动可使用 `./gateway/run_gateway.sh`、`./run_local.sh` 与 `cd frontend && npm ci && npm run dev -- --host 127.0.0.1 --port 5173`。真实密钥只允许出现在未被 Git 跟踪的 `gateway/.env.gateway`。
+分步启动可使用 `./run_local.sh` 与 `cd frontend && npm ci && npm run dev -- --host 127.0.0.1 --port 5173`。真实密钥只允许出现在未被 Git 跟踪的 `.env`。
 
 ## 评测与观测
 
@@ -186,7 +184,6 @@ core/         意图、Planner、身份（identity.py）、事件流（events.py
 memory/       Redis 锁、幂等、三级记忆
 tooling/      统一工具执行层（executor.py）、Schema、TTL、超时、熔断；MCP 客户端与服务端
 monitor/      Prometheus 指标定义、SLO 燃烧率与告警状态机、路由反馈
-gateway/      本地协议转换网关
 frontend/     Vue + Vite 前端
 evaluation/   固定数据集与可复现报告
 tests/        后端离线回归、真实 HTTP 处理链路与崩溃恢复测试
