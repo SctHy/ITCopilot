@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
@@ -46,7 +46,7 @@ jobs:
       IT_COPILOT_TEST_DATABASE_URL: postgresql+psycopg://itc:itc-pass@127.0.0.1:5432/it_copilot
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
@@ -63,7 +63,7 @@ jobs:
       IT_COPILOT_TEST_GITEA_PASSWORD: ci-svc-pass-123
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
