@@ -10,9 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from adapters import AdapterRegistry
-from adapters.base import AmbiguousError
-from adapters.local import LocalDirectoryAdapter
+from workflow.adapters import AdapterRegistry
+from workflow.adapters.base import AmbiguousError
+from workflow.adapters.local import LocalDirectoryAdapter
 from core.identity import Principal
 from workflow.policy import PolicyViolation
 from workflow.store import ApprovalConflict, ApprovalForbidden, WorkflowStore
@@ -221,8 +221,8 @@ def test_worker_crash_after_effect_is_recovered_without_repeating(db_url):
     store.decide("a", "approved", BOB, pending["payload_hash"])
     script = """
 import asyncio, os, sys
-from adapters import AdapterRegistry
-from adapters.local import LocalDirectoryAdapter
+from workflow.adapters import AdapterRegistry
+from workflow.adapters.local import LocalDirectoryAdapter
 from workflow.store import WorkflowStore
 from workflow.worker import ExecutionWorker
 store = WorkflowStore(sys.argv[1])

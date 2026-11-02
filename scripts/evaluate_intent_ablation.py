@@ -16,8 +16,8 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv
-from core.intent_calibration import brier, calibrate, ece, fit_temperatures
-from core.intent_recognizer import INTENT_GROUPS, IntentRecognizer, _fallback_vote
+from agents.intent_calibration import brier, calibrate, ece, fit_temperatures
+from agents.intent_recognizer import INTENT_GROUPS, IntentRecognizer, _fallback_vote
 from evaluation.reporting import ROOT, DATASETS_DIR, write_report
 
 

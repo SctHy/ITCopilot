@@ -2,7 +2,7 @@
 
 State machines
 --------------
-approval.status     pending -> approved | rejected | expired | superseded
+approval.status     pending -> approved | rejected | expired | superseded | invalidated (policy changed)
 approval.execution  not_executed -> queued -> executing -> succeeded | failed | manual_review
 action.status       queued -> executing -> succeeded
                                      \\-> unknown (ambiguous outcome; reconcile before retry)
@@ -40,6 +40,7 @@ SEED_EMPLOYEES = (
     ("1001", "alice", "engineering"), ("1002", "dave", "engineering"), ("2001", "bob", "engineering"),
     ("2002", "carol", "engineering"), ("3001", "fiona", "finance"), ("9001", "erin", "it"), ("9002", "grace", "security"),
     ("E1001", "e1001", "engineering"), ("EMP1001", "emp1001", "engineering"),
+    ("S0001", "itc-ops", "it"),  # service identity that files proactive tickets (config/alert_rules.yaml)
 )
 
 
@@ -79,13 +80,26 @@ def action_id(approval_id: str, payload_hash: str, seq: int, kind: str = "apply"
 
 class WorkflowStore:
     def __init__(self, url: str, *, policy: Optional[AccessPolicy] = None, clock: Callable[[], float] = time.time,
-                 route: Callable[[Dict[str, Any]], str] = lambda action: "local", run_migrations: bool = True):
+                 route: Callable[[Dict[str, Any]], str] = lambda action: "local", run_migrations: bool = True,
+                 notify: Optional[Callable[[Any, Dict[str, Any]], None]] = None):
         self.url = url
         self.engine = schema.shared_engine(url) if run_migrations else schema.make_engine(url)
-        self.policy = policy or load_policy()
+        self._policy = policy
         self.clock = clock
         self.route = route
+        # Called inside the transaction that settles an approval (rejected, expired, invalidated,
+        # execution finished), so a channel can queue its notice atomically with the state change.
+        self.notify = notify
         self._seed()
+
+    @property
+    def policy(self) -> AccessPolicy:
+        """The injected policy, or the policy file as it is now (edits apply without restart)."""
+        return self._policy or load_policy()
+
+    @policy.setter
+    def policy(self, value: AccessPolicy) -> None:
+        self._policy = value
 
     def close(self) -> None:
         self.engine.dispose()
@@ -103,6 +117,13 @@ class WorkflowStore:
 
     def _audit(self, db, approval_id, event, actor, *, action_id=None, detail=None) -> None:
         db.execute(insert(audit).values(approval_id=approval_id, action_id=action_id, event=event, actor=actor[:200], detail=detail, at=self.clock()))
+
+    def _notify(self, db, approval_id: str, event: str, detail: Optional[Dict[str, Any]] = None) -> None:
+        if not self.notify:
+            return
+        row = db.execute(select(approvals.c.request_id, approvals.c.conv_id, approvals.c.requester)
+                         .where(approvals.c.id == approval_id)).mappings().first()
+        self.notify(db, {"approval_id": approval_id, "event": event, "detail": detail or {}, **row})
 
     # ── Approval lifecycle ──────────────────────────────────────────────────
 
@@ -232,7 +253,13 @@ class WorkflowStore:
             if now > row["expires_at"]:
                 self._cas(db, row, status="expired", decided_at=now)
                 self._audit(db, approval_id, "expired", "system")
+                self._notify(db, approval_id, "expired")
                 return True
+            if row["policy_version"] != self.policy.version:
+                # Frozen under an older policy: re-check before any vote counts.
+                row = self._revalidate_pending(db, row, now)
+                if row is None:
+                    return True
             if not self.policy.approver_roles.intersection(principal.roles):
                 raise ApprovalForbidden("当前身份没有审批权限")
             if principal.subject == row["requester"]:
@@ -258,7 +285,118 @@ class WorkflowStore:
             if values.get("status") == "approved":
                 self._enqueue(db, row, now)
                 self._audit(db, approval_id, "execution_queued", "system")
+            elif values.get("status") == "rejected":
+                self._notify(db, approval_id, "rejected", {"by": principal.username})
         return True
+
+    # ── Policy changes ──────────────────────────────────────────────────────
+    #
+    # An approval freezes the policy version it was created under. When the policy file
+    # changes, open work is re-checked against the new version instead of being trusted
+    # or silently cancelled:
+    #   pending approval   no longer allowed -> invalidated; needs more approvers -> quorum raised
+    #   approved, queued   no longer allowed -> queued actions cancelled before any effect
+    #   active grant       role withdrawn -> revoked now; max duration shortened -> expiry moved earlier
+    # Loosening never widens frozen work: quorums only go up and expiries only move earlier.
+
+    def revalidate(self) -> Dict[str, Any]:
+        policy, now = self.policy, self.clock()
+        report: Dict[str, Any] = {"policy_version": policy.version, "invalidated": [], "quorum_raised": [], "cancelled": [],
+                                  "grants_revoked": [], "grants_shortened": []}
+        with schema.read(self.engine) as db:
+            pending = db.execute(select(approvals.c.id).where(approvals.c.status == "pending", approvals.c.policy_version != policy.version)).scalars().all()
+            queued = db.execute(select(approvals.c.id).where(approvals.c.status == "approved", approvals.c.policy_version != policy.version,
+                                                             approvals.c.execution.in_(("queued", "executing")))).scalars().all()
+            grants = db.execute(select(access_grants.c.action_id).join(approvals, approvals.c.id == access_grants.c.approval_id)
+                                .where(access_grants.c.status == "active", approvals.c.policy_version != policy.version)).scalars().all()
+        for approval_id in pending:
+            try:
+                with self.engine.begin() as db:
+                    row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+                    if row["status"] != "pending":
+                        continue
+                    before = row["approvals_required"]
+                    after = self._revalidate_pending(db, row, now)
+            except _Retry:
+                continue  # an approver decided meanwhile; decide() re-checks on its own
+            if after is None:
+                report["invalidated"].append(approval_id)
+            elif after["approvals_required"] != before:
+                report["quorum_raised"].append(approval_id)
+        for approval_id in queued:
+            with self.engine.begin() as db:
+                if self._cancel_if_disallowed(db, approval_id, now):
+                    report["cancelled"].append(approval_id)
+        for grant_id in grants:
+            with self.engine.begin() as db:
+                outcome = self._recheck_grant(db, grant_id, now)
+                if outcome:
+                    report[outcome].append(grant_id)
+        return report
+
+    def _revalidate_pending(self, db, row, now):
+        """Returns the refreshed row, or None when the approval was invalidated."""
+        policy = self.policy
+        frozen = row["payload"]["action_requests"]
+        reason = policy.still_allows(frozen)
+        if reason:
+            self._cas(db, row, status="invalidated", decided_at=now)
+            self._audit(db, row["id"], "policy_invalidated", "system", detail={"from": row["policy_version"], "to": policy.version, "reason": reason})
+            self._notify(db, row["id"], "invalidated", {"reason": reason})
+            return None
+        required = max(policy.requirement(a).approvals for a in frozen)
+        if required > row["approvals_required"]:
+            self._cas(db, row, approvals_required=required)
+            self._audit(db, row["id"], "policy_quorum_raised", "system",
+                        detail={"from": row["policy_version"], "to": policy.version, "required": [row["approvals_required"], required]})
+        return db.execute(select(approvals).where(approvals.c.id == row["id"])).mappings().first()
+
+    def _cancel_if_disallowed(self, db, approval_id: str, now: float) -> bool:
+        row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+        reason = self.policy.still_allows(row["payload"]["action_requests"])
+        if not reason:
+            return False
+        # Only actions nobody started; one already running is stopped by the worker's own check.
+        cancelled = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.kind == "apply",
+                                                     actions.c.status == "queued", actions.c.attempts == 0)
+                               .values(status="cancelled", error=reason[:500], version=actions.c.version + 1, updated_at=now)).rowcount
+        if not cancelled:
+            return False
+        self._audit(db, approval_id, "policy_cancelled", "system", detail={"to": self.policy.version, "reason": reason, "actions": cancelled})
+        self._refresh_execution(db, approval_id)
+        return True
+
+    def _recheck_grant(self, db, grant_id: str, now: float) -> Optional[str]:
+        grant = db.execute(select(access_grants).where(access_grants.c.action_id == grant_id)).mappings().first()
+        if grant["status"] != "active" or not grant["revoke_action_id"]:
+            return None
+        max_hours = self.policy.max_hours(grant["system"], grant["role"])
+        if max_hours is None:
+            expires_at, outcome = now, "grants_revoked"
+        else:
+            # The revoke row is written once, when the grant took effect; expires_at may already have been moved.
+            granted_at = db.execute(select(actions.c.created_at).where(actions.c.id == grant["revoke_action_id"])).scalar()
+            expires_at, outcome = granted_at + max_hours * 3600, "grants_shortened"
+        if expires_at >= grant["expires_at"]:
+            return None
+        expires_at = max(expires_at, now)
+        moved = db.execute(update(actions).where(actions.c.id == grant["revoke_action_id"], actions.c.status == "queued")
+                           .values(not_before=expires_at, version=actions.c.version + 1, updated_at=now)).rowcount
+        if not moved:
+            return None  # revocation already running or done
+        db.execute(update(access_grants).where(access_grants.c.action_id == grant_id).values(expires_at=expires_at, updated_at=now))
+        self._audit(db, grant["approval_id"], "policy_" + outcome.removeprefix("grants_"), "system", action_id=grant_id,
+                    detail={"to": self.policy.version, "system": grant["system"], "role": grant["role"], "expires_at": _iso(expires_at)})
+        return outcome
+
+    def policy_block(self, approval_id: str) -> Optional[str]:
+        """Checked by the worker right before an approval's first effect."""
+        with schema.read(self.engine) as db:
+            row = db.execute(select(approvals.c.policy_version, approvals.c.payload).where(approvals.c.id == approval_id)).first()
+        policy = self.policy
+        if not row or row.policy_version == policy.version:
+            return None
+        return policy.still_allows(row.payload["action_requests"])
 
     @staticmethod
     def _cas(db, row, **values) -> None:
@@ -397,6 +535,7 @@ class WorkflowStore:
             self._audit(db, failed["approval_id"], event, "system", action_id=row["id"], detail={"tool": row["tool_name"]})
 
     def _refresh_execution(self, db, approval_id: str) -> None:
+        previous = db.execute(select(approvals.c.execution).where(approvals.c.id == approval_id)).scalar()
         rows = db.execute(select(actions.c.status, actions.c.tool_name).where(actions.c.approval_id == approval_id, actions.c.kind == "apply")).all()
         statuses = [r.status for r in rows]
         if not statuses:
@@ -411,6 +550,11 @@ class WorkflowStore:
         else:
             state = "failed"
         db.execute(update(approvals).where(approvals.c.id == approval_id).values(execution=state))
+        if state != previous and state in TERMINAL:
+            done = db.execute(select(actions.c.result, actions.c.error).where(actions.c.approval_id == approval_id, actions.c.kind == "apply")
+                              .order_by(actions.c.seq)).all()
+            self._notify(db, approval_id, "execution_" + state, {"error": next((a.error for a in done if a.error), None),
+                                                                 "results": [a.result for a in done if a.result]})
 
     def pending_work(self, approval_id: Optional[str] = None) -> int:
         query = select(func.count()).select_from(actions).where(actions.c.status.in_(("queued", "executing", "unknown")), actions.c.not_before <= self.clock())

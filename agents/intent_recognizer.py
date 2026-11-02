@@ -16,8 +16,8 @@ from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
-from core.intent_calibration import calibrate, load_temperatures
-from core.intent_embedding import IntentEmbedding
+from agents.intent_calibration import calibrate, load_temperatures
+from agents.intent_embedding import IntentEmbedding
 from core.llm import build_model
 from monitor import metrics
 

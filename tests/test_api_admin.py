@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as api
+from api import state
 from tests.conftest import auth
 from tooling.tool_manager import MCPToolManager
 
@@ -27,18 +28,18 @@ class FakeKnowledgeBase:
 @pytest.fixture
 def client(monkeypatch):
     kb = FakeKnowledgeBase()
-    monkeypatch.setattr(api, "_kb", kb)
-    monkeypatch.setattr(api, "_tool_manager", MCPToolManager("sk-local"))
+    monkeypatch.setattr(state, "kb", kb)
+    monkeypatch.setattr(state, "tool_manager", MCPToolManager("sk-local"))
     return TestClient(api.app, headers=auth("erin")), kb
 
 
 def test_knowledge_add_imports_documents_and_invalidates_search_cache(client):
     http, kb = client
-    version = api._tool_manager._cache_versions.get("knowledge_search", 0)
+    version = state.tool_manager._cache_versions.get("knowledge_search", 0)
     response = http.post("/knowledge/add", json={"documents": [{"title": "打印机 SOP", "content": "先检查驱动与队列", "department": "研发"}]})
     assert response.status_code == 200 and response.json()["documents"] == 1
     assert kb.documents == [{"title": "打印机 SOP", "content": "先检查驱动与队列", "department": "研发"}]
-    assert api._tool_manager._cache_versions["knowledge_search"] == version + 1
+    assert state.tool_manager._cache_versions["knowledge_search"] == version + 1
 
 
 def test_knowledge_add_rejects_empty_payload(client):

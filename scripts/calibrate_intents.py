@@ -11,7 +11,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from core.intent_calibration import fit_temperatures
+from agents.intent_calibration import fit_temperatures
 from evaluation.reporting import ROOT, REPORTS_DIR, write_report
 
 

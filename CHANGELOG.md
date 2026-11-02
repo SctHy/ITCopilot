@@ -119,3 +119,24 @@
 - 恢复 AsyncAnthropic/tool_use、8082 网关、多 Agent 路由、并行执行与工具可靠性层。
 - 完成 Redis 锁与幂等、三级记忆、BM25/vector/hybrid RAG、Planner、HITL 审批和安全评测。
 - 完成意图置信度温度校准：47 条固定集 ECE 0.394681→0.258583，Brier 0.168457→0.114710。
+
+## v3.6 — 飞书入口、告警主动建单、策略变更复核
+
+借鉴 DeepSeek dsh-superagent-prototype 的三个设计：Source/Channel 与“先存储再执行”、推断工作的受理模式、策略变更时复核授权。
+
+- 策略变更复核（ADR 0008）：`load_policy()` 按 mtime 热加载，改坏时沿用上一版；`WorkflowStore.revalidate()` 让旧版本下的待审批单失效（新状态 `invalidated`）或提高审批人数，取消未执行的动作，生效中的授权按新上限提前回收；审批决定前、首个动作执行前各再查一次；worker 发现版本变化时自动复核；新增 `GET /policy`、`POST /policy/revalidate`。修复同一授权被重复复核时到期时间被反复缩短的问题（开发中由测试发现）。
+- 飞书入口（ADR 0009）：`POST /channels/feishu/events`（token/签名/解密校验）→ `channel_inbox` → 与 `/chat` 同一路径 → `channel_outbox`；私聊、@、话题内追问三种受理方式；`config/feishu_users.yaml` 身份映射；同一会话逐条处理、出站按序号保序，失败退避，永久失败丢弃并留记录；`WorkflowStore.notify` 钩子在审批状态变化的同一事务内写入通知，API 与独立 worker 都会挂上；`/monitor` 增加 `channels`（只列需要人处理的问题）。
+- 告警主动建单（ADR 0010）：`POST /proactive/alerts`（Bearer 共享密钥）、`config/alert_rules.yaml`（恰好命中一条规则、冷却期、`off / observe / auto`）、`proactive_decisions` 决定记录、`GET /proactive/decisions`；auto 模式以服务身份 S0001 提交待审批的建单申请，草稿附告警证据与知识库结果；compose `observability` profile 新增 Alertmanager。
+- 迁移 0004：`channel_inbox`、`channel_outbox`、`proactive_decisions`。新增指标 `it_copilot_policy_revalidations_total`、`it_copilot_channel_messages_total`、`it_copilot_channel_deliveries_total`、`it_copilot_proactive_decisions_total`。
+- 测试：新增 31 项（策略复核 9、飞书 15、主动受理 7），后端共 239 项通过、3 项真实服务集成测试按需运行；三个新测试文件加入 CI 的 PostgreSQL 任务（本地未在 PostgreSQL 上运行）。
+
+## v3.7 — 结构精简
+
+只调整代码组织，行为不变：离线门禁 `evaluate_all.py` 的各项报告与重构前逐字节一致；后端 239 项测试在 SQLite 和 PostgreSQL 18（pgvector 0.8.3，docker）上都通过。
+
+- `api/main.py` 从 906 行拆为 190 行：`api/state.py`（运行时组件）、`api/deps.py`（身份依赖）、`api/schemas.py`（模型）、`api/routes/`（chat、approvals、knowledge、auth、ops、intake）。测试与评测脚本改为替换 `api.state` 的属性（如 `monkeypatch.setattr(state, "workflow", ...)`），`evaluation.application` 产出 `(client, state)`。
+- 模块归位：`core/` 中的意图识别（`intent_recognizer` / `intent_embedding` / `intent_calibration`）、`planner`、`conversation_state` 移到 `agents/`；`core/telemetry.py` → `monitor/`；`core/approval.py` → `workflow/`；`adapters/` → `workflow/adapters/`；`channels/` 与 `proactive/` 合并为 `intake/`（`channels/service.py` → `intake/im.py`，`proactive/alerts.py` → `intake/alerts.py`）。HTTP 路径不变。
+- 删除：`scripts/migrate_chroma.py`（Chroma 已移除，迁移是一次性的，需要时可从 git 历史恢复）、`scripts/evaluate_dialogs.py`（`evaluate_application.py` 的别名）；`tooling/schemas.py` 并入 `tooling/knowledge_base.py`，`evaluation/few_shot.py` 并入 `evaluation/evaluator.py`。
+- `evaluate_application.py` 的代码指纹改为递归覆盖 `api/`、`agents/`、`core/`、`intake/`、`memory/`、`tooling/`、`workflow/`、`evaluation/`（之前不含子目录，也漏了 `workflow/`）。旧报告里的 `code_sha256` 与新指纹不可比。
+- 测试：路由注册检查改为读 OpenAPI 路径（include_router 后 `app.routes` 不再直接列出子路由）。
+

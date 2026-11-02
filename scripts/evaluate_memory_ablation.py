@@ -9,15 +9,15 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from core.conversation_state import merge_state, known_entities
+from agents.conversation_state import merge_state, known_entities
 from evaluation.application import application
 from evaluation.reporting import write_report
 
 
 async def main():
     rows = []
-    async with application() as (_, api):
-        memory = api._memory
+    async with application() as (_, app_state):
+        memory = app_state.memory
         state = merge_state(
             {}, "access", {"employee_id": ["1002"]}, "old", intent="permission_request"
         )

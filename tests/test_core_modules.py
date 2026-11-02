@@ -3,11 +3,11 @@ import os
 import tempfile
 
 from agents.agent_orchestrator import AgentOrchestrator, AgentType
-from core.intent_recognizer import IntentCategory, IntentRecognizer
+from agents.intent_recognizer import IntentCategory, IntentRecognizer
 from tooling.tool_manager import MCPToolManager, Tool
 from tooling.knowledge_base import KnowledgeBase
-from core.planner import build_plan, is_complex_request
-from core.intent_calibration import calibrate, ece, brier, fit_temperatures
+from agents.planner import build_plan, is_complex_request
+from agents.intent_calibration import calibrate, ece, brier, fit_temperatures
 
 
 def test_tool_manager_schema_cache_and_fallback():

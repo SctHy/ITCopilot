@@ -1,0 +1,64 @@
+# Proactive intake rules (see intake/alerts.py, ADR 0010).
+# Alertmanager posts alerts to POST /proactive/alerts; each alert is matched against the
+# enabled rules below and the decision is recorded in proactive_decisions.
+#
+# Edits apply without restart. Bump `version` when rules change: every decision records it.
+version: "2026-11-03.1"
+
+# off      record alerts, accept nothing
+# observe  (default) record what would be filed ("would_accept"); nothing is filed
+# auto     file a create_ticket approval request; an approver still decides it
+# Start in observe, review GET /proactive/decisions, then switch to auto.
+mode: observe
+
+# Identity that files proactive tickets. employee_id must exist in the directory
+# (seeded by workflow/store.py); approvers see it as the requester.
+reporter:
+  subject: "system:proactive"
+  username: itc-ops
+  employee_id: "S0001"
+  department: it
+
+# The same alert (fingerprint) is filed at most once per window, even across new firing episodes.
+cooldown_minutes: 240
+
+# Knowledge-base hits below this cosine similarity are left out of the draft (hybrid search
+# always returns top-k). 0.45 is an empirical starting point from the demo corpus
+# (relevant hit 0.49, unrelated ≤ 0.45 on 4 queries), not a validated threshold.
+knowledge_min_similarity: 0.45
+
+# A rule matches when every label in `match` equals the alert's (a list means any of).
+# An alert matching several rules is ignored as ambiguous: rule order carries no priority.
+# Templates take any label or annotation by name, e.g. {alertname}, {summary}, {tool}.
+rules:
+  - id: tool-circuit-open
+    name: 工具熔断
+    enabled: true
+    match: {alertname: ITCopilotToolCircuitOpen}
+    priority: P2
+    title: "IT-Copilot 工具 {tool} 熔断"
+    knowledge_query: "{tool} 不可用 熔断 排查"
+
+  - id: model-service-down
+    name: 模型服务故障
+    enabled: true
+    match: {alertname: ITCopilotModelErrors}
+    priority: P1
+    title: "IT-Copilot 模型服务故障"
+    knowledge_query: "模型服务 故障 降级"
+
+  - id: mcp-server-down
+    name: 外部 MCP 服务断开
+    enabled: true
+    match: {alertname: ITCopilotMCPServerDown}
+    priority: P3
+    title: "外部 MCP 服务 {server} 未连接"
+
+  # Enterprise example: needs an exporter that produces this alert.
+  - id: vpn-gateway-auth
+    name: VPN 网关认证失败率升高
+    enabled: false
+    match: {alertname: VPNGatewayAuthFailureHigh, severity: [warning, critical]}
+    priority: P2
+    title: "VPN 网关 {instance} 认证失败率升高"
+    knowledge_query: "VPN 认证失败 691"

@@ -13,6 +13,9 @@
 | 限时授权与回收 | 授权成功即在同一事务登记到期回收；回收前核对权限是否被他人改动 | 到期自动撤销，原有权限与被他人修改的权限不被误删 |
 | 故障转工单 | 将前序诊断证据传入工单步骤，补齐信息后申请审批 | 本地持久化工单；前序失败时阻断依赖步骤 |
 | 服务运行治理 | 采集调用成功率、延迟与链路事件，触发降级和恢复探针 | 请求 trace、监控指标、失败原因及离线回归记录 |
+| 飞书群报障 | 群里 @ 机器人或私聊，话题内追问免 @；与网页走同一条对话与审批链路 | 话题内答复；审批结果（批准执行、拒绝、过期、策略失效）回推到原话题 |
+| 告警主动建单 | Alertmanager 告警按规则匹配；先观察、确认后自动；建单仍需审批 | 带告警证据与相关知识的建单申请；观察期“本来会建的单”记录 |
+| 策略变更 | 改 `access_policy.yaml` 无需重启；按新版本复核在途工作，只收紧不放宽 | 失效的待审批单、取消的未执行动作、提前回收的授权，均有审计 |
 
 ## 工程设计重点
 
@@ -20,6 +23,8 @@
 - **策略即代码**：`config/access_policy.yaml` 定义可申请的系统/角色、审批人数、最长有效期与代他人申请的角色；审批快照记录策略版本。模型只能提出申请，策略由工具和审批库两次校验，知识库文本无法改变它。
 - **可恢复的受控执行**：审批通过与执行动作在同一事务写入（outbox），带租约的 worker 以版本号 CAS 认领；外部调用分为确定失败 / 可重试 / 结果未知三类，结果未知先回查目标系统再决定是否重做；批量中途失败按 saga 撤销已授予的权限，不可逆变更转人工复核。
 - **实时执行流与统一工具治理**：意图、路由、工具开始/结束、审批等事件在执行中写入 Redis Streams，SSE 实时推送并支持 `Last-Event-ID` 断线续传；所有 Agent 工具经同一执行层（超时、熔断、只读重试、写操作幂等键）。
+- **策略变更即时复核**：策略文件按修改时间热加载；版本变化后，旧版本下的待审批单失效或提高审批人数，未执行的动作取消，生效中的授权按新上限提前回收；审批人决定前、worker 执行第一个动作前都会再查一次（[ADR 0008](docs/adr/0008-revalidate-on-policy-change.md)）。
+- **IM 入口与主动受理**（借鉴 DeepSeek dsh-superagent）：飞书消息先落库再处理，回复与审批通知走出站 outbox，按会话保序、退避重试、幂等去重；只在被叫到时说话，一次请求最多一次回应、一次答复、一次结果通知（[ADR 0009](docs/adr/0009-feishu-channel-stored-work.md)）。告警按规则确定性准入，`off / observe / auto` 三档，自动模式也只生成待审批申请（[ADR 0010](docs/adr/0010-proactive-intake-observe-first.md)）。
 - **可观测与可验收**：Prometheus / OpenTelemetry 关联运行指标与调用轨迹；安全回归、PostgreSQL 并发、真实 Keycloak/Gitea 集成在 CI 中运行；真实模型实验以业务状态断言判定成功并保留失败样本。
 
 当前边界：本项目不宣称跨系统 exactly-once（外部系统无幂等键时依靠目标状态回查）；Gitea 是权限系统的沙箱替身，不是企业 IAM。详见 [设计取舍](docs/design-tradeoffs.md)、[ADR](docs/adr/) 与 [威胁模型](docs/threat-model.md)。
@@ -29,6 +34,9 @@
 ```mermaid
 flowchart LR
   U[Web 前端] -- OIDC PKCE --> KC[Keycloak]
+  FS[飞书] -- 事件回调 --> IN[(channel_inbox)] --> API
+  AM[Alertmanager] -- webhook --> PI[主动受理 / 规则 + 模式] -->|auto: 建单申请| H
+  DB -. 审批结果 .-> OUT[(channel_outbox)] -. 回复/通知 .-> FS
   U -- Bearer JWT --> API[FastAPI /chat · /chat/stream]
   API -. JWKS 校验 .-> KC
   API --> I[结构化意图识别]
@@ -134,6 +142,12 @@ docker compose --profile observability up -d           # Grafana :3000（admin /
 
 Compose 默认 `IT_COPILOT_AUTH_MODE=oidc`，前端跳转 Keycloak 登录；`gitlab` 权限申请通过 Gitea 沙箱仓库 `it-sandbox/platform` 生效，可在 Gitea 中直接看到协作者变化。开启链路追踪：在 `.env` 中设置 `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` 后重启 api。对外部署前替换所有默认口令并关闭 Keycloak 密码模式（`directAccessGrantsEnabled`）。
 
+### 飞书机器人与告警主动建单（可选）
+
+1. 在飞书开放平台创建企业自建应用，开启机器人；事件订阅地址填 `https://<公网域名>/channels/feishu/events`（本地开发需内网穿透），订阅 `im.message.receive_v1`。
+2. 在 `.env` 填写 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY`；在 `config/feishu_users.yaml` 把员工的飞书 `user_id`/`open_id` 映射到系统身份。重启 API 后，私聊机器人或在群里 @ 它即可。
+3. 告警：设置 `IT_COPILOT_ALERT_TOKEN`，`docker compose --profile observability up -d` 会同时启动 Alertmanager，并把已有的 Prometheus 告警推给 `/proactive/alerts`。`config/alert_rules.yaml` 默认是 `observe` 模式，先用 `GET /proactive/decisions?decision=would_accept` 复核，确认无误后再改成 `auto`。
+
 分步启动可使用 `./run_local.sh` 与 `cd frontend && npm ci && npm run dev -- --host 127.0.0.1 --port 5173`。真实密钥只允许出现在未被 Git 跟踪的 `.env`。
 
 ## 评测与观测
@@ -174,22 +188,31 @@ python scripts/compare_strategies.py evaluation/reports/simulated_v4_*_run*.json
 
 ## 项目结构
 
+按依赖方向从外到内排列：入口层调用业务层，业务层调用基础设施；反方向不依赖。
+
 ```text
-api/          FastAPI 路由、鉴权依赖、实时 SSE、审批、trace、知识库写入与 /mcp 挂载
-workflow/     审批库（CAS、职责分离、outbox）、执行 worker、策略加载
-adapters/     目标系统适配器：Gitea、本地目录；失败分类契约
-migrations/   Alembic 迁移
-deploy/       Keycloak realm（由 config/dev_users.yaml 生成）
-agents/       Agent profile、池化、路由、并行协作（PydanticAI Agent + 工具包装）
-core/         意图、Planner、身份（identity.py）、事件流（events.py）；core/llm.py 为 PydanticAI 模型工厂
-memory/       Redis 锁、幂等、三级记忆
-tooling/      统一工具执行层（executor.py）、Schema、TTL、超时、熔断；MCP 客户端与服务端
-monitor/      Prometheus 指标定义、SLO 燃烧率与告警状态机、路由反馈
-frontend/     Vue + Vite 前端
-evaluation/   固定数据集与可复现报告
-tests/        后端离线回归、真实 HTTP 处理链路与崩溃恢复测试
-config/       访问策略、演示身份目录、MCP 服务、Prometheus 规则、Grafana 仪表盘
-docs/         设计取舍、ADR、威胁模型、评测说明与截图
+api/                 HTTP 入口
+  main.py            组装运行时组件（lifespan）并挂载路由
+  state.py           运行时组件（编排器、记忆、审批库、渠道……），测试直接替换这里
+  deps.py            身份解析、角色检查、请求 ID、后台任务
+  schemas.py         请求与响应模型
+  routes/            chat（含 SSE）、approvals（含策略）、knowledge、auth、ops（健康/监控/trace/评测）、intake
+intake/              外部入口：飞书（校验、准入、身份映射）、IM 收发件箱、告警主动受理
+agents/              Agent 编排、工具、意图识别（含 embedding 与校准）、Planner、多轮对话状态
+workflow/            审批库（CAS、职责分离、outbox、策略复核）、执行 worker、策略加载
+  adapters/          目标系统适配器：Gitea、本地目录；失败分类契约
+memory/              Redis 锁与幂等、三级记忆
+tooling/             统一工具执行层、知识库、MCP 客户端与服务端
+core/                基础设施：身份、模型工厂、事件流、向量存储与 embedding、Skill 加载、脱敏、并发
+monitor/             Prometheus 指标、SLO 燃烧率与告警状态机、OpenTelemetry
+migrations/          Alembic 迁移
+config/              访问策略、告警规则、飞书身份映射、演示身份、MCP、Prometheus / Alertmanager / Grafana
+skills/              Agent 技能说明（SKILL.md）
+evaluation/ scripts/ 数据集、评测框架与评测脚本、可复现报告
+deploy/              Keycloak realm（由 config/dev_users.yaml 生成）
+frontend/            Vue + Vite 前端
+tests/               后端离线回归、真实 HTTP 链路与崩溃恢复测试
+docs/                设计取舍、ADR、威胁模型、评测说明与截图
 ```
 
 ## Mock 与生产替换边界
@@ -197,7 +220,7 @@ docs/         设计取舍、ADR、威胁模型、评测说明与截图
 | 组件 | 当前实现 | 生产替换 |
 |---|---|---|
 | 身份 | Keycloak（compose）/ 本地签发的开发令牌（测试、评测） | 企业 IdP（OIDC），同一组 claims：`employee_id`、`department`、`roles` |
-| 权限系统 | `gitlab` → Gitea 沙箱仓库协作者；`jira` / `vpn` → 本地目录 | 实现 `adapters/base.py` 契约（preflight / current_level / apply / observe）的 IAM 适配器；支持幂等键的系统应透传 action id |
+| 权限系统 | `gitlab` → Gitea 沙箱仓库协作者；`jira` / `vpn` → 本地目录 | 实现 `workflow/adapters/base.py` 契约（preflight / current_level / apply / observe）的 IAM 适配器；支持幂等键的系统应透传 action id |
 | 账号与工单 | 本地目录（`directory_*` 表），效果与操作 ID 同事务提交 | ITSM / 目录服务适配器 |
 | 资产、服务状态、工单查询 | mock | 只读适配器 |
 

@@ -72,7 +72,7 @@ const needsReview = computed(() => [...(props.approval?.results || []), ...(prop
 
 const actionLabels = { request_access: '申请权限', reset_password: '重置密码', unlock_account: '解锁账号', create_ticket: '创建工单', revoke_access: '回收权限' }
 const fieldLabels = { employee_id: '工号', system: '系统', role: '角色', reason: '理由', title: '标题', description: '描述', priority: '优先级', duration_hours: '有效期（小时）' }
-const statusLabels = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', superseded: '已被替代' }
+const statusLabels = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', superseded: '已被替代', invalidated: '策略变更已失效' }
 const decisionLabels = { approved: '批准', rejected: '拒绝' }
 const executionLabels = { not_executed: '尚未执行', queued: '排队中', executing: '执行中', succeeded: '执行成功', failed: '执行失败（已补偿）', manual_review: '需人工复核' }
 const actionStatus = { queued: '排队中', executing: '执行中', unknown: '结果未知，待回查', succeeded: '成功', failed: '失败', cancelled: '已取消', manual_review: '需人工复核' }

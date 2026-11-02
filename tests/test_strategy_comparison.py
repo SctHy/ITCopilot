@@ -17,7 +17,7 @@ def _module():
 
 def test_generalist_uses_one_agent_with_tools_from_every_domain():
     from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
-    from core.intent_recognizer import IntentCategory
+    from agents.intent_recognizer import IntentCategory
 
     calls = [("lookup_error_code", {"error_code": "VPN-691"}), ("lookup_asset", {"asset_id": "DEV-1"})]
 
@@ -73,7 +73,7 @@ def test_bounded_all_gives_specialists_every_tool_and_bounded_does_not():
 
 
 def test_llm_planner_routes_by_content_and_drops_unrequested_ticket():
-    from core.planner import LLMPlanner
+    from agents.planner import LLMPlanner
 
     async def reply(messages, info):
         return ModelResponse(parts=[ToolCallPart("make_plan", {"steps": [
@@ -85,7 +85,7 @@ def test_llm_planner_routes_by_content_and_drops_unrequested_ticket():
 
 
 def test_llm_planner_falls_back_to_rules_on_failure():
-    from core.planner import LLMPlanner
+    from agents.planner import LLMPlanner
 
     async def broken(messages, info):
         raise RuntimeError("model down")

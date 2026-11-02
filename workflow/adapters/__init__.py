@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional
 
-from adapters.base import Adapter
+from workflow.adapters.base import Adapter
 
 
 class AdapterRegistry:

@@ -11,3 +11,6 @@
 | [0005](0005-live-event-stream.md) | 执行事件写入持久流，SSE 实时订阅并可续传 | 已采纳 |
 | [0006](0006-default-generalist-strategy.md) | 默认使用通用 Agent；多 Agent 改为 LLM 规划、只在要求时建单 | 已采纳 |
 | [0007](0007-supersede-pending-approvals.md) | 同一会话的新申请替代仍待审批的旧申请 | 已采纳 |
+| [0008](0008-revalidate-on-policy-change.md) | 策略变更后按新版本复核在途审批与授权，只收紧不放宽 | 已采纳 |
+| [0009](0009-feishu-channel-stored-work.md) | 飞书入口：先落库再处理，只在被叫到时说话 | 已采纳 |
+| [0010](0010-proactive-intake-observe-first.md) | 告警主动建单：规则准入、先观察后自动、不绕过审批 | 已采纳 |

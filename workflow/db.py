@@ -148,6 +148,76 @@ directory_effects = Table(
 )
 
 
+# ── IM channels (intake/) ─────────────────────────────────────────────────────
+
+# Inbound messages are stored before they are processed: the webhook answers within the
+# platform's deadline, the primary key drops platform retries, and a crash mid-turn
+# leaves a row the next pass picks up again.
+channel_inbox = Table(
+    "channel_inbox", metadata,
+    Column("id", String(200), primary_key=True),                # "<channel>:<platform message id>"
+    Column("channel", String(40), nullable=False),
+    Column("conv_id", String(200), nullable=False),
+    Column("sender", JSON, nullable=False),                     # platform identifiers of the sender
+    Column("text", Text, nullable=False),
+    Column("address", JSON, nullable=False),                    # where replies go
+    Column("status", String(20), nullable=False),               # received/processing/done/ignored/failed
+    Column("attempts", Integer, nullable=False, default=0),
+    Column("not_before", Float, nullable=False),
+    Column("lease_until", Float),
+    Column("version", Integer, nullable=False, default=0),
+    Column("request_id", String(200)),                          # chat request it produced; approvals point back via it
+    Column("error", Text),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+Index("ix_channel_inbox_due", channel_inbox.c.status, channel_inbox.c.not_before)
+Index("ix_channel_inbox_request", channel_inbox.c.request_id)
+Index("ix_channel_inbox_conv", channel_inbox.c.conv_id, channel_inbox.c.created_at)
+
+# Outgoing messages: stored first (in the transaction that caused them), sent by the
+# channel service. Messages of one conversation go out in order.
+channel_outbox = Table(
+    "channel_outbox", metadata,
+    Column("id", String(64), primary_key=True),                 # also the platform's idempotency key
+    Column("channel", String(40), nullable=False),
+    Column("conv_key", String(200), nullable=False),
+    Column("seq", Integer, nullable=False),                     # order within the conversation
+    Column("address", JSON, nullable=False),
+    Column("text", Text, nullable=False),
+    Column("ref", String(200)),                                 # inbox id or approval id it belongs to
+    Column("status", String(20), nullable=False),               # queued/sending/sent/dropped/failed
+    Column("attempts", Integer, nullable=False, default=0),
+    Column("not_before", Float, nullable=False),
+    Column("lease_until", Float),
+    Column("version", Integer, nullable=False, default=0),
+    Column("error", Text),
+    Column("created_at", Float, nullable=False),
+    Column("sent_at", Float),
+)
+Index("ix_channel_outbox_due", channel_outbox.c.status, channel_outbox.c.not_before)
+Index("ix_channel_outbox_conv", channel_outbox.c.conv_key, channel_outbox.c.seq)
+
+# Every alert the proactive intake saw and what it decided (accept / would_accept / ignore / off).
+# In observe mode this log is the review set for switching to auto.
+proactive_decisions = Table(
+    "proactive_decisions", metadata,
+    Column("id", String(200), primary_key=True),                # "<source>:<fingerprint>:<startsAt>": resends are one decision
+    Column("source", String(40), nullable=False),
+    Column("fingerprint", String(200), nullable=False),
+    Column("alertname", String(200), nullable=False),
+    Column("decision", String(20), nullable=False),
+    Column("mode", String(20), nullable=False),
+    Column("rules_version", String(40), nullable=False),
+    Column("rule_id", String(80)),
+    Column("reason", Text, nullable=False),
+    Column("approval_id", String(200)),
+    Column("alert", JSON, nullable=False),
+    Column("created_at", Float, nullable=False),
+)
+Index("ix_proactive_created", proactive_decisions.c.created_at)
+
+
 # ── Embeddings ────────────────────────────────────────────────────────────────
 
 class Embedding(TypeDecorator):

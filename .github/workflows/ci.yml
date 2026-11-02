@@ -53,7 +53,7 @@ jobs:
           activate-environment: true
       - run: uv pip install -r requirements-dev.txt
       # Same migrations, CAS/lease and vector-store tests as SQLite, against PostgreSQL + pgvector.
-      - run: pytest -q -p no:warnings tests/test_workflow.py tests/test_vector_store.py
+      - run: pytest -q -p no:warnings tests/test_workflow.py tests/test_vector_store.py tests/test_policy_revalidation.py tests/test_feishu_channel.py tests/test_proactive_alerts.py
 
   integration:
     runs-on: ubuntu-latest

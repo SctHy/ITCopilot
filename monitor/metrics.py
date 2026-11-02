@@ -38,6 +38,12 @@ AUTH_FAILURES = Counter("it_copilot_auth_failures_total", "鉴权/授权拒绝",
 
 # ── 受控执行（outbox worker） ─────────────────────────────────────────────────
 WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])
+POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后对在途审批与授权的处置", ["outcome"])
+
+# ── IM 渠道与主动受理 ─────────────────────────────────────────────────────────
+CHANNEL_MESSAGES = Counter("it_copilot_channel_messages_total", "IM 渠道入站消息去向", ["channel", "outcome"])
+CHANNEL_DELIVERIES = Counter("it_copilot_channel_deliveries_total", "IM 渠道出站消息投递结果", ["channel", "outcome"])
+PROACTIVE_DECISIONS = Counter("it_copilot_proactive_decisions_total", "告警主动受理决定", ["mode", "decision"])
 
 # ── 实时事件流 ────────────────────────────────────────────────────────────────
 STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 首个执行事件（非 started）距请求开始的延迟", buckets=TOOL_LATENCY_BUCKETS)

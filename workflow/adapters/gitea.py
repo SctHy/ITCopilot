@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional
 
 import httpx
 
-from adapters.base import AmbiguousError, PermanentError, TransientError
+from workflow.adapters.base import AmbiguousError, PermanentError, TransientError
 
 # Gitea only has read/write/admin; reporter collapses into read.
 ROLE_TO_PERMISSION = {"readonly": "read", "reporter": "read", "developer": "write"}

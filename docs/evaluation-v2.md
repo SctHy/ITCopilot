@@ -27,7 +27,7 @@ INTENT_EMBEDDING_PROVIDER=local .venv/bin/python -m pytest -q
 .venv/bin/python scripts/judge_application_report.py --limit 6
 ```
 
-模型实验消耗 API token。`evaluate_all.py` 仍运行 v1 离线 smoke，不能代替 v2 在线实验。`evaluate_dialogs.py` 已改为完整应用评测入口；旧的编排器级 evaluator 保留为单元测试对象。
+模型实验消耗 API token。`evaluate_all.py` 仍运行 v1 离线 smoke，不能代替 v2 在线实验。完整应用评测入口是 `evaluate_application.py`；旧的编排器级 evaluator 保留为单元测试对象。
 
 ## 意图识别：分开校准、测试与来源
 

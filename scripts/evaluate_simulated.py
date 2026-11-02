@@ -33,11 +33,11 @@ from workflow.store import SEED_EMPLOYEES  # noqa: E402
 DATASET = DATASETS_DIR / "simulated_v4.json"
 
 
-async def run_task(http, api, task, mode, user_llm, max_turns):
+async def run_task(http, state, task, mode, user_llm, max_turns):
     unique = uuid.uuid4().hex
     requester = auth("alice", subject=f"eval:{unique}", employee_id=task["employee_id"], department="engineering")
     auditor = auth("grace")
-    api._workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
+    state.workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
     transcript, tool_calls, agent_tokens, user_calls, ended = [], [], 0, 0, "max_turns"
     started = time.monotonic()
     result = {"case_id": task["id"], "stratum": task["tier"], "planning": mode, "repeat": 0}
@@ -96,17 +96,17 @@ async def main():
 
     modes = args.strategies.split(",")
     rows = []
-    async with application(redis_url=args.redis_url, documents=json.loads((DATASETS_DIR / "rag_v2_corpus.json").read_text())) as (http, api):
+    async with application(redis_url=args.redis_url, documents=json.loads((DATASETS_DIR / "rag_v2_corpus.json").read_text())) as (http, state):
         for index, task in enumerate(tasks):
             shift = index % len(modes)
             for mode in modes[shift:] + modes[:shift]:
-                api._orchestrator.planning_mode = mode
-                api._tool_manager.invalidate_cache("knowledge_search")
-                row = await run_task(http, api, task, mode, user_llm, args.max_turns)
+                state.orchestrator.planning_mode = mode
+                state.tool_manager.invalidate_cache("knowledge_search")
+                row = await run_task(http, state, task, mode, user_llm, args.max_turns)
                 rows.append(row)
                 print(f"{mode} {task['id']}: {row['passed']} turns={row['turns']} ended={row['ended']}", flush=True)
                 write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
-        planner = api._orchestrator._planner.metrics if api._orchestrator._planner else {}
+        planner = state.orchestrator._planner.metrics if state.orchestrator._planner else {}
     summary = {}
     for mode in modes:
         group = [r for r in rows if r["planning"] == mode]

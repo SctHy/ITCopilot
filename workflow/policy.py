@@ -1,6 +1,7 @@
 """Versioned access policy: what may be requested, by whom, and how many approvals it needs."""
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
+logger = logging.getLogger(__name__)
 
 REQUIRED_ARGS = {
     "request_access": ("employee_id", "system", "role", "reason"),
@@ -73,11 +75,40 @@ class AccessPolicy:
             return
         raise PolicyViolation("只能为本人账号提交申请；代他人申请需由 IT 管理员发起")
 
+    def still_allows(self, frozen_actions) -> Optional[str]:
+        """Re-check actions frozen under an older version; returns why this version refuses them."""
+        for action in frozen_actions:
+            try:
+                self.normalise(action)
+            except ValueError as exc:  # PolicyViolation included
+                return f"策略 {self.version} 不再允许：{exc}"
+        return None
+
+    def max_hours(self, system: str, role: str) -> Optional[int]:
+        """Longest grant this version allows for system/role, or None when the role is no longer requestable."""
+        rule = (self.data.get("systems", {}).get(system) or {}).get("roles", {}).get(role)
+        return int(rule["max_hours"]) if rule else None
+
 
 @lru_cache(maxsize=4)
-def _load(path: str) -> AccessPolicy:
+def _load(path: str, mtime_ns: int) -> AccessPolicy:
     return AccessPolicy(yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8")))
 
 
+_last_good: Dict[str, AccessPolicy] = {}
+
+
 def load_policy() -> AccessPolicy:
-    return _load(os.getenv("IT_COPILOT_ACCESS_POLICY", str(_ROOT / "config/access_policy.yaml")))
+    """The policy file as it is now: an edit takes effect on the next call, without a restart
+    (the cache is keyed by mtime). Open approvals and grants are re-checked by ``WorkflowStore.revalidate``.
+    A broken edit keeps the last version that loaded, so a typo cannot widen or stop access."""
+    path = os.getenv("IT_COPILOT_ACCESS_POLICY", str(_ROOT / "config/access_policy.yaml"))
+    try:
+        policy = _load(path, pathlib.Path(path).stat().st_mtime_ns)
+    except Exception:
+        if path not in _last_good:
+            raise
+        logger.exception("access policy %s failed to load; keeping version %s", path, _last_good[path].version)
+        return _last_good[path]
+    _last_good[path] = policy
+    return policy

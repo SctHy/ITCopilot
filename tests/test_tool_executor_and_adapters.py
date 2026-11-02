@@ -5,8 +5,8 @@ import time
 import httpx
 import pytest
 
-from adapters.base import AmbiguousError, PermanentError, TransientError
-from adapters.gitea import GiteaAdapter
+from workflow.adapters.base import AmbiguousError, PermanentError, TransientError
+from workflow.adapters.gitea import GiteaAdapter
 from agents.tools import make_tool
 from tooling.executor import ToolExecutor, ToolTimeout, ToolUnavailable
 
