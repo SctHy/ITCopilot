@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
 ENTITY_KEYS = ("employee_id", "device_id", "ticket_id", "system", "role", "error_code", "department")
-# 意图组级别的必填实体；意图级的写操作槽位见 core.intent_recognizer.REQUIRED_SLOTS。
+# 意图组级别的必填实体；意图级的写操作槽位见 agents.intent_recognizer.REQUIRED_SLOTS。
 GROUP_REQUIREMENTS = {"access": ["employee_id"], "network": ["error_code"], "endpoint": ["device_id"], "ticket": ["ticket_id"]}
 
 
@@ -19,7 +19,7 @@ def merge_state(previous: Dict[str, Any], intent_group: str, entities: Dict[str,
         "updated_at": datetime.now(timezone.utc).isoformat(), "turn_count": int(state.get("turn_count", 0)) + 1,
     })
     if intent is not None:
-        from core.intent_recognizer import REQUIRED_SLOTS, IntentCategory
+        from agents.intent_recognizer import REQUIRED_SLOTS, IntentCategory
         required = REQUIRED_SLOTS.get(IntentCategory(intent), ())
     else:
         required = GROUP_REQUIREMENTS.get(intent_group, [])

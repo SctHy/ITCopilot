@@ -1,0 +1,19 @@
+# Alertmanager → IT-Copilot proactive intake (docker compose --profile observability).
+# The bearer token is mounted from the compose config `alertmanager-token`
+# (IT_COPILOT_ALERT_TOKEN); the API refuses the webhook without it.
+route:
+  receiver: it-copilot
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: it-copilot
+    webhook_configs:
+      - url: http://api:8001/proactive/alerts
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/token

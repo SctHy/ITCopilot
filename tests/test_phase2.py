@@ -1,7 +1,7 @@
 import asyncio
 
-from core.conversation_state import merge_state
-from core.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
+from agents.conversation_state import merge_state
+from agents.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
 from memory.conversation_memory import MemoryManager
 from evaluation.evaluator import load_intent_cases
 
@@ -76,6 +76,6 @@ def test_slot_given_in_earlier_turn_is_not_asked_again():
 
 
 def test_agent_receives_accumulated_entities_current_turn_wins():
-    from core.conversation_state import known_entities
+    from agents.conversation_state import known_entities
     state = {"entities": {"employee_id": ["E1001"], "system": ["Jira"]}}
     assert known_entities(state, {"system": ["GitLab"], "device_id": []}) == {"employee_id": ["E1001"], "system": ["GitLab"]}

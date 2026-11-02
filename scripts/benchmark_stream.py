@@ -29,6 +29,7 @@ from pydantic_ai.models.function import FunctionModel  # noqa: E402
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 
+from api.main import app  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
 
 REPORT = _ROOT / "evaluation/reports/stream_latency_v3.json"
@@ -52,8 +53,8 @@ def pct(values, q):
 
 async def measure(runs: int, latency: float):
     rows = []
-    async with application(model=slow_model(latency)) as (_asgi, api):
-        server = uvicorn.Server(uvicorn.Config(api.app, host="127.0.0.1", port=0, lifespan="off", log_level="warning"))
+    async with application(model=slow_model(latency)) as (_asgi, _state):
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, lifespan="off", log_level="warning"))
         serving = asyncio.create_task(server.serve())
         while not server.started:
             await asyncio.sleep(0.01)

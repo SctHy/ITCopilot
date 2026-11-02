@@ -24,6 +24,10 @@
 | 权限提升 | 审批人批准自己的申请或针对自己账号的申请 | 职责分离（按 subject 与 employee_id），API 与审批库双重检查 | `sod_*` 5 项、`test_separation_of_duties_and_authority` |
 | 权限提升 | 单人批准需要双人审批的高权限 | 策略声明审批人数；同一审批人重复投票只算一票；版本号 CAS 防并发漏计 | `sod_two_person_rule_single_approver`、`test_developer_access_needs_two_distinct_approvers_even_concurrently`（含 PostgreSQL） |
 | 权限提升 | 权限到期未回收，或回收误删原有/他人修改的权限 | 授权成功同事务登记回收；baseline 先持久化；回收前漂移检查 | `test_grant_expires_and_is_revoked`、`test_revocation_never_removes_preexisting_or_drifted_access`、`test_real_gitea_grant_expiry_and_drift` |
+| 权限提升 | 策略收紧后，按旧规则提交的申请仍被批准或执行，已开通的权限照旧有效 | 按版本号复核：待审批失效或提高审批人数，未执行的动作取消，授权提前回收；只收紧不放宽（ADR 0008） | `tests/test_policy_revalidation.py` 9 项 |
+| 仿冒 | 伪造飞书回调，或在消息正文里冒充他人 | 校验 verification token，配置 Encrypt Key 时再校验签名并解密；身份只取自事件头的 user_id/open_id 和映射表，正文不参与；未映射的人不受理 | `test_plaintext_events_need_the_verification_token`、`test_encrypted_events_are_signed_and_decrypted`、`test_identity_comes_from_the_mapping_file_only` |
+| 仿冒 | 伪造告警来触发主动建单 | Bearer 共享密钥（常量时间比较）；未配置时端点不存在；建单只生成待审批申请 | `test_webhook_needs_the_shared_secret_and_decisions_need_an_operator`、`test_auto_mode_files_an_approval_that_a_person_still_decides` |
+| 拒绝服务 | 飞书重推或进程崩溃导致重复回复、重复建单 | 消息 ID 作主键落库；回复与通知按幂等键入出站 outbox；飞书 uuid 去重 | `test_message_is_answered_once_even_when_the_platform_retries` |
 | 篡改 | 结果未知时重试造成重复变更 | 三分类错误；先回查再重做；租约 + CAS | `test_ambiguous_outcome_is_reconciled_before_retry`、`test_worker_crash_after_effect_is_recovered_without_repeating` |
 
 ## 已知未覆盖
@@ -34,3 +38,5 @@
 - Keycloak 开启了密码模式（`directAccessGrantsEnabled`）便于脚本获取沙箱令牌，任何共享部署都应关闭。
 - trace 与事件中的个人信息只做了模式脱敏（`core/redaction.py`），没有按字段的数据分级。
 - 模型网关与外部 MCP 服务的数据外发：外部 MCP 默认关闭；开启后员工问题会发送到第三方。
+- 飞书身份映射是手工维护的静态文件；映射错误会让一个人以另一个人的身份申请，生产环境应对接企业目录。
+- 飞书回调和告警 webhook 没有防重放的时间窗检查（飞书签名带时间戳，但没有校验时效）；重放会被消息 ID 或告警 ID 去重，不会产生新的效果。

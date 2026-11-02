@@ -1,6 +1,6 @@
 import asyncio
 
-from core.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
+from agents.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
 
 
 def _recognizer(intent: IntentCategory):

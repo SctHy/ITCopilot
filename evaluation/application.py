@@ -25,6 +25,7 @@ def auth(username: str = "alice", **overrides) -> dict:
 @asynccontextmanager
 async def application(*, model=None, redis_url=None, documents=()):
     import api.main as api
+    from api import state
 
     with tempfile.TemporaryDirectory(prefix="it-copilot-eval-") as directory:
         env = {
@@ -47,28 +48,31 @@ async def application(*, model=None, redis_url=None, documents=()):
             with ExitStack() as stack:
                 stack.enter_context(
                     patch.multiple(
-                        api,
+                        state,
                         **{
-                            name: getattr(api, name)
+                            name: getattr(state, name)
                             for name in (
-                                "_orchestrator",
-                                "_memory",
-                                "_tool_manager",
-                                "_kb",
-                                "_skills",
-                                "_profile_updater",
-                                "_tracing",
-                                "_monitor",
-                                "_mcp_client",
-                                "_workflow",
-                                "_worker",
-                                "_registry",
-                                "_events",
+                                "orchestrator",
+                                "memory",
+                                "tool_manager",
+                                "kb",
+                                "skills",
+                                "profile_updater",
+                                "tracing",
+                                "monitor",
+                                "mcp_client",
+                                "workflow",
+                                "worker",
+                                "registry",
+                                "channels",
+                                "feishu",
+                                "proactive",
+                                "events",
                             )
                         },
                     )
                 )
-                stack.enter_context(patch.object(api, "_background_tasks", set()))
+                stack.enter_context(patch.object(state, "background_tasks", set()))
                 if not redis_url:
                     import fakeredis.aioredis
 
@@ -78,15 +82,15 @@ async def application(*, model=None, redis_url=None, documents=()):
                     )
                 async with api.lifespan(api.app):
                     # Async summarization introduces unrelated model calls into measured trials.
-                    await api._profile_updater.close()
-                    api._profile_updater = None
+                    await state.profile_updater.close()
+                    state.profile_updater = None
                     if documents:
-                        await api._kb.add_documents_async(list(documents))
+                        await state.kb.add_documents_async(list(documents))
                     if model is not None:
-                        api._orchestrator._intent_recognizer.llm = model
-                        api._tool_manager._llm = model
-                        api._memory._llm = model
-                        for pool in api._orchestrator._pool.values():
+                        state.orchestrator._intent_recognizer.llm = model
+                        state.tool_manager._llm = model
+                        state.memory._llm = model
+                        for pool in state.orchestrator._pool.values():
                             for agent in pool:
                                 agent._llm = model
                     async with httpx.AsyncClient(
@@ -95,6 +99,6 @@ async def application(*, model=None, redis_url=None, documents=()):
                         headers=auth("alice"),
                         timeout=180,
                     ) as client:
-                        yield client, api
-                    if api._background_tasks:
-                        await asyncio.gather(*list(api._background_tasks), return_exceptions=True)
+                        yield client, state
+                    if state.background_tasks:
+                        await asyncio.gather(*list(state.background_tasks), return_exceptions=True)

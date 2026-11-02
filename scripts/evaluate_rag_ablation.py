@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from evaluation.reporting import ROOT, DATASETS_DIR, write_report
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import MCPToolManager, Tool
-from tooling.schemas import KNOWLEDGE_SEARCH_SCHEMA
+from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
 
 
 def summarize(rows):

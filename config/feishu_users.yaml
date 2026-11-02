@@ -1,0 +1,28 @@
+# Feishu user -> IT-Copilot identity for the Feishu channel (intake/feishu.py).
+# A sender not listed here gets no access: the bot answers once that the account is not bound.
+#
+# Key a person by `user_id` (the enterprise user ID; needs the app scope
+# contact:user.employee_id:readonly) or `open_id` (per-app ID, always present).
+# `subject` should equal the person's web login subject (dev:<username> in dev mode, the
+# Keycloak `sub` in OIDC mode) so web and Feishu share approvals and conversation memory.
+# Replace the placeholder IDs below with your tenant's.
+users:
+  - user_id: "alice"
+    open_id: "ou_alice_placeholder"
+    subject: "dev:alice"
+    username: alice
+    employee_id: "1001"
+    department: engineering
+    roles: [employee]
+  - user_id: "dave"
+    subject: "dev:dave"
+    username: dave
+    employee_id: "1002"
+    department: engineering
+    roles: [employee]
+  - user_id: "fiona"
+    subject: "dev:fiona"
+    username: fiona
+    employee_id: "3001"
+    department: finance
+    roles: [employee]

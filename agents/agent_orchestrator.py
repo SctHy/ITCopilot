@@ -19,9 +19,9 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from agents.tools import access_tools, build_shared_rag_tools, endpoint_tools, network_software_tools, ticket_tools, triage_tools
-from core.intent_recognizer import INTENT_GROUPS, IntentCategory, IntentRecognizer, UrgencyLevel
+from agents.intent_recognizer import INTENT_GROUPS, IntentCategory, IntentRecognizer, UrgencyLevel
 from core.llm import build_model, is_model_unavailable
-from core.planner import LLMPlanner, build_plan
+from agents.planner import LLMPlanner, build_plan
 from core.redaction import redact
 from monitor import metrics
 from tooling.executor import ToolExecutor

@@ -1,9 +1,9 @@
 import json
 
-from core.intent_calibration import load_temperatures
-from core.conversation_state import merge_state
-from core.planner import build_plan, is_complex_request
-from core.intent_recognizer import IntentRecognizer
+from agents.intent_calibration import load_temperatures
+from agents.conversation_state import merge_state
+from agents.planner import build_plan, is_complex_request
+from agents.intent_recognizer import IntentRecognizer
 
 
 def test_calibration_never_crosses_model_or_fallback_boundaries(tmp_path):
@@ -33,7 +33,7 @@ def test_compound_diagnosis_routes_and_has_no_dangling_dependencies():
 
 
 def test_llm_failure_remains_labelled_fallback():
-    from core.intent_recognizer import IntentCategory, _fallback_vote
+    from agents.intent_recognizer import IntentCategory, _fallback_vote
 
     predicted, _, scores = IntentRecognizer.select_vote(
         "llm",

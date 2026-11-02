@@ -8,7 +8,7 @@
 
 ## 决定
 
-适配器契约（`adapters/base.py`）：`preflight`、`current_level`、`apply(action_id, …)`、`observe(action_id, …)`；错误分三类：
+适配器契约（`workflow/adapters/base.py`）：`preflight`、`current_level`、`apply(action_id, …)`、`observe(action_id, …)`；错误分三类：
 
 | 类别 | 例子 | worker 行为 |
 |---|---|---|

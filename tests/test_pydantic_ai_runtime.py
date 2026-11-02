@@ -6,7 +6,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from agents.agent_orchestrator import AgentCallError, AgentOrchestrator, AgentType, Request
-from core.intent_recognizer import IntentCategory, IntentRecognizer
+from agents.intent_recognizer import IntentCategory, IntentRecognizer
 from tooling.tool_manager import MCPToolManager
 
 

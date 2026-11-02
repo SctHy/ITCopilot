@@ -11,10 +11,10 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
 from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request, RoutingDecision
-from core.approval import approval_summary
-from core.intent_calibration import calibrate, ece, brier
-from core.intent_recognizer import IntentCategory, IntentRecognizer
-from core.planner import ExecutionPlan, PlanStep, build_plan
+from workflow.approval import approval_summary
+from agents.intent_calibration import calibrate, ece, brier
+from agents.intent_recognizer import IntentCategory, IntentRecognizer
+from agents.planner import ExecutionPlan, PlanStep, build_plan
 from core.redaction import redact
 from memory.conversation_memory import MemoryManager
 from tooling.knowledge_base import KnowledgeBase
@@ -184,21 +184,24 @@ def test_agent_surfaces_model_5xx_without_request_details():
 
 def test_sse_route_is_registered():
     import api.main
-    assert any(route.path == "/chat/stream" for route in api.main.app.routes)
+    assert "/chat/stream" in api.main.app.openapi()["paths"]
 
 
 def test_sse_stream_emits_status_and_completed_events(monkeypatch):
     import api.main
+    from api import schemas, state
+    from api.routes import chat as chat_routes
+    from core.events import InMemoryEventBus
     from fastapi.testclient import TestClient
     from tests.conftest import auth
 
     async def fake_chat(payload, principal, rid, emit=None):
         await emit("tool_started", {"tool": "lookup_error_code"})
-        return api.main.ChatResponse(request_id=rid, response="已完成", status="success", agent_type="triage", intent="chitchat")
+        return schemas.ChatResponse(request_id=rid, response="已完成", status="success", agent_type="triage", intent="chitchat")
 
-    monkeypatch.setattr(api.main, "_orchestrator", object())
-    monkeypatch.setattr(api.main, "_chat", fake_chat)
-    monkeypatch.setattr(api.main, "_events", api.main.InMemoryEventBus())
+    monkeypatch.setattr(state, "orchestrator", object())
+    monkeypatch.setattr(chat_routes, "_chat", fake_chat)
+    monkeypatch.setattr(state, "events", InMemoryEventBus())
     with TestClient(api.main.app, headers=auth()).stream("POST", "/chat/stream", json={"message": "你是谁"}) as response:
         text = "".join(response.iter_text())
     assert text.index("event: status") < text.index("event: tool_started") < text.index("event: content_delta") < text.index("event: completed")
@@ -207,7 +210,7 @@ def test_sse_stream_emits_status_and_completed_events(monkeypatch):
 
 def test_trace_route_is_registered():
     import api.main
-    assert any(route.path == "/trace/{request_id}" for route in api.main.app.routes)
+    assert "/trace/{request_id}" in api.main.app.openapi()["paths"]
 
 
 def _classifier_model(mode):
@@ -248,7 +251,7 @@ def test_urgency_rules_apply_when_llm_unavailable(monkeypatch, message, urgency)
 
 
 def test_local_embedding_is_stable_across_processes():
-    code = "from core.intent_recognizer import IntentRecognizer as R; print(R._local_embed('VPN 连不上'))"
+    code = "from agents.intent_recognizer import IntentRecognizer as R; print(R._local_embed('VPN 连不上'))"
     runs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env={**os.environ, "PYTHONHASHSEED": seed}).stdout for seed in ("1", "2")}
     assert len(runs) == 1
 
@@ -275,10 +278,10 @@ def test_parallel_run_reports_failure_when_every_agent_crashes():
 
 
 def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():
-    import api.main
+    from api import schemas
     base = dict(request_id="r2", response="ok", status="success", agent_type="network_software", intent="vpn_issue")
-    no_kb = api.main.ChatResponse(**base, tools_used=["lookup_error_code"])
-    with_kb = api.main.ChatResponse(**base, tools_used=["search_knowledge_base"], knowledge_used=True)
+    no_kb = schemas.ChatResponse(**base, tools_used=["lookup_error_code"])
+    with_kb = schemas.ChatResponse(**base, tools_used=["search_knowledge_base"], knowledge_used=True)
     assert no_kb.knowledge_used is False
     assert with_kb.knowledge_used is True
     assert with_kb.model_dump()["knowledge_used"] is True

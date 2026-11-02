@@ -11,9 +11,9 @@ import os
 import httpx
 import pytest
 
-from adapters import AdapterRegistry
-from adapters.gitea import GiteaAdapter
-from adapters.local import LocalDirectoryAdapter
+from workflow.adapters import AdapterRegistry
+from workflow.adapters.gitea import GiteaAdapter
+from workflow.adapters.local import LocalDirectoryAdapter
 from core.identity import AuthError, principal_from_token
 from tests.test_workflow import ALICE, BOB, Clock, access
 from workflow.store import WorkflowStore

@@ -21,6 +21,19 @@ from typing import Any, Dict, List, Optional
 
 from core.vector_store import VectorStore
 
+# knowledge_search 工具的参数契约：应用注册与评测脚本共用。
+KNOWLEDGE_SEARCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "minLength": 1},
+        "top_k": {"type": "integer", "minimum": 1, "maximum": 8},
+        "department": {"type": ["string", "null"]},
+        "mode": {"type": "string", "enum": ["hybrid", "vector", "bm25"]},
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
+
 logger = logging.getLogger(__name__)
 
 

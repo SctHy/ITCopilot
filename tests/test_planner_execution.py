@@ -4,7 +4,7 @@ import asyncio
 
 def test_planner_passes_evidence_and_blocks_failed_dependencies():
     from agents.agent_orchestrator import AgentOrchestrator, AgentResponse, Request
-    from core.planner import ExecutionPlan, PlanStep
+    from agents.planner import ExecutionPlan, PlanStep
 
     async def run():
         o = AgentOrchestrator("test")
@@ -46,7 +46,7 @@ def test_planner_passes_evidence_and_blocks_failed_dependencies():
 
 def test_budget_stop_preserves_spent_tokens_and_tool_evidence():
     from agents.agent_orchestrator import AgentOrchestrator, AgentResponse, Request
-    from core.planner import ExecutionPlan, PlanStep
+    from agents.planner import ExecutionPlan, PlanStep
 
     async def run():
         o = AgentOrchestrator("test")
@@ -80,7 +80,7 @@ def test_budget_stop_preserves_spent_tokens_and_tool_evidence():
 
 
 def test_plan_budget_default_and_override(monkeypatch):
-    from core.planner import build_plan
+    from agents.planner import build_plan
 
     assert build_plan("VPN 和电脑同时坏了", "p").token_budget == 20000           # 10k per step
     monkeypatch.setenv("IT_COPILOT_PLAN_TOKENS_PER_STEP", "15000")
@@ -113,7 +113,7 @@ def _scripted_agent_model(seen_tools, calls):
 
 def test_plan_steps_hide_ticket_tool_when_a_ticket_step_owns_it():
     from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
-    from core.planner import ExecutionPlan, PlanStep
+    from agents.planner import ExecutionPlan, PlanStep
 
     async def run():
         orchestrator = AgentOrchestrator("test")

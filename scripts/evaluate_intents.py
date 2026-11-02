@@ -20,7 +20,7 @@ load_dotenv(ROOT / ".env")
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
 os.environ.setdefault("no_proxy", os.environ["NO_PROXY"])
 
-from core.intent_recognizer import IntentRecognizer
+from agents.intent_recognizer import IntentRecognizer
 from evaluation.evaluator import IntentEvaluator, load_intent_cases
 from evaluation.reporting import DATASETS_DIR, REPORTS_DIR, status
 

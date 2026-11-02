@@ -2,7 +2,7 @@
 #
 #   cp .env.example .env                                                          # 填写 OPENAI_* 模型配置
 #   docker compose up -d --build                                                  # 前端 http://127.0.0.1:8080
-#   docker compose --profile observability up -d                                  # 另起 Prometheus / Grafana / Jaeger
+#   docker compose --profile observability up -d                                  # 另起 Prometheus / Alertmanager / Grafana / Jaeger
 #
 # 身份：Keycloak（http://127.0.0.1:8180，演示账号见 config/dev_users.yaml，密码 <username>-pass）。
 # 业务状态：PostgreSQL；真实权限系统：Gitea 沙箱（http://127.0.0.1:3001）承接 gitlab 权限申请。
@@ -133,6 +133,8 @@ services:
       IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: it-copilot-api
+      # Alertmanager 调用 /proactive/alerts 的共享令牌（与 configs.alertmanager-token 一致）
+      IT_COPILOT_ALERT_TOKEN: ${IT_COPILOT_ALERT_TOKEN:-change-me-alert-token}
     ports:
       - "127.0.0.1:8001:8001"   # API 文档 /docs、/metrics，以及供 Claude Desktop 等客户端连接的 MCP 端点 /mcp/
     volumes:
@@ -183,6 +185,20 @@ services:
       - "127.0.0.1:9090:9090"
     restart: unless-stopped
 
+  # 告警 → 主动受理：Prometheus 触发的告警由 Alertmanager 推给 api 的 /proactive/alerts（规则见 config/alert_rules.yaml）。
+  alertmanager:
+    profiles: ["observability"]
+    image: prom/alertmanager:v0.28.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    configs:
+      - source: alertmanager-token
+        target: /etc/alertmanager/token
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
   grafana:
     profiles: ["observability"]
     image: grafana/grafana:13.3.0
@@ -205,6 +221,10 @@ services:
     ports:
       - "127.0.0.1:16686:16686"   # UI；OTLP gRPC 4317 只在 compose 网络内供 api 使用
     restart: unless-stopped
+
+configs:
+  alertmanager-token:
+    content: ${IT_COPILOT_ALERT_TOKEN:-change-me-alert-token}
 
 volumes:
   postgres18-data:

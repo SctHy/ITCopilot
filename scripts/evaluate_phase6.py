@@ -14,7 +14,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 
 from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
-from core.approval import approval_summary
+from workflow.approval import approval_summary
 from core.redaction import redact
 from evaluation.reporting import status, write_report
 from tooling.knowledge_base import KnowledgeBase

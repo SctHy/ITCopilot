@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from core.planner import build_plan, is_complex_request
+from agents.planner import build_plan, is_complex_request
 from evaluation.reporting import status, write_report
 
 CASES = [

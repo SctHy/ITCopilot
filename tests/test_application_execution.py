@@ -4,6 +4,8 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
+from api import deps
+from core.identity import principal_from_token
 from evaluation.application import application, auth
 
 
@@ -43,7 +45,7 @@ def access_model():
 
 def test_http_chat_approval_execution_and_replay():
     async def run():
-        async with application(model=access_model()) as (http, api):
+        async with application(model=access_model()) as (http, state):
             payload = {"message": "申请 GitLab 只读权限，工号1001，理由代码审阅", "conv_id": "access", "client_request_id": "concurrent"}
             # Two requests reach the actual API at once, sharing the same receipt id.
             first, replay = await asyncio.gather(http.post("/chat", json=payload), http.post("/chat", json=payload))
@@ -61,12 +63,12 @@ def test_http_chat_approval_execution_and_replay():
             approved = (await http.post(path, json=decision, headers=auth("bob"))).json()
             assert approved["execution"] == "succeeded"
             assert (await http.post(path, json=decision, headers=auth("bob"))).json() == approved
-            state = (await http.get("/business/employees/1001")).json()
-            assert len(state["grants"]) == 1 and state["grants"][0]["role"] == "readonly"
-            assert state["access_ledger"][0]["status"] == "active" and state["access_ledger"][0]["expires_at"]
+            employee = (await http.get("/business/employees/1001")).json()
+            assert len(employee["grants"]) == 1 and employee["grants"][0]["role"] == "readonly"
+            assert employee["access_ledger"][0]["status"] == "active" and employee["access_ledger"][0]["expires_at"]
             events = [e["event"] for e in (await http.get(path + "/audit")).json()["events"]]
             assert events == ["created", "approved", "execution_queued", "apply_started", "apply_succeeded"]
-            history = await api._memory._get_working_memory("dev:alice", "access")
+            history = await state.memory._get_working_memory("dev:alice", "access")
             assert len(history) == 2  # duplicate request cannot append a second turn
             assert (await http.post("/chat", json={**payload, "message": "different"})).status_code == 409
             # Other employees cannot read alice's approval, trace or account; the same client id is a separate request for them.
@@ -80,7 +82,7 @@ def test_http_chat_approval_execution_and_replay():
 
 def test_identity_comes_from_token_not_request_body():
     async def run():
-        async with application(model=access_model()) as (http, api):
+        async with application(model=access_model()) as (http, state):
             forged = {"message": "申请 GitLab 只读权限，工号1001，理由代码审阅", "conv_id": "c", "client_request_id": "forged",
                       "user_id": "dev:erin", "department": "it"}
             # dave asks for alice's employee id while claiming to be erin from IT: the body is ignored,
@@ -96,8 +98,8 @@ def test_identity_comes_from_token_not_request_body():
 
 def test_interruption_between_approval_and_receipt_can_retry():
     async def run():
-        async with application(model=access_model()) as (http, api):
-            commit = api._memory.commit_turn
+        async with application(model=access_model()) as (http, state):
+            commit = state.memory.commit_turn
             count = 0
 
             async def interrupted(*args, **kwargs):
@@ -107,23 +109,23 @@ def test_interruption_between_approval_and_receipt_can_retry():
                     raise RuntimeError("injected interruption before final receipt")
                 return await commit(*args, **kwargs)
 
-            api._memory.commit_turn = interrupted
+            state.memory.commit_turn = interrupted
             payload = {"message": "申请 GitLab 只读权限，工号1001，理由代码审阅", "conv_id": "c", "client_request_id": "interrupted"}
             with pytest.raises(RuntimeError, match="injected"):
                 await http.post("/chat", json=payload)
-            rid = api._request_id(api.principal_from_token(auth()["Authorization"].split()[1]), "interrupted")
-            assert await api._memory.get_turn_receipt("dev:alice", "c", rid) is None
+            rid = deps.request_id(principal_from_token(auth()["Authorization"].split()[1]), "interrupted")
+            assert await state.memory.get_turn_receipt("dev:alice", "c", rid) is None
             response = await http.post("/chat", json=payload)
             assert response.status_code == 200 and response.json()["approval_required"]
-            assert [e["event"] for e in api._workflow.audit(rid + ":approval")] == ["created"]
-            assert api._workflow.employee("1001")["grants"] == []
+            assert [e["event"] for e in state.workflow.audit(rid + ":approval")] == ["created"]
+            assert state.workflow.employee("1001")["grants"] == []
 
     asyncio.run(run())
 
 
 def test_live_stream_reports_tools_before_completion_and_resumes():
     async def run():
-        async with application(model=access_model()) as (http, api):
+        async with application(model=access_model()) as (http, state):
             payload = {"message": "申请 GitLab 只读权限，工号1001，理由代码审阅", "conv_id": "s", "client_request_id": "stream"}
             events = []
             async with http.stream("POST", "/chat/stream", json=payload) as response:
@@ -137,12 +139,12 @@ def test_live_stream_reports_tools_before_completion_and_resumes():
             assert kinds.index("tool_started") < kinds.index("tool_finished") < kinds.index("approval_required") < kinds.index("completed")
             # Reconnect after the tool_started event: only later events are replayed and nothing re-executes.
             resume_id = events[kinds.index("tool_started")][0]
-            rid = api._request_id(api.principal_from_token(auth()["Authorization"].split()[1]), "stream")
+            rid = deps.request_id(principal_from_token(auth()["Authorization"].split()[1]), "stream")
             replay = await http.get(f"/chat/stream/{rid}", headers={**auth(), "Last-Event-ID": resume_id})
             replayed = [line[7:] for line in replay.text.splitlines() if line.startswith("event: ")]
             assert replayed == kinds[kinds.index("tool_started") + 1:]
             assert (await http.get(f"/chat/stream/{rid}", headers=auth("dave"))).status_code == 403
-            assert len(api._workflow.list(api.principal_from_token(auth("bob")["Authorization"].split()[1]), "pending")) == 1
+            assert len(state.workflow.list(principal_from_token(auth("bob")["Authorization"].split()[1]), "pending")) == 1
 
     asyncio.run(run())
 

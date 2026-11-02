@@ -14,6 +14,8 @@ Per action:
 3. After apply, verify with an independent read. Verification failure is treated
    as an ambiguous outcome, not success.
 4. Successful grants schedule their revocation at expiry in the same transaction.
+   Before an approval's first effect, and whenever the policy version changes, open
+   work is re-checked against the current policy (``WorkflowStore.revalidate``).
    Revocation checks for drift: if someone changed the permission since we granted
    it, the worker stops and asks for review instead of deleting their change.
 """
@@ -27,8 +29,8 @@ import socket
 import uuid
 from typing import Any, Callable, Dict, Optional
 
-from adapters import AdapterRegistry
-from adapters.base import AmbiguousError, PermanentError, TransientError, rank
+from workflow.adapters import AdapterRegistry
+from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
 from monitor import metrics
 from workflow.store import TERMINAL, LeaseLost, WorkflowStore
 
@@ -52,6 +54,7 @@ class ExecutionWorker:
         self._wake = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stopping = False
+        self._policy_version: Optional[str] = None  # version the last revalidation sweep ran against
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -84,10 +87,23 @@ class ExecutionWorker:
                 pass
 
     async def run_once(self, limit: int = 10) -> int:
+        await self._revalidate_on_policy_change()
         claimed = await asyncio.to_thread(self.store.claim, self.worker_id, self.lease_s, limit)
         for action in claimed:
             await self._process(action)
         return len(claimed)
+
+    async def _revalidate_on_policy_change(self) -> None:
+        """Startup and every policy edit: re-check open approvals and grants (idempotent; several workers may race)."""
+        version = await asyncio.to_thread(lambda: self.store.policy.version)
+        if version == self._policy_version:
+            return
+        report = await asyncio.to_thread(self.store.revalidate)
+        self._policy_version = version
+        changed = {k: len(v) for k, v in report.items() if isinstance(v, list) and v}
+        for outcome, count in changed.items():
+            metrics.POLICY_REVALIDATIONS.labels(outcome=outcome).inc(count)
+        logger.info("access policy %s: revalidated open work %s", version, changed or "(no changes)")
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):
@@ -127,6 +143,10 @@ class ExecutionWorker:
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
             if action["kind"] == "apply" and action["seq"] == 0 and action["prev_status"] == "queued" and action["attempts"] == 1:
+                # The policy may have changed since approval; nothing has been applied yet.
+                reason = await asyncio.to_thread(self.store.policy_block, action["approval_id"])
+                if reason:
+                    raise PermanentError(reason)
                 # Validate the whole batch before the first effect: most partial failures
                 # (unknown user, missing repo) are caught with zero changes applied.
                 for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
@@ -188,18 +208,22 @@ class ExecutionWorker:
 
 def build_registry(store: WorkflowStore) -> AdapterRegistry:
     """Local sandbox for everything; Gitea for the systems listed in IT_COPILOT_GITEA_REPOS."""
-    from adapters.local import LocalDirectoryAdapter
+    from workflow.adapters.local import LocalDirectoryAdapter
 
     external = {}
     repos = dict(item.split("=", 1) for item in os.getenv("IT_COPILOT_GITEA_REPOS", "").split(",") if "=" in item)
     if repos and os.getenv("IT_COPILOT_GITEA_URL"):
-        from adapters.gitea import GiteaAdapter
+        from workflow.adapters.gitea import GiteaAdapter
 
         basic = (os.environ["IT_COPILOT_GITEA_USER"], os.getenv("IT_COPILOT_GITEA_PASSWORD", "")) if os.getenv("IT_COPILOT_GITEA_USER") else None
         gitea = GiteaAdapter(os.environ["IT_COPILOT_GITEA_URL"], os.getenv("IT_COPILOT_GITEA_TOKEN", ""), repos, store.username_of,
                              basic_auth=basic, timeout_s=float(os.getenv("IT_COPILOT_GITEA_TIMEOUT_S", "10")))
         external = {system: gitea for system in repos}
     return AdapterRegistry(LocalDirectoryAdapter(store.engine), external)
+
+
+def enabled_channels() -> set:
+    return {"feishu"} if os.getenv("FEISHU_APP_ID") else set()
 
 
 def database_url(default_dir: Optional[str] = None) -> str:
@@ -213,6 +237,11 @@ def database_url(default_dir: Optional[str] = None) -> str:
 async def _main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     store = WorkflowStore(database_url())
+    channels = enabled_channels()
+    if channels:
+        # Approvals this process settles still notify the IM conversation that asked for them.
+        from intake.im import approval_notifier
+        store.notify = approval_notifier(channels)
     registry = build_registry(store)
     store.route = lambda action: registry.for_action(action).name
     worker = ExecutionWorker(store, registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))

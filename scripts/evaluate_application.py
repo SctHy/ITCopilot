@@ -59,7 +59,7 @@ def stage_summary(group):
     return out
 
 
-async def trial(http, api, case, mode, repeat):
+async def trial(http, state, case, mode, repeat):
     unique = uuid.uuid4().hex
     result = {"case_id": case["id"], "stratum": case.get("stratum", "v2"), "planning": mode, "repeat": repeat, "turns": [], "checks": {}}
     employee = case.get("employee_id", "1001")
@@ -67,7 +67,7 @@ async def trial(http, api, case, mode, repeat):
     requester = auth("alice", subject=f"eval:{unique}", employee_id=login, department="engineering")
     reader = auth("grace")  # auditor: reads business state without being party to the request
     # Unique identities isolate working/episodic memory; sandbox rows reset between sequential cases.
-    api._workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
+    state.workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
     start = time.monotonic()
     try:
         for index, message in enumerate(case["turns"]):
@@ -192,14 +192,14 @@ async def main():
         cases = [c for c in cases if c["id"] in wanted]
     started_at = datetime.now(timezone.utc).isoformat()
     code = hashlib.sha256()
-    for folder in ("api", "agents", "core", "memory", "tooling", "evaluation"):
-        for file in sorted((ROOT / folder).glob("*.py")):
+    for folder in ("api", "agents", "core", "intake", "memory", "tooling", "workflow", "evaluation"):
+        for file in sorted((ROOT / folder).rglob("*.py")):
             code.update(str(file.relative_to(ROOT)).encode() + file.read_bytes())
     code_sha256 = code.hexdigest()
     corpus_path = DATASETS_DIR / "rag_v2_corpus.json"
     documents = json.loads(corpus_path.read_text()) if corpus_path.exists() else []
     rows = []
-    async with application(redis_url=args.redis_url, documents=documents) as (http, api):
+    async with application(redis_url=args.redis_url, documents=documents) as (http, state):
         for repeat in range(args.repeats):
             for case in cases:
                 # Alternate paired order to avoid a fixed warm-cache/temporal advantage.
@@ -209,9 +209,9 @@ async def main():
                 for mode in modes:
                     if mode not in PLANNING_MODES:
                         raise ValueError(f"planning must be one of {PLANNING_MODES}")
-                    api._orchestrator.planning_mode = mode
-                    api._tool_manager.invalidate_cache("knowledge_search")
-                    row = await trial(http, api, case, mode, repeat)
+                    state.orchestrator.planning_mode = mode
+                    state.tool_manager.invalidate_cache("knowledge_search")
+                    row = await trial(http, state, case, mode, repeat)
                     rows.append(row)
                     print(f"{mode} {case['id']}: {row['passed']}", flush=True)
                     write_report(
@@ -219,8 +219,8 @@ async def main():
                         {"status": "running", "trials": rows},
                         echo=False,
                     )
-        source_calls = api._orchestrator._intent_recognizer.metrics()
-        intent_strategy = api._orchestrator._intent_recognizer.strategy
+        source_calls = state.orchestrator._intent_recognizer.metrics()
+        intent_strategy = state.orchestrator._intent_recognizer.strategy
     summary = {}
     for mode in args.planning.split(","):
         group = [r for r in rows if r["planning"] == mode]
