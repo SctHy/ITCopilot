@@ -80,10 +80,8 @@ def action_id(approval_id: str, payload_hash: str, seq: int, kind: str = "apply"
 class WorkflowStore:
     def __init__(self, url: str, *, policy: Optional[AccessPolicy] = None, clock: Callable[[], float] = time.time,
                  route: Callable[[Dict[str, Any]], str] = lambda action: "local", run_migrations: bool = True):
-        if run_migrations:
-            schema.migrate(url)
         self.url = url
-        self.engine = schema.make_engine(url)
+        self.engine = schema.shared_engine(url) if run_migrations else schema.make_engine(url)
         self.policy = policy or load_policy()
         self.clock = clock
         self.route = route
@@ -100,7 +98,7 @@ class WorkflowStore:
                 db.execute(insert(directory_employees), rows)
 
     def username_of(self, employee_id: str) -> Optional[str]:
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             return db.execute(select(directory_employees.c.username).where(directory_employees.c.id == employee_id)).scalar()
 
     def _audit(self, db, approval_id, event, actor, *, action_id=None, detail=None) -> None:
@@ -167,7 +165,7 @@ class WorkflowStore:
         return replaced
 
     def get(self, approval_id: str) -> Optional[Dict[str, Any]]:
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return None
@@ -202,7 +200,7 @@ class WorkflowStore:
             query = query.where(approvals.c.status == status)
         if not (principal.can_read_all or self.policy.approver_roles.intersection(principal.roles)):
             query = query.where(approvals.c.requester == principal.subject)
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             ids = db.execute(query).scalars().all()
         return [self.get(i) for i in ids]
 
@@ -299,7 +297,7 @@ class WorkflowStore:
         now = self.clock()
         due = or_(and_(actions.c.status.in_(("queued", "unknown")), actions.c.not_before <= now),
                   and_(actions.c.status == "executing", actions.c.lease_until < now))
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             candidates = db.execute(select(actions).where(due).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
         claimed = []
         for row in candidates:
@@ -338,7 +336,7 @@ class WorkflowStore:
         action["result"] = result
 
     def apply_actions(self, approval_id: str) -> List[Dict[str, Any]]:
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             return [dict(r) for r in db.execute(select(actions).where(actions.c.approval_id == approval_id, actions.c.kind == "apply").order_by(actions.c.seq)).mappings()]
 
     def succeed(self, action: Dict[str, Any], result: Dict[str, Any], *, preexisting: bool = False) -> None:
@@ -418,13 +416,13 @@ class WorkflowStore:
         query = select(func.count()).select_from(actions).where(actions.c.status.in_(("queued", "executing", "unknown")), actions.c.not_before <= self.clock())
         if approval_id:
             query = query.where(actions.c.approval_id == approval_id)
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             return db.execute(query).scalar()
 
     # ── Read models ─────────────────────────────────────────────────────────
 
     def employee(self, employee_id: str) -> Optional[Dict[str, Any]]:
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             row = db.execute(select(directory_employees).where(directory_employees.c.id == employee_id)).mappings().first()
             if not row:
                 return None
@@ -442,7 +440,7 @@ class WorkflowStore:
         }
 
     def audit(self, approval_id: str) -> List[Dict[str, Any]]:
-        with self.engine.connect() as db:
+        with schema.read(self.engine) as db:
             rows = db.execute(select(audit).where(audit.c.approval_id == approval_id).order_by(audit.c.id)).mappings().all()
         return [{"event": r["event"], "actor": r["actor"], "action_id": r["action_id"], "detail": r["detail"], "at": _iso(r["at"])} for r in rows]
 

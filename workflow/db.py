@@ -12,12 +12,14 @@ so comparisons behave identically on both databases.
 from __future__ import annotations
 
 import pathlib
+import threading
+import weakref
 
 import numpy as np
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (JSON, Column, Float, Index, Integer, LargeBinary, MetaData, PrimaryKeyConstraint, String, Table,
                         Text, UniqueConstraint, create_engine, event)
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import TypeDecorator
 
 metadata = MetaData()
@@ -201,10 +203,31 @@ def make_engine(url: str) -> Engine:
 
         @event.listens_for(engine, "begin")
         def _sqlite_begin(connection):
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            # 只读连接（read()）用 DEFERRED，WAL 下与写事务并发；其余事务一开始就拿写锁。
+            connection.exec_driver_sql("BEGIN" if connection.get_execution_options().get("read_only") else "BEGIN IMMEDIATE")
 
         return engine
     return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
+
+
+def read(engine: Engine) -> Connection:
+    """只读查询用的连接；不要在上面写入。"""
+    return engine.connect().execution_options(read_only=True)
+
+
+# 同一进程内同一数据库共用一个连接池、只迁移一次（API 里知识库、记忆、工作流共用）。弱引用：使用方都释放后引擎随之回收，
+# 测试里每个用例一个库/ schema 时不会累积连接。
+_shared: "weakref.WeakValueDictionary[str, Engine]" = weakref.WeakValueDictionary()
+_shared_lock = threading.Lock()
+
+
+def shared_engine(url: str) -> Engine:
+    with _shared_lock:
+        engine = _shared.get(url)
+        if engine is None:
+            migrate(url)
+            engine = _shared[url] = make_engine(url)
+        return engine
 
 
 def migrate(url: str) -> None:

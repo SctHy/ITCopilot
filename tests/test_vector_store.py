@@ -76,3 +76,38 @@ def test_model_change_reembeds_stale_rows(collection, db_url):
     assert reopened.query(["任意"], n_results=5)["distances"][0] == pytest.approx([0.0, 0.0, 0.0], abs=1e-6)
     assert reopened.reembed_stale() == 0
     store.dispose()
+
+
+def test_sqlite_reads_do_not_wait_for_an_open_write_transaction(tmp_path):
+    import threading
+    import time
+
+    from sqlalchemy import text
+
+    from workflow.db import make_engine, read
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'locks.sqlite3'}")
+    with engine.begin() as db:
+        db.execute(text("CREATE TABLE t (x INTEGER)"))
+    writer_holds, release = threading.Event(), threading.Event()
+
+    def writer():
+        with engine.begin() as db:              # BEGIN IMMEDIATE：持有写锁直到提交
+            db.execute(text("INSERT INTO t VALUES (1)"))
+            writer_holds.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    writer_holds.wait(5)
+    started = time.monotonic()
+    with read(engine) as db:                    # DEFERRED：WAL 下读到提交前的快照，不排队
+        assert db.execute(text("SELECT count(*) FROM t")).scalar() == 0
+    assert time.monotonic() - started < 1
+    threading.Timer(0.5, release.set).start()
+    started = time.monotonic()
+    with engine.begin() as db:                  # 第二个写事务仍要等第一个提交
+        db.execute(text("INSERT INTO t VALUES (2)"))
+    assert time.monotonic() - started >= 0.4
+    thread.join()
+    engine.dispose()

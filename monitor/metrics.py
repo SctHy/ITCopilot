@@ -11,6 +11,8 @@ TOOL_LATENCY_BUCKETS = (.005, .01, .05, .1, .25, .5, 1, 2, 5, 10, 30)
 # ── 对话入口 ──────────────────────────────────────────────────────────────────
 CHAT_REQUESTS = Counter("it_copilot_chat_requests_total", "IT-Copilot chat requests", ["status", "intent_group"])
 CHAT_LATENCY = Histogram("it_copilot_chat_latency_seconds", "IT-Copilot chat latency", ["status"], buckets=LATENCY_BUCKETS)
+# 一轮对话按顺序经过的阶段：memory_context → intent → agent → approval → commit；agent 内的模型与工具耗时见 AGENT_* / TOOL_*。
+CHAT_STAGE_LATENCY = Histogram("it_copilot_chat_stage_seconds", "一轮对话各阶段耗时", ["stage"], buckets=LATENCY_BUCKETS)
 
 # ── Agent 与 LLM ──────────────────────────────────────────────────────────────
 AGENT_REQUESTS = Counter("it_copilot_agent_requests_total", "Agent 处理次数", ["agent", "status", "error_code"])

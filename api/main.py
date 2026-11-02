@@ -7,7 +7,7 @@ import pathlib
 import sys
 import time
 import uuid
-from contextlib import AsyncExitStack, asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager, suppress
 from typing import Any, Dict, Optional
 
 _ROOT = str(pathlib.Path(__file__).parent.parent.resolve())
@@ -82,6 +82,7 @@ class ChatResponse(BaseModel):
     approval_required: bool = False
     approval_id: Optional[str] = None
     token_usage: Dict[str, int] = {}
+    stage_ms: Dict[str, float] = {}     # memory_context / intent / agent / approval / commit
 
 
 class KnowledgeDocument(BaseModel):
@@ -552,16 +553,35 @@ async def search(query: str = Query("", min_length=1), top_k: int = Query(5, ge=
     return result.data if result.success else {"items": [], "fallback": True, "error": result.error}
 
 
-async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, emit=None):
+class _Stages:
+    """一轮对话各阶段耗时（毫秒），同时写入 it_copilot_chat_stage_seconds。"""
+
+    def __init__(self):
+        self.ms: Dict[str, float] = {}
+
+    @contextmanager
+    def __call__(self, stage: str):
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            elapsed = time.monotonic() - started
+            self.ms[stage] = round(self.ms.get(stage, 0.0) + elapsed * 1000, 1)
+            metrics.CHAT_STAGE_LATENCY.labels(stage=stage).observe(elapsed)
+
+
+async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, stages: _Stages, emit=None):
     """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。用户与部门取自已验证身份。"""
     from agents.agent_orchestrator import Request
     from core.conversation_state import known_entities, merge_state
 
     user_id = principal.subject
-    mem_ctx = await _memory.get_context(user_id, conv_id, query=payload.message) if _memory else None
+    with stages("memory_context"):
+        mem_ctx = await _memory.get_context(user_id, conv_id, query=payload.message) if _memory else None
     history = [{"role": m.role.value, "content": m.content} for m in mem_ctx.recent_messages[-5:]] if mem_ctx and mem_ctx.recent_messages else None
     state = (getattr(mem_ctx, "state", {}) or {}) if mem_ctx else {}
-    intent_result = await _orchestrator.recognize_intent(payload.message, history=history, previous_intent_group=state.get("intent_group"))
+    with stages("intent"):
+        intent_result = await _orchestrator.recognize_intent(payload.message, history=history, previous_intent_group=state.get("intent_group"))
     if emit:
         await emit("intent", {"intent": intent_result.intent.value, "intent_group": intent_result.intent_group,
                               "confidence": round(intent_result.confidence, 4), "source": intent_result.recognition_source})
@@ -584,10 +604,12 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
             raise ValueError("审批存储不可用，无法创建写操作申请")
 
     req.before_unsafe_tool = before_unsafe_tool
-    return await _orchestrator.run(req), req, intent_result, mem_ctx
+    with stages("agent"):
+        result = await _orchestrator.run(req)
+    return result, req, intent_result, mem_ctx
 
 
-def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal: Principal) -> Dict[str, Any]:
+def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal: Principal, stage_ms: Dict[str, float]) -> Dict[str, Any]:
     trace = json.loads(json.dumps(result.__dict__, default=lambda value: value.value if hasattr(value, "value") else str(value)))
     trace["observability"] = {
         "schema_version": 3,
@@ -601,6 +623,7 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
         "intent": {"source": intent_result.recognition_source, "confidence": intent_result.confidence, "group_agreement": intent_result.source_scores.get("group_agreement")},
         "approval": {"required": bool(approval), "approval_id": approval_id},
         "fallback": {"intent_source": intent_result.recognition_source},
+        "stage_ms": stage_ms,
     }
     return trace
 
@@ -638,7 +661,8 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None)
 
 async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None):
     # The caller holds the conversation lease through approval creation AND commit.
-    result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, emit)
+    stages = _Stages()
+    result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, stages, emit)
 
     from core.approval import approval_from_traces
     approval = approval_from_traces(result.tool_traces, payload.message)
@@ -647,8 +671,9 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
     if approval and _workflow:
         summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
         try:
-            created = await asyncio.to_thread(_workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
-                                              action_requests=approval["action_requests"], summary=summary)
+            with stages("approval"):
+                created = await asyncio.to_thread(_workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
+                                                  action_requests=approval["action_requests"], summary=summary)
         except (PolicyViolation, ApprovalConflict, ValueError) as exc:
             # Tools validate first, so this is rare (e.g. policy changed mid-turn); never create a half-valid approval.
             logger.warning("approval not created for %s: %s", rid, exc)
@@ -671,11 +696,13 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
         missing_slots=req.conversation_state.get("missing_fields", []), inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
         tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used, latency_ms=result.latency_ms,
         escalated=result.escalated, plan=result.plan, findings=result.findings, approval_required=bool(approval), approval_id=approval_id,
-        token_usage=result.token_usage,
+        token_usage=result.token_usage, stage_ms=stages.ms,
     )
     if _memory:
-        trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal)
-        await _memory.commit_turn(principal.subject, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
+        # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
+        trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)
+        with stages("commit"):
+            await _memory.commit_turn(principal.subject, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
         if _profile_updater:
             _profile_updater.submit(principal.subject, conv_id)
         if result.intent and result.intent.value not in {"greeting", "chitchat"}:

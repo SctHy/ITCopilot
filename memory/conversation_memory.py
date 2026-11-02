@@ -116,10 +116,9 @@ class MemoryManager:
         database_url: str = "sqlite:///data/it_copilot.sqlite3",
         api_key:      str = "",
         base_url:     Optional[str] = None,
-        model:        str = "claude-3-5-sonnet-20241022",
+        model:        str = "",
     ):
         self._llm   = build_model(api_key, base_url, model)
-        self._model = model
 
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._request_locks = KeyedLocks()

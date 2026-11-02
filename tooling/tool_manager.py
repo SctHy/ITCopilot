@@ -151,9 +151,8 @@ class MCPToolManager:
       用户查询 → 查询改写（多角度子查询）→ 并行召回 → 结果重排 → 返回 Top-K
     """
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = ""):
         self._llm   = build_model(api_key, base_url, model)
-        self._model = model
         self._tools: Dict[str, Tool] = {}
         self._cache_versions: Dict[str, int] = {}
         self._cache: Dict[str, tuple] = {}   # key → (result, expire_at, reranked)

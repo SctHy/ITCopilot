@@ -93,6 +93,7 @@ flowchart LR
 | 工作流并发 | 13 项工作流测试（并发批准、双人审批并发投票、结果未知回查、worker 崩溃恢复、saga 补偿、到期回收与漂移保护、待审批申请替代）在 SQLite 与 PostgreSQL 18 上均通过；其中前 12 项各重复 5 次 |
 | 真实系统集成 | Keycloak 令牌映射 / 篡改与受众校验；Gitea 授权 → 到期撤销 → 他人改动后不误删，均对真实服务运行 |
 | 单/多/通用 Agent 分层对照 | 64 场景（单领域/双领域/三领域/多轮/不应写入）× 2 个独立进程。修复前：single 40/64、多 Agent 44/64、通用 Agent 63/64，多 Agent 落后来自规则规划器漏领域、未要求时追加建单和预算不足。改为 LLM 规划器、只在用户要求时建单、按步骤数计算预算后，在完成重跑的 42 个场景上多 Agent 从 26/42 升到 41/42，每个 Agent 带全部工具的 bounded_all 为 42/42，通用 Agent 为 40/42，三者无显著差异；多 Agent token 多约 60% |
+| 最新代码复测（v3.5） | 同一 64 场景、generalist、deepseek-flash：62/64（v3 为 64/64），p50 6.3 s / p95 11.4 s（v3 为 7.1 / 12.6）。分阶段：Agent 占 79%（p50 4.4 s），意图识别占 20%（p50 1.2 s），记忆读取 14 ms，建审批 5 ms。两条失败：`n-vpn-developer` 重复 5 次全过，属偶发；`c3-grant-asset-ticket` 重复 15+15 次，关闭/开启改写重排为 10/15 与 13/15（Fisher p=0.39），失败都是模型按 endpoint 技能先追问系统版本而不建单，与检索改动无关。之后修改 ticket/endpoint 技能（诊断字段不是建单前提；待审批即确认，不在聊天里二次确认），两次完整重跑均 64/64（“不应写入” N 层 10/10、10/10），c3 重复 15 次 10/15→13/15（p=0.39，不显著） |
 | τ-bench 式多轮评测 | 50 个组合任务（1–3 个子任务 + 违规请求），LLM 模拟用户只在被问到时透露信息，按审批执行后的员工最终状态评分，报告 pass^1 / pass^2。评测发现四种策略共有的重复建单缺陷（修复前占失败的 72%），已改为同会话新申请替代仍待审批的旧单。服务端额度耗尽前完成的 33 个任务上，pass^1 为：多 Agent 0.85、bounded_all 0.80、通用 0.80、单专职 0.62 |
 | 真实模型回归 | DeepSeek `deepseek-flash`，新身份/审批流程下重跑 v2 场景：开发集 single 24/24、bounded 23/24；留出集 36/36、36/36（v2：23/24、22/24、36/36、33/36）。提升来自修复复合诊断建单：计划预算 12k→30k、诊断 Agent 开放仅生成审批的建单工具、模型轮数 3→5（预算后续改为按步骤数计算，见下一行）；bounded token 约为 single 的 2.5–3 倍。首轮因评测脚本缺陷作废，过程见评测说明 |
 
@@ -153,7 +154,7 @@ python scripts/evaluate_simulated.py --strategies generalist --output simulated_
 python scripts/compare_strategies.py evaluation/reports/simulated_v4_*_run*.json --exclude-errored [--exclude-simulator-flags]
 ```
 
-运行时入口：`GET /metrics`、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`，断线后 `GET /chat/stream/{request_id}` + `Last-Event-ID` 续读。执行在后台任务中进行，与连接解耦：客户端断开不会取消执行，相同 `client_request_id` 重复提交只订阅已有执行。正文目前是最终回答分片，不是模型 token 流。前端“运行与评测”页每 15 秒刷新上述状态。
+运行时入口：`GET /metrics`（含 `it_copilot_chat_stage_seconds{stage}`：memory_context / intent / agent / approval / commit 分阶段耗时，响应与 trace 里同时带 `stage_ms`）、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`，断线后 `GET /chat/stream/{request_id}` + `Last-Event-ID` 续读。执行在后台任务中进行，与连接解耦：客户端断开不会取消执行，相同 `client_request_id` 重复提交只订阅已有执行。正文目前是最终回答分片，不是模型 token 流。前端“运行与评测”页每 15 秒刷新上述状态。
 
 ### 监控设计
 

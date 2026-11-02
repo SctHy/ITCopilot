@@ -47,6 +47,18 @@ def percentile(values, q):
     return sorted(values)[min(len(values) - 1, int((len(values) - 1) * q))] if values else 0
 
 
+def stage_summary(group):
+    """每轮对话的分阶段耗时（来自响应的 stage_ms，不含响应返回后的 commit）：p50/p95 毫秒与占总耗时的比例。"""
+    turns = [t["response"].get("stage_ms") or {} for r in group for t in r["turns"]]
+    turns = [t for t in turns if t]
+    total = sum(sum(t.values()) for t in turns) or 1.0
+    out = {}
+    for stage in sorted({k for t in turns for k in t}):
+        values = [t[stage] for t in turns if stage in t]
+        out[stage] = {"turns": len(values), "p50_ms": statistics.median(values), "p95_ms": percentile(values, 0.95), "share": sum(values) / total}
+    return out
+
+
 async def trial(http, api, case, mode, repeat):
     unique = uuid.uuid4().hex
     result = {"case_id": case["id"], "stratum": case.get("stratum", "v2"), "planning": mode, "repeat": repeat, "turns": [], "checks": {}}
@@ -219,6 +231,7 @@ async def main():
             "latency_p50_s": statistics.median(r["latency_s"] for r in group),
             "latency_p95_s": percentile([r["latency_s"] for r in group], 0.95),
             "agent_tokens_median": statistics.median(r["agent_tokens"] for r in group),
+            "turn_stage_ms": stage_summary(group),
         }
     report = {
         "suite": "application-v2",

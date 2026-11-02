@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from sqlalchemy import Float, and_, bindparam, delete, func, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 
 from core.embedding import Embedder
-from workflow.db import Embedding, make_engine, migrate, vector_documents as T
+from workflow.db import Embedding, read, shared_engine, vector_documents as T
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,10 @@ def _conditions(where: Optional[Dict[str, Any]]) -> list:
 
 
 class VectorStore:
-    """一个数据库连接上的若干集合；构造时执行迁移，保证表存在。"""
+    """一个数据库上的若干集合；引擎与迁移和同库的工作流共用（workflow.db.shared_engine）。"""
 
     def __init__(self, url: str, embedder: Optional[Embedder] = None):
-        migrate(url)
-        self.engine = make_engine(url)
+        self.engine = shared_engine(url)
         self.embedder = embedder or Embedder()
 
     def collection(self, name: str) -> "VectorCollection":
@@ -71,8 +70,14 @@ class VectorCollection:
         return self._embedder.model_name
 
     def count(self) -> int:
-        with self._engine.connect() as db:
+        with read(self._engine) as db:
             return db.scalar(select(func.count()).select_from(T).where(T.c.collection == self.name)) or 0
+
+    def version(self) -> Tuple[int, float]:
+        """(行数, 最近写入时间)：任何写入或删除都会改变它，调用方据此判断缓存是否过期。"""
+        with read(self._engine) as db:
+            count, latest = db.execute(select(func.count(), func.max(T.c.updated_at)).where(T.c.collection == self.name)).one()
+        return count or 0, latest or 0.0
 
     def upsert(self, ids: Sequence[str], documents: Sequence[str], metadatas: Optional[Sequence[Optional[Dict[str, Any]]]] = None) -> None:
         if not ids:
@@ -109,7 +114,7 @@ class VectorCollection:
             statement = statement.limit(limit)
         if offset:
             statement = statement.offset(offset)
-        with self._engine.connect() as db:
+        with read(self._engine) as db:
             rows = db.execute(statement).all()
         return {"ids": [r.id for r in rows], "documents": [r.document for r in rows], "metadatas": [r.meta for r in rows]}
 
@@ -127,11 +132,11 @@ class VectorCollection:
     def _query_postgres(self, vector: np.ndarray, n: int, conditions: list) -> list:
         distance = T.c.embedding.op("<=>", return_type=Float)(bindparam("q", vector, type_=Embedding()))
         statement = select(T.c.id, T.c.document, T.c.meta, distance.label("distance")).where(and_(*conditions)).order_by(distance).limit(n)
-        with self._engine.connect() as db:
+        with read(self._engine) as db:
             return [(r.id, r.document, r.meta, float(r.distance)) for r in db.execute(statement)]
 
     def _query_sqlite(self, vector: np.ndarray, n: int, conditions: list) -> list:
-        with self._engine.connect() as db:
+        with read(self._engine) as db:
             rows = db.execute(select(T.c.id, T.c.document, T.c.meta, T.c.embedding).where(and_(*conditions))).all()
         if not rows:
             return []
@@ -145,7 +150,7 @@ class VectorCollection:
         stale = select(T.c.id, T.c.document).where(T.c.collection == self.name, T.c.model != self.model).limit(REEMBED_BATCH)
         total = 0
         while True:
-            with self._engine.connect() as db:
+            with read(self._engine) as db:
                 rows = db.execute(stale).all()
             if not rows:
                 break

@@ -1,7 +1,6 @@
 """KnowledgeBase behaviour: scores per mode, batch metadata consistency, lexical index refresh policy."""
 import pytest
 
-from tooling import knowledge_base
 from tooling.knowledge_base import KnowledgeBase
 
 
@@ -40,12 +39,14 @@ def test_lexical_index_is_not_rebuilt_on_every_search(kb, monkeypatch):
     assert rebuilds == []
 
 
-def test_lexical_index_refreshes_after_external_write_or_ttl(kb, monkeypatch):
+def test_lexical_index_refreshes_after_external_write(kb):
+    # 绕过 add_documents 直接写集合，模拟其他进程写入同一数据库。
     kb._collection.add(ids=["external:0"], documents=["打印机 卡纸 处理"], metadatas=[{"title": "外部写入", "department": "*"}])
-    assert any(r["title"] == "外部写入" for r in kb.search("打印机 卡纸", mode="bm25"))   # 片段数变化触发重建
+    assert any(r["title"] == "外部写入" for r in kb.search("打印机 卡纸", mode="bm25"))   # 片段数变化
     kb._collection.upsert(ids=["external:0"], documents=["扫描仪 卡纸 处理"], metadatas=[{"title": "外部写入", "department": "*"}])
-    monkeypatch.setattr(knowledge_base, "LEXICAL_INDEX_TTL_S", 0)
-    assert any(r["title"] == "外部写入" for r in kb.search("扫描仪", mode="bm25"))        # 片段数不变的更新靠 TTL 刷新
+    assert any(r["title"] == "外部写入" for r in kb.search("扫描仪", mode="bm25"))        # 片段数不变、写入时间变化
+    kb._collection.delete(["external:0"])
+    assert not any(r["title"] == "外部写入" for r in kb.search("扫描仪", mode="bm25"))
 
 
 def test_department_filter_hides_other_departments(kb):

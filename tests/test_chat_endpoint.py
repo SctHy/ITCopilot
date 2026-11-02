@@ -45,12 +45,16 @@ def chat_client(monkeypatch):
 def test_chat_end_to_end_records_metrics_and_slo(chat_client):
     http, monitor = chat_client
     before = sample("it_copilot_chat_requests_total", status="success", intent_group="network")
+    agent_stage = sample("it_copilot_chat_stage_seconds_count", stage="agent") or 0
     response = http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-1"})
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["status"] == "success" and body["agent_type"] == "network_software" and body["intent"] == "vpn_issue"
     assert body["tools_used"] == ["lookup_error_code"] and "VPN-691" in body["response"]
     assert sample("it_copilot_chat_requests_total", status="success", intent_group="network") == before + 1
+    # 无记忆、无审批时只有 memory_context / intent / agent 三段。
+    assert set(body["stage_ms"]) == {"memory_context", "intent", "agent"} and all(v >= 0 for v in body["stage_ms"].values())
+    assert sample("it_copilot_chat_stage_seconds_count", stage="agent") == agent_stage + 1
     assert monitor.slos["chat_availability"].window(300) == (1, 0)
 
 
@@ -85,7 +89,7 @@ def test_second_turn_reuses_employee_id_from_conversation_state(chat_client, mon
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
     from core.identity import principal_from_token
     alice = principal_from_token(auth("alice")["Authorization"].split()[1])
-    _, req, intent_result, _ = asyncio.run(api._run_turn(api.ChatRequest(message="帮我重置密码"), alice, "turn-2", "c1"))
+    _, req, intent_result, _ = asyncio.run(api._run_turn(api.ChatRequest(message="帮我重置密码"), alice, "turn-2", "c1", api._Stages()))
     assert "employee_id" in intent_result.missing_slots          # 本轮消息本身没有工号
     assert "employee_id" not in req.conversation_state["missing_fields"]
     assert req.entities["employee_id"] == ["E1001"]

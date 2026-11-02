@@ -17,15 +17,11 @@ import re
 import math
 from datetime import datetime, timezone
 import threading
-import time
 from typing import Any, Dict, List, Optional
 
 from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
-
-# BM25 索引的兜底刷新周期（秒）：覆盖其他进程写入同一数据库、片段数不变的更新。
-LEXICAL_INDEX_TTL_S = 30
 
 
 class KnowledgeBase:
@@ -40,7 +36,7 @@ class KnowledgeBase:
         self._write_lock = threading.RLock()
         self._index_lock = threading.RLock()
         self._lexical_index: Dict[str, Dict[str, Any]] = {}
-        self._indexed_count, self._indexed_at = -1, 0.
+        self._indexed_version: tuple = (-1, 0.)
         # Docker 已预下载 embedding 模型，本地首次使用会下载。
         self._collection = VectorStore(database_url).collection(self.COLLECTION_NAME)
 
@@ -126,16 +122,18 @@ class KnowledgeBase:
 
     def _rebuild_lexical_index(self):
         with self._index_lock:
+            # 先取版本再读数据：读取期间若有写入，下次检索版本不一致会再重建，不会漏掉。
+            version = self._collection.version()
             data = self._collection.get()
             self._lexical_index = {
                 doc_id: {"id": doc_id, "document": document, "metadata": metadata or {}, "tokens": self._tokens(document)}
                 for doc_id, document, metadata in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))
             }
-            self._indexed_count, self._indexed_at = len(self._lexical_index), time.monotonic()
+            self._indexed_version = version
 
-    def _ensure_lexical_index(self, count: int) -> None:
-        """片段数变化或超过刷新周期时重建 BM25 索引；本进程写入后已立即重建，周期刷新兜底其他写入方（共享数据库）。"""
-        if count != self._indexed_count or time.monotonic() - self._indexed_at > LEXICAL_INDEX_TTL_S:
+    def _ensure_lexical_index(self, version: tuple) -> None:
+        """集合版本（行数, 最近写入时间）变化时重建 BM25 索引；覆盖其他进程写入同一数据库的情况。"""
+        if version != self._indexed_version:
             self._rebuild_lexical_index()
 
     def _bm25(self, query: str, candidates: Optional[set] = None) -> Dict[str, float]:
@@ -167,10 +165,11 @@ class KnowledgeBase:
             raise ValueError("top_k 必须是 1–20 的整数")
         if mode not in {"hybrid", "vector", "bm25"}:
             raise ValueError("mode 必须是 hybrid、vector 或 bm25")
-        count = self._collection.count()
+        version = self._collection.version()
+        count = version[0]
         if not count:
             return []
-        self._ensure_lexical_index(count)
+        self._ensure_lexical_index(version)
         with self._index_lock:
             index = dict(self._lexical_index)
         allowed = {doc_id for doc_id, row in index.items() if not department or row["metadata"].get("department", "*") in {"*", department}}

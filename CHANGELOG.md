@@ -50,6 +50,16 @@
 - `CHROMA_PERSIST_DIRECTORY` 改为 `IT_COPILOT_DATA_DIR`（默认 `data`），本地库文件改为 `data/it_copilot.sqlite3`。旧 Chroma 数据用 `scripts/migrate_chroma.py` 一次性迁入（需临时安装 chromadb）。
 - 测试的 `db_url` fixture 移到 `tests/conftest.py`，PostgreSQL 下 search_path 带上 public；新增 `tests/test_vector_store.py`，SQLite 与 PostgreSQL 跑同一组用例。
 
+## v3.5 — 分阶段耗时、SQLite 并发读、共用引擎、端到端复测
+
+- 分阶段耗时：新增指标 `it_copilot_chat_stage_seconds{stage}`（memory_context / intent / agent / approval / commit），`ChatResponse.stage_ms` 与 trace `observability.stage_ms` 同步记录；`evaluate_application.py` 汇总每阶段 p50/p95 与占比（`turn_stage_ms`）。
+- SQLite 只读查询（`workflow.db.read`）改用 DEFERRED 事务，WAL 下不再与写事务排队；写事务仍 `BEGIN IMMEDIATE`。工作流 8 处读、向量存储全部读走只读连接，有并发测试覆盖。
+- 同库共用引擎：`workflow.db.shared_engine` 按 URL 只建一个连接池、只迁移一次（知识库、记忆、工作流共用），弱引用缓存，使用方释放后引擎回收。
+- BM25 索引改按集合版本（行数, 最近写入时间）刷新，去掉 30 秒全量重读。
+- 去掉三处已不存在的 `claude-3-5-sonnet-20241022` 默认模型名，统一由 `build_model` 回落到 `OPENAI_MODEL`。
+- 端到端复测（最新代码，64 场景，generalist，deepseek-flash）：62/64，p50 6.3 s / p95 11.4 s（v3：64/64，7.1 / 12.6）。Agent 占每轮耗时 79%，意图识别 20%（p50 1.2 s）。`n-vpn-developer` 重复 5 次全过；`c3-grant-asset-ticket` 关闭/开启改写重排各 15 次为 10/15、13/15（p=0.39），失败均为模型按 endpoint 技能“先收集系统版本”而不建单，属提示词冲突，未修。报告 `application_strata_v3_pgvector_run1.json`。
+- 技能提示词：endpoint 技能的“先收集系统版本”改为“诊断时按需收集，不是建单前提”；ticket 技能补充“建单只需 title/description，缺的信息写进描述；工单本身是待审批记录，用户已要求建单时不在聊天里二次确认”。c3 重复 15 次：修改前 10/15，只改第一条 10/15（失败变为反问“要现在建吗”），两条都改 13/15（p=0.39，不显著）。完整 64 场景两次重跑均 64/64，“不应写入” N 层 10/10、10/10，未见过度写入；p50 6.5 / 6.6 s，p95 12.7 / 12.7 s。报告 `application_strata_v3_skillfix_run1.json`、`_run2.json`。
+
 ## v2 — 可验证业务执行与对照评测
 
 - 新增 SQLite 本地业务适配器：冻结审批参数和哈希、批准/执行状态分离、幂等操作记录、事务回滚、重启重试与审计。聊天阶段仅准备申请，不再写入会阻塞恢复的旧“结果未知”回执。

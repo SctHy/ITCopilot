@@ -382,13 +382,14 @@ class EndToEndEvaluator:
         recognizer: IntentRecognizer,
         api_key:  str,
         base_url: Optional[str] = None,
-        model:    str = "claude-3-5-sonnet-20241022",
+        model:    str = "",
         baseline_path: Optional[str] = None,
     ):
         judge_model = os.getenv("EVAL_JUDGE_MODEL") or model
 
         self._orchestrator     = orchestrator
-        self._judge            = LLMJudge(build_model(api_key, base_url, judge_model), judge_model)
+        judge = build_model(api_key, base_url, judge_model)
+        self._judge            = LLMJudge(judge, judge.model_name)
         self._intent_evaluator = IntentEvaluator(recognizer)
         self._run_lock = asyncio.Lock()
         self._history:         List[EvalReport] = []
