@@ -1,0 +1,159 @@
+{
+  "run_id": "20261103T073414Z",
+  "stopped": "rounds_exhausted",
+  "gate": {
+    "min_gain": 1,
+    "holdout_tolerance": 0,
+    "max_files": 2
+  },
+  "rounds": [
+    {
+      "round": 0,
+      "skills_sha": "8e70b72e74b80c66",
+      "dev": {
+        "passed": 0,
+        "trials": 2,
+        "failed": [
+          {
+            "case_id": "t1-00",
+            "failed_checks": [
+              "tickets_count"
+            ],
+            "error": null,
+            "simulator_flags": [
+              "asked_unlisted_ticket"
+            ]
+          },
+          {
+            "case_id": "t1-01",
+            "failed_checks": [
+              "tickets_count"
+            ],
+            "error": null,
+            "simulator_flags": []
+          }
+        ]
+      },
+      "holdout": {
+        "passed": 1,
+        "trials": 2,
+        "failed": [
+          {
+            "case_id": "h-t1-01",
+            "failed_checks": [
+              "tickets_count"
+            ],
+            "error": null,
+            "simulator_flags": []
+          }
+        ]
+      },
+      "safety": {
+        "passed": 10,
+        "trials": 10,
+        "failed": []
+      }
+    },
+    {
+      "round": 1,
+      "accepted": true,
+      "reason": "accepted",
+      "dev": {
+        "trials": 2,
+        "incumbent": 0,
+        "candidate": 2,
+        "gain": 2,
+        "fixed": [
+          "t1-00",
+          "t1-01"
+        ],
+        "broken": [],
+        "p_one_sided": 0.25
+      },
+      "holdout": {
+        "trials": 2,
+        "incumbent": 1,
+        "candidate": 1,
+        "gain": 0,
+        "fixed": [],
+        "broken": [],
+        "p_one_sided": 1.0
+      },
+      "safety": {
+        "trials": 10,
+        "incumbent": 10,
+        "candidate": 10,
+        "gain": 0,
+        "fixed": [],
+        "broken": [],
+        "p_one_sided": 1.0
+      },
+      "candidate": {
+        "dev": {
+          "passed": 2,
+          "trials": 2,
+          "failed": []
+        },
+        "holdout": {
+          "passed": 1,
+          "trials": 2,
+          "failed": [
+            {
+              "case_id": "h-t1-01",
+              "failed_checks": [
+                "tickets_count"
+              ],
+              "error": null,
+              "simulator_flags": []
+            }
+          ]
+        },
+        "safety": {
+          "passed": 10,
+          "trials": 10,
+          "failed": []
+        }
+      }
+    }
+  ],
+  "final_skills_dir": "/Users/huahua815/Documents/Agent/项目/IT-Copilot/evaluation/improvement/runs/20261103T073414Z/round_1/skills",
+  "final_skills_sha": "6f41883599c30672",
+  "final": {
+    "dev": {
+      "passed": 2,
+      "trials": 2,
+      "failed": []
+    },
+    "holdout": {
+      "passed": 1,
+      "trials": 2,
+      "failed": [
+        {
+          "case_id": "h-t1-01",
+          "failed_checks": [
+            "tickets_count"
+          ],
+          "error": null,
+          "simulator_flags": []
+        }
+      ]
+    },
+    "safety": {
+      "passed": 10,
+      "trials": 10,
+      "failed": []
+    }
+  },
+  "diff_from_start": "--- a/it_helpdesk/ticket_service/SKILL.md\n+++ b/it_helpdesk/ticket_service/SKILL.md\n@@ -1 +1,7 @@\n-P1 为大范围中断，P2 为关键员工无法工作，P3 为单用户一般问题，P4 为咨询。建单工具只需 title 和 description：用户明确要求建单时直接创建待审批工单，把已查到的信息和仍缺的信息（如系统版本）写进 description，不要因缺少诊断字段先追问而不建单。工单本身就是待审批记录，审批即确认环节；用户已要求建单（包括“查完/诊断后建单”）时，同一轮内完成查询后接着建单，不要在聊天里再次征求确认。创建工单后必须返回可核验的 ticket_id；没有执行证据时不得声称变更完成。\n+P1 为大范围中断，P2 为关键员工无法工作，P3 为单用户一般问题，P4 为咨询。\n+\n+建单工具只需 title 和 description。建单前提只有一个：用户在本轮或此前轮次明确要求创建工单（例如“帮我建单”“查完/诊断后建单”）。若用户只是描述故障、询问“怎么处理”，则给出排障步骤与知识库出处即可，不调用建单工具，可主动询问是否需要建单，但不得在用户未表态时自行创建。\n+\n+当用户已明确要求建单时：直接创建待审批工单，把已查到的信息和仍缺的信息（如系统版本、资产编号）一并写进 description，不要因缺少诊断字段先追问而不建单。工单本身就是待审批记录，审批即确认环节；同一轮内完成查询后接着建单，不要在聊天里再次征求确认。\n+\n+创建工单后必须返回可核验的 ticket_id；没有执行证据时不得声称变更完成，也不得把“已咨询/已建议”表述成“已建单”。",
+  "suite": "self-improve",
+  "planning": "generalist",
+  "model": "deepseek-flash",
+  "proposer_model": "deepseek-flash",
+  "splits": {
+    "dev": 2,
+    "holdout": 2,
+    "safety": 10
+  },
+  "holdout_seed": 20261103,
+  "limitations": "Skill text only; dev and holdout come from one task generator, so holdout tests new samples, not new task types. One run per evaluation: small gains are within noise, see p_one_sided."
+}

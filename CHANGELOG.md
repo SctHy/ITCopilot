@@ -156,4 +156,5 @@
 - 意图识别：删除向量匹配（`agents/intent_embedding.py`，含 SiliconFlow 依赖）、三路加权投票与置信度校准（`agents/intent_calibration.py`、`scripts/calibrate_intents.py`、`scripts/evaluate_intent_ablation.py`、`evaluation/config/intent_calibration.json`）。理由：留出集上 LLM 与融合都是 44/44，单路规则 30%、向量 57%，校准默认配置为空。现在是 LLM 结构化输出 + 关键词规则兜底，`IT_INTENT_STRATEGY` 不再使用。历史报告保留。
 - 离线门禁的意图识别以前走类默认的融合路径，与线上（LLM 路径）不一致；现在只有一条路径。重新生成的 `intent_latest.json` 预测与准确率不变，21 条兜底样本的置信度由 0.5 变为规则给出的 0.65。
 - 测试：删除被移除功能的测试，后端 246 项通过、3 项需 PostgreSQL 的用例在 SQLite 下跳过。
+- 技能自改进（ADR 0011，`evaluation/improvement.py`、`scripts/self_improve.py`）：失败归因、模型提案只改技能正文、确定性守卫、基线与候选同轮配对重跑、开发集净提升且单侧 McNemar p ≤ 0.1 才看留出集与安全集；默认不改线上技能。只做过 2 个任务的冒烟运行，没有效果证据。
 

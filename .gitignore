@@ -35,3 +35,6 @@ logs/
 *.bak
 .DS_Store
 Thumbs.db
+
+# 自改进候选技能目录（接受的修改见 ledger 与报告中的 diff）
+evaluation/improvement/runs/

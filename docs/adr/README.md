@@ -14,3 +14,4 @@
 | [0008](0008-revalidate-on-policy-change.md) | 策略变更后按新版本复核在途审批与授权，只收紧不放宽 | 已采纳 |
 | [0009](0009-feishu-channel-stored-work.md) | 飞书入口：先落库再处理，只在被叫到时说话 | 已采纳 |
 | [0010](0010-proactive-intake-observe-first.md) | 告警主动建单：规则准入、先观察后自动、不绕过审批 | 已废弃 |
+| [0011](0011-evaluation-gated-skill-improvement.md) | 技能自改进：失败归因、模型提案、评测门控，提案只能改技能文本 | 已采纳 |
