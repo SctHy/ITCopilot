@@ -17,7 +17,10 @@ import re
 import math
 from datetime import datetime, timezone
 import threading
+from collections import Counter
 from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 from core.vector_store import VectorStore
 
@@ -49,6 +52,10 @@ class KnowledgeBase:
         self._write_lock = threading.RLock()
         self._index_lock = threading.RLock()
         self._lexical_index: Dict[str, Dict[str, Any]] = {}
+        self._doc_ids: List[str] = []
+        self._lengths = np.zeros(0)
+        self._postings: Dict[str, tuple] = {}
+        self._mask_cache: Dict[Optional[str], np.ndarray] = {}
         self._indexed_version: tuple = (-1, 0.)
         # Docker 已预下载 embedding 模型，本地首次使用会下载。
         self._collection = VectorStore(database_url).collection(self.COLLECTION_NAME)
@@ -129,7 +136,8 @@ class KnowledgeBase:
     def _tokens(text: str) -> List[str]:
         """Small dependency-free tokenizer for BM25; keeps CJK bigrams and words."""
         text = str(text or "").lower()
-        words = re.findall(r"[a-z0-9_./-]+|[\u4e00-\u9fff]", text)
+        # 去掉词首尾的 . / -（句末标点、路径分隔），保留 vpn-691、10.0.0.1 这类内部符号。
+        words = [w for w in (w.strip("./-") for w in re.findall(r"[a-z0-9_./-]+|[\u4e00-\u9fff]", text)) if w]
         cjk = [a + b for a, b in zip(words, words[1:]) if re.match(r"[\u4e00-\u9fff]", a) and re.match(r"[\u4e00-\u9fff]", b)]
         return words + cjk
 
@@ -138,10 +146,19 @@ class KnowledgeBase:
             # 先取版本再读数据：读取期间若有写入，下次检索版本不一致会再重建，不会漏掉。
             version = self._collection.version()
             data = self._collection.get()
-            self._lexical_index = {
-                doc_id: {"id": doc_id, "document": document, "metadata": metadata or {}, "tokens": self._tokens(document)}
-                for doc_id, document, metadata in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))
-            }
+            index, lists, lengths = {}, {}, []
+            for pos, (doc_id, document, metadata) in enumerate(zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))):
+                tokens = self._tokens(document)
+                index[doc_id] = {"id": doc_id, "document": document, "metadata": metadata or {}, "pos": pos}
+                lengths.append(len(tokens))
+                for term, tf in Counter(tokens).items():
+                    lists.setdefault(term, []).append((pos, tf))
+            # 倒排表存成 numpy 数组：高频词的倒排表有上万项，打分按数组运算而不是逐项循环。
+            postings = {term: (np.array([p for p, _ in items], dtype=np.int64), np.array([tf for _, tf in items], dtype=np.float64))
+                        for term, items in lists.items()}
+            # 整体替换而不原地修改：检索线程拿到引用后不受并发重建影响。
+            self._lexical_index, self._doc_ids, self._lengths = index, list(index), np.array(lengths, dtype=np.float64)
+            self._postings, self._mask_cache = postings, {}
             self._indexed_version = version
 
     def _ensure_lexical_index(self, version: tuple) -> None:
@@ -149,23 +166,41 @@ class KnowledgeBase:
         if version != self._indexed_version:
             self._rebuild_lexical_index()
 
-    def _bm25(self, query: str, candidates: Optional[set] = None) -> Dict[str, float]:
+    def _bm25_array(self, query: str, mask: np.ndarray) -> np.ndarray:
+        """倒排索引上的 BM25，按索引位置返回分数数组；n、avgdl、df 都在 mask 选中的片段内计算。"""
         with self._index_lock:
-            rows = [r for r in self._lexical_index.values() if candidates is None or r["id"] in candidates]
-        q = self._tokens(query)
-        if not q or not rows: return {}
-        n, avgdl = len(rows), sum(len(r["tokens"]) for r in rows) / max(1, len(rows))
-        df = {term: sum(term in r["tokens"] for r in rows) for term in set(q)}
-        scores = {}
-        for row in rows:
-            tf = {term: row["tokens"].count(term) for term in set(q)}
-            score = 0.0
-            for term in set(q):
-                if not tf[term]: continue
-                idf = math.log(1 + (n - df[term] + .5) / (df[term] + .5))
-                score += idf * (tf[term] * 2.0) / (tf[term] + 1.5 * (0.25 + 0.75 * len(row["tokens"]) / max(1, avgdl)))
-            scores[row["id"]] = score
+            lengths, postings = self._lengths, self._postings
+        scores = np.zeros(len(lengths))
+        n = int(mask.sum())
+        terms = set(self._tokens(query))
+        if not terms or not n: return scores
+        avgdl = max(1, lengths[mask].sum() / n)
+        for term in terms:
+            positions, tf = postings.get(term, (None, None))
+            if positions is None: continue
+            keep = mask[positions]
+            positions, tf = positions[keep], tf[keep]
+            if not len(positions): continue
+            idf = math.log(1 + (n - len(positions) + .5) / (len(positions) + .5))
+            scores[positions] += idf * (tf * 2.0) / (tf + 1.5 * (0.25 + 0.75 * lengths[positions] / avgdl))
         return scores
+
+    def _bm25(self, query: str, candidates: Optional[set] = None) -> Dict[str, float]:
+        """片段 ID -> BM25 分数（只含正分）。"""
+        with self._index_lock:
+            doc_ids = self._doc_ids
+        mask = np.array([candidates is None or doc_id in candidates for doc_id in doc_ids], dtype=bool)
+        scores = self._bm25_array(query, mask)
+        return {doc_ids[i]: float(scores[i]) for i in np.flatnonzero(scores > 0)}
+
+    def _department_mask(self, department: Optional[str]) -> np.ndarray:
+        with self._index_lock:
+            index, cache = self._lexical_index, self._mask_cache
+        mask = cache.get(department)
+        if mask is None:
+            mask = cache[department] = np.array(
+                [not department or row["metadata"].get("department", "*") in {"*", department} for row in index.values()], dtype=bool)
+        return mask
 
     def search(self, query: str, top_k: int = 5, *, department: Optional[str] = None,
                mode: str = "hybrid", rrf_k: int = 60) -> List[Dict[str, Any]]:
@@ -184,8 +219,8 @@ class KnowledgeBase:
             return []
         self._ensure_lexical_index(version)
         with self._index_lock:
-            index = dict(self._lexical_index)
-        allowed = {doc_id for doc_id, row in index.items() if not department or row["metadata"].get("department", "*") in {"*", department}}
+            index, doc_ids = self._lexical_index, self._doc_ids
+        mask = self._department_mask(department)
 
         merged: Dict[str, Dict[str, Any]] = {}
 
@@ -198,15 +233,26 @@ class KnowledgeBase:
         if mode != "bm25":
             where = {"department": {"$in": ["*", department]}} if department else None
             results = self._collection.query(query_texts=[query], n_results=min(top_k * 4, count), where=where)
-        lexical_scores = self._bm25(query, allowed) if mode != "vector" else {}
+        scores = self._bm25_array(query, mask) if mode != "vector" else np.zeros(len(doc_ids))
+        positive = np.flatnonzero(scores > 0)
+        order = positive[np.argsort(-scores[positive], kind="stable")]
+        lexical_rank = np.zeros(len(doc_ids), dtype=np.int64)
+        lexical_rank[order] = np.arange(1, len(order) + 1)
         vector_hits = zip(results.get("ids", [[]])[0], results.get("documents", [[]])[0], results.get("metadatas", [[]])[0], results.get("distances", [[]])[0])
+        vector_positions = []
         for rank, (doc_id, document, metadata, distance) in enumerate(vector_hits, 1):
-            if doc_id in allowed:
-                add(doc_id, rank, document, metadata or {}, max(0.0, 1.0 - float(distance)), lexical_scores.get(doc_id, 0.0))
-        lexical_ranked = [(doc_id, score) for doc_id, score in sorted(lexical_scores.items(), key=lambda item: item[1], reverse=True) if score > 0]
-        for rank, (doc_id, score) in enumerate(lexical_ranked, 1):
-            row = index[doc_id]
-            add(doc_id, rank, row["document"], row["metadata"], 0., score)
+            pos = index[doc_id]["pos"] if doc_id in index else None
+            if pos is not None and mask[pos]:
+                add(doc_id, rank, document, metadata or {}, max(0.0, 1.0 - float(distance)), float(scores[pos]))
+                vector_positions.append(pos)
+        # 只展开词法排名前 top_k*4 的片段：排名更靠后、又不在向量结果里的片段，RRF 分低于词法前 top_k 名，进不了结果。
+        window = top_k * 4
+        for rank, pos in enumerate(order[:window], 1):
+            row = index[doc_ids[pos]]
+            add(row["id"], rank, row["document"], row["metadata"], 0., float(scores[pos]))
+        for pos in vector_positions:
+            if lexical_rank[pos] > window:
+                merged[doc_ids[pos]]["rrf"] += 1 / (rrf_k + lexical_rank[pos])
 
         score_key = {"hybrid": "rrf", "vector": "vector_score", "bm25": "bm25_score"}[mode]
         ranked = sorted((item for item in merged.items() if mode == "hybrid" or item[1][score_key] > 0), key=lambda item: item[1][score_key], reverse=True)
@@ -252,31 +298,23 @@ class KnowledgeBase:
     # ── 内部方法 ──────────────────────────────────────────────────────────────
 
     def _chunk_text(self, text: str, chunk_size: int = 500) -> List[str]:
-        """将长文本按 chunk_size 切片，保留语义完整性（按句号/换行切分）。"""
+        """按句子边界把长文本装成不超过 chunk_size 的片段；中文按 。！？；和换行，英文按 .!?; 后接空白。
+
+        切分点是零宽的，片段保留原文字符（换行、空格），超长的单句按 chunk_size 硬切。
+        """
         if len(text) <= chunk_size:
             return [text] if text.strip() else []
-
-        chunks = []
-        current = ""
-        # 按句子切分
-        sentences = text.replace("\n", "。").split("。")
-        sentences = [sent[i:i + chunk_size] for sent in sentences
-                     for i in range(0, len(sent), chunk_size)]
+        sentences = [part[i:i + chunk_size] for part in re.split(r"(?<=[。！？；\n])|(?<=[.!?;])(?=\s)", text)
+                     for i in range(0, len(part), chunk_size)]
+        chunks, current = [], ""
         for sent in sentences:
-            sent = sent.strip()
-            if not sent:
-                continue
-            if len(current) + len(sent) + 1 > chunk_size:
-                if current:
-                    chunks.append(current)
-                current = sent
-            else:
-                current = f"{current}。{sent}" if current else sent
-
-        if current:
-            chunks.append(current)
-
-        return chunks
+            if current and len(current) + len(sent) > chunk_size:
+                chunks.append(current.strip())
+                current = ""
+            current += sent
+        if current.strip():
+            chunks.append(current.strip())
+        return [c for c in chunks if c]
 
     def _load_default_docs(self) -> None:
         """导入 IT 服务台的最小知识库。"""

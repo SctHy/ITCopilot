@@ -2,14 +2,16 @@
 
 接口是 upsert / get / query / delete / count 几个集合操作，知识库与记忆模块不关心后端：
   - PostgreSQL：相似度在库内计算，``embedding <=> :q`` 为余弦距离；
-  - SQLite：按过滤条件取出候选向量，用 numpy 计算余弦距离。
+  - SQLite：按过滤条件取出候选向量，用 numpy 计算余弦距离；向量矩阵按（集合版本, 过滤条件）缓存在进程内。
 演示规模（千级片段）两边都是精确检索；数据量上来后在 PostgreSQL 上加 HNSW 索引。
 
 过滤条件只支持字符串等值、``{"$in": [...]}`` 和 ``{"$and": [...]}``，在 SQL 里按 JSON 字段求值。
 """
 from __future__ import annotations
 
+import json
 import logging
+import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -23,6 +25,7 @@ from workflow.db import Embedding, read, shared_engine, vector_documents as T
 logger = logging.getLogger(__name__)
 
 REEMBED_BATCH = 256
+MATRIX_CACHE_ENTRIES = 8
 
 
 def _conditions(where: Optional[Dict[str, Any]]) -> list:
@@ -64,6 +67,8 @@ class VectorCollection:
         self._engine = store.engine
         self._embedder = store.embedder
         self._postgres = self._engine.dialect.name == "postgresql"
+        self._matrix_cache: Dict[str, Tuple[Tuple[int, float], List[str], np.ndarray]] = {}
+        self._cache_lock = threading.Lock()
 
     @property
     def model(self) -> str:
@@ -122,9 +127,10 @@ class VectorCollection:
         """每条查询返回最近的 n_results 条；distances 为余弦距离（0 最相似）。"""
         out: Dict[str, List[List[Any]]] = {"ids": [], "documents": [], "metadatas": [], "distances": []}
         conditions = [T.c.collection == self.name, T.c.model == self.model, *_conditions(where)]
+        cache_key = json.dumps([self.model, where], sort_keys=True, ensure_ascii=True)
         for text in query_texts:
             vector = self._embedder.embed_query(str(text))
-            hits = self._query_postgres(vector, n_results, conditions) if self._postgres else self._query_sqlite(vector, n_results, conditions)
+            hits = self._query_postgres(vector, n_results, conditions) if self._postgres else self._query_sqlite(vector, n_results, conditions, cache_key)
             for key, values in zip(("ids", "documents", "metadatas", "distances"), zip(*hits) if hits else ([], [], [], [])):
                 out[key].append(list(values))
         return out
@@ -135,15 +141,36 @@ class VectorCollection:
         with read(self._engine) as db:
             return [(r.id, r.document, r.meta, float(r.distance)) for r in db.execute(statement)]
 
-    def _query_sqlite(self, vector: np.ndarray, n: int, conditions: list) -> list:
+    def _sqlite_matrix(self, conditions: list, cache_key: str) -> Tuple[List[str], np.ndarray]:
+        """候选片段的 id 与向量矩阵；集合版本不变时复用，避免每次查询都从库里反序列化全部向量。"""
+        version = self.version()
+        with self._cache_lock:
+            cached = self._matrix_cache.get(cache_key)
+        if cached and cached[0] == version:
+            return cached[1], cached[2]
         with read(self._engine) as db:
-            rows = db.execute(select(T.c.id, T.c.document, T.c.meta, T.c.embedding).where(and_(*conditions))).all()
-        if not rows:
+            # 按 id 排序：重复片段的向量相同，距离打平时的先后不随查询计划变化。
+            rows = db.execute(select(T.c.id, T.c.embedding).where(and_(*conditions)).order_by(T.c.id)).all()
+        ids = [r.id for r in rows]
+        matrix = np.stack([r.embedding for r in rows]) if rows else np.empty((0, 0), dtype=np.float32)
+        with self._cache_lock:
+            if len(self._matrix_cache) >= MATRIX_CACHE_ENTRIES:
+                self._matrix_cache.clear()
+            self._matrix_cache[cache_key] = (version, ids, matrix)
+        return ids, matrix
+
+    def _query_sqlite(self, vector: np.ndarray, n: int, conditions: list, cache_key: str) -> list:
+        ids, matrix = self._sqlite_matrix(conditions, cache_key)
+        if not ids:
             return []
         # 写入时已归一化，余弦相似度即点积。
-        distances = 1.0 - np.stack([r.embedding for r in rows]) @ vector
+        distances = 1.0 - matrix @ vector
         order = np.argsort(distances, kind="stable")[:n]
-        return [(rows[i].id, rows[i].document, rows[i].meta, float(distances[i])) for i in order]
+        picked = [ids[i] for i in order]
+        with read(self._engine) as db:
+            rows = {r.id: r for r in db.execute(select(T.c.id, T.c.document, T.c.meta).where(T.c.collection == self.name, T.c.id.in_(picked)))}
+        # 缓存之后被删除的片段直接跳过。
+        return [(i, rows[i].document, rows[i].meta, float(distances[j])) for i, j in zip(picked, order) if i in rows]
 
     def reembed_stale(self) -> int:
         """把其他模型生成的向量按当前模型重算；换模型后第一次打开集合时执行。"""
@@ -157,7 +184,8 @@ class VectorCollection:
             vectors = self._embedder.embed_documents([r.document for r in rows])
             with self._engine.begin() as db:
                 for row, vec in zip(rows, vectors):
-                    db.execute(update(T).where(T.c.collection == self.name, T.c.id == row.id).values(embedding=vec, model=self.model))
+                    # 同时刷新 updated_at：集合版本随之变化，进程内的向量矩阵缓存才会失效。
+                    db.execute(update(T).where(T.c.collection == self.name, T.c.id == row.id).values(embedding=vec, model=self.model, updated_at=time.time()))
             total += len(rows)
         if total:
             logger.info("集合 %s 已按 %s 重新向量化 %d 条", self.name, self.model, total)

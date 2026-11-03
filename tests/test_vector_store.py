@@ -111,3 +111,11 @@ def test_sqlite_reads_do_not_wait_for_an_open_write_transaction(tmp_path):
     assert time.monotonic() - started >= 0.4
     thread.join()
     engine.dispose()
+
+
+def test_query_sees_writes_after_a_cached_query(collection):
+    collection.query(["VPN"], n_results=3)
+    collection.upsert(["printer"], ["打印机卡纸，需要清理进纸通道"], [{"department": "*"}])
+    assert collection.query(["打印机卡纸"], n_results=1)["ids"][0] == ["printer"]
+    collection.delete(["printer"])
+    assert "printer" not in collection.query(["打印机卡纸"], n_results=3)["ids"][0]

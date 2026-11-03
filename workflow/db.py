@@ -254,6 +254,7 @@ vector_documents = Table(
     Column("updated_at", Float, nullable=False),
     PrimaryKeyConstraint("collection", "id", name="pk_vector_documents"),
 )
+Index("ix_vector_documents_updated", vector_documents.c.collection, vector_documents.c.updated_at)
 
 
 def make_engine(url: str) -> Engine:

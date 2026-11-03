@@ -1,4 +1,6 @@
 """KnowledgeBase behaviour: scores per mode, batch metadata consistency, lexical index refresh policy."""
+import math
+
 import pytest
 
 from tooling.knowledge_base import KnowledgeBase
@@ -59,3 +61,55 @@ def test_department_filter_is_not_crowded_out_by_other_departments(kb):
     rows = kb.search("VPN 客户端证书与 DNS 排障 财务版", top_k=3, department="研发", mode="vector")
     assert [r["title"] for r in rows] == ["VPN 指南"]
 
+
+
+def test_bm25_matches_reference_formula_within_department(kb):
+    kb.add_documents([{"title": "VPN 证书", "content": "VPN 证书过期，VPN 重新下载证书", "department": "研发"},
+                      {"title": "公共 VPN", "content": "VPN 连接失败先看网络", "department": "*"}])
+    allowed = {i for i, row in kb._lexical_index.items() if row["metadata"]["department"] in {"*", "研发"}}
+    docs = {i: kb._tokens(kb._lexical_index[i]["document"]) for i in allowed}
+    terms = set(kb._tokens("VPN 证书"))
+    avgdl = sum(map(len, docs.values())) / len(docs)
+    expected = {}
+    for i, tokens in docs.items():
+        score = 0.0
+        for term in terms:
+            df, tf = sum(term in t for t in docs.values()), tokens.count(term)
+            if tf:
+                idf = math.log(1 + (len(docs) - df + .5) / (df + .5))
+                score += idf * (tf * 2.0) / (tf + 1.5 * (0.25 + 0.75 * len(tokens) / avgdl))
+        if score:
+            expected[i] = score
+    assert kb._bm25("VPN 证书", allowed) == pytest.approx(expected)
+
+
+def test_chunks_split_on_sentence_boundaries_and_keep_original_text(kb):
+    text = "Connect your domain. Then verify DNS!\nOpen settings? " * 30 + "先确认账号。再检查 DNS！" * 30
+    chunks = kb._chunk_text(text, chunk_size=120)
+    assert all(len(c) <= 120 for c in chunks)
+    assert all(c.endswith((".", "!", "?", "。", "！")) for c in chunks)
+    assert "".join(text.split()) == "".join("".join(chunks).split())
+
+
+def test_tokens_drop_trailing_punctuation_but_keep_inner_symbols():
+    assert KnowledgeBase._tokens("Domain. see /settings, VPN-691 at 10.0.0.1.") == ["domain", "see", "settings", "vpn-691", "at", "10.0.0.1"]
+
+
+def test_truncated_lexical_expansion_matches_full_rrf(kb):
+    kb.add_documents([{"title": f"VPN {i}", "content": "VPN 连接 " * (i % 5 + 1) + f"证书 {i}", "department": "*"} for i in range(30)])
+
+    def reference(query, top_k, mode):
+        index, lexical = kb._lexical_index, kb._bm25(query)
+        vector = kb._collection.query([query], n_results=min(top_k * 4, len(index))) if mode != "bm25" else {"ids": [[]], "distances": [[]]}
+        merged = {}
+        for rank, (doc_id, distance) in enumerate(zip(vector["ids"][0], vector["distances"][0]), 1):
+            merged.setdefault(doc_id, {"vector_score": max(0.0, 1 - distance), "bm25_score": lexical.get(doc_id, 0.0), "rrf": 0.0})["rrf"] += 1 / (60 + rank)
+        for rank, (doc_id, score) in enumerate(sorted(lexical.items(), key=lambda item: item[1], reverse=True), 1):
+            merged.setdefault(doc_id, {"vector_score": 0.0, "bm25_score": score, "rrf": 0.0})["rrf"] += 1 / (60 + rank)
+        key = {"hybrid": "rrf", "bm25": "bm25_score"}[mode]
+        ranked = sorted((item for item in merged.items() if mode == "hybrid" or item[1][key] > 0), key=lambda item: item[1][key], reverse=True)
+        return [doc_id for doc_id, _ in ranked[:top_k]]
+
+    for mode in ("hybrid", "bm25"):
+        for top_k in (1, 2, 5):
+            assert [r["chunk_id"] for r in kb.search("VPN 连接 证书", top_k=top_k, mode=mode)] == reference("VPN 连接 证书", top_k, mode)
