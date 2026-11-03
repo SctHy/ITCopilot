@@ -140,3 +140,10 @@
 - `evaluate_application.py` 的代码指纹改为递归覆盖 `api/`、`agents/`、`core/`、`intake/`、`memory/`、`tooling/`、`workflow/`、`evaluation/`（之前不含子目录，也漏了 `workflow/`）。旧报告里的 `code_sha256` 与新指纹不可比。
 - 测试：路由注册检查改为读 OpenAPI 路径（include_router 后 `app.routes` 不再直接列出子路由）。
 
+## v3.8 — 公开基准评测与万级片段检索性能
+
+- 公开基准：新增 `scripts/evaluate_rag_wixqa.py`（WixQA，6,221 篇客服文章、400 条人工查询，固定 revision 与 sha256）和 `scripts/evaluate_agentdojo.py`（AgentDojo v1.2.2 四个套件、949 个间接注入组合，跑应用的 `BaseAgent` 运行时）。结果与边界见 docs/evaluation-public.md。
+- 检索性能：BM25 改为 numpy 倒排索引，只展开词法排名前 `top_k*4` 的片段（与全量展开逐条一致）；SQLite 向量矩阵按集合版本与过滤条件缓存，按 id 排序使打平时结果确定；迁移 0005 增加 `(collection, updated_at)` 索引；`reembed_stale` 同时刷新 `updated_at`。WixQA 35,083 片段上混合检索 p50 0.63–0.80 s → 12–14 ms。
+- 检索质量：分词去掉词首尾的 `.`、`/`、`-`；切片按中英文句子边界切并保留原文字符。WixQA BM25 Recall@5 0.41 → 0.45；rag_v2 指标不变。
+- 测试：新增 5 项（缓存失效、BM25 公式对照、截断展开与全量 RRF 对照、切片、分词），后端 250 项通过（3 项需 PostgreSQL 的用例在 SQLite 下跳过）；CI 的 PostgreSQL 测试组在 PostgreSQL 18 + pgvector 0.8.3（docker）上 51 项通过。
+

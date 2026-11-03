@@ -90,6 +90,15 @@ flowchart LR
 | 部署 | Docker Compose：postgres / keycloak / gitea（含初始化任务）/ redis / api / worker / frontend，`observability` profile 加 Prometheus / Grafana / Jaeger |
 | 质量 | GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）、pytest、node:test、LLM-as-Judge 框架、离线评测脚本 |
 
+## 实验与证据（公开基准）
+
+数据、标注和判定规则来自第三方公开基准，不经作者之手。设置、逐项结果与边界见 [公开基准评测](docs/evaluation-public.md)。
+
+| 实验 | 结果与口径 |
+|---|---|
+| WixQA 检索 | Wix 客服中心 6,221 篇文章（35,083 片段）、400 条人工查询，走线上检索链路，按文章计分。ExpertWritten Recall@5：BM25 0.45；默认中文 embedding 向量 0.29 / 混合 0.41，中文模型在英文语料上拖低了混合检索；换 bge-small-en 后向量 0.55 / 混合 0.59。这个基准暴露了检索在万级片段下的延迟问题：倒排索引 BM25、SQLite 向量矩阵缓存和版本检查索引把混合检索 p50 从 0.63–0.80 s 降到 12–14 ms，结果与旧算法逐条一致 |
+| AgentDojo 间接注入 | 4 个套件 949 个攻击组合，应用 `BaseAgent` 运行时 + deepseek-flash，写操作不经审批直接执行：需要写操作的攻击 0/908 成功（攻击下 411 个组合执行过写操作）；只读目标判定成功 15/41，逐条复核全是 Agent 在警告用户时提到了攻击者的酒店名，基准按字符串判定。utility 无攻击 0.84、攻击下 0.80；banking 的 0 主要因为模型转账前先确认，不计为抵抗力 |
+
 ## 实验与证据（v3 新增）
 
 可复现命令与口径见 [v3 评测说明](docs/evaluation-v3.md)。
@@ -166,6 +175,8 @@ python scripts/judge_application_report.py  # 对已保存轨迹补充 Judge 评
 # 在线：τ-bench 式多轮评测，每种策略一个进程（--redis-url 用不同 db），总并发不要超过模型服务商的并发上限
 python scripts/evaluate_simulated.py --strategies generalist --output simulated_v4_generalist_run1.json
 python scripts/compare_strategies.py evaluation/reports/simulated_v4_*_run*.json --exclude-errored [--exclude-simulator-flags]
+# 公开基准：WixQA 检索（先 --fetch 下载固定版本）；AgentDojo 需单独环境，见 docs/evaluation-public.md
+python scripts/evaluate_rag_wixqa.py [--embedding-model BAAI/bge-small-en-v1.5]
 ```
 
 运行时入口：`GET /metrics`（含 `it_copilot_chat_stage_seconds{stage}`：memory_context / intent / agent / approval / commit 分阶段耗时，响应与 trace 里同时带 `stage_ms`）、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`，断线后 `GET /chat/stream/{request_id}` + `Last-Event-ID` 续读。执行在后台任务中进行，与连接解耦：客户端断开不会取消执行，相同 `client_request_id` 重复提交只订阅已有执行。正文目前是最终回答分片，不是模型 token 流。前端“运行与评测”页每 15 秒刷新上述状态。
@@ -232,6 +243,7 @@ docs/                设计取舍、ADR、威胁模型、评测说明与截图
 - [架构决策记录（ADR）](docs/adr/)
 - [威胁模型](docs/threat-model.md)
 - [v3 评测说明：安全、实时流、工作流与集成](docs/evaluation-v3.md)
+- [公开基准评测：WixQA 检索与 AgentDojo 间接注入](docs/evaluation-public.md)
 - [变更记录](CHANGELOG.md)
 
 ## 界面演示
