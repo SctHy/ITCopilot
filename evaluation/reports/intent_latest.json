@@ -115,7 +115,7 @@
       "message": "VPN 连不上",
       "expected": "vpn_issue",
       "predicted": "vpn_issue",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -178,7 +178,7 @@
       "message": "帮我重置密码",
       "expected": "password_reset",
       "predicted": "password_reset",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -187,7 +187,7 @@
       "message": "忘记域账号密码了",
       "expected": "password_reset",
       "predicted": "password_reset",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -196,7 +196,7 @@
       "message": "我的账号被锁定了",
       "expected": "account_unlock",
       "predicted": "account_unlock",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -205,7 +205,7 @@
       "message": "请帮我解锁企业账号",
       "expected": "account_unlock",
       "predicted": "account_unlock",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -214,7 +214,7 @@
       "message": "MFA 验证失败",
       "expected": "mfa_issue",
       "predicted": "mfa_issue",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -223,7 +223,7 @@
       "message": "收不到二次验证码",
       "expected": "mfa_issue",
       "predicted": "mfa_issue",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -268,7 +268,7 @@
       "message": "电脑蓝屏了",
       "expected": "device_failure",
       "predicted": "device_failure",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -277,7 +277,7 @@
       "message": "显示器黑屏",
       "expected": "device_failure",
       "predicted": "device_failure",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -286,7 +286,7 @@
       "message": "键盘无法使用",
       "expected": "device_failure",
       "predicted": "device_failure",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -313,7 +313,7 @@
       "message": "帮我安装办公软件",
       "expected": "software_install",
       "predicted": "software_install",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -322,7 +322,7 @@
       "message": "安装开发工具",
       "expected": "software_install",
       "predicted": "software_install",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -331,7 +331,7 @@
       "message": "软件许可证过期了",
       "expected": "software_license",
       "predicted": "software_license",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -349,7 +349,7 @@
       "message": "邮箱收不到邮件",
       "expected": "email_collab_issue",
       "predicted": "email_collab_issue",
-      "confidence": 0.5,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -358,7 +358,7 @@
       "message": "会议协作工具异常",
       "expected": "email_collab_issue",
       "predicted": "email_collab_issue",
-      "confidence": 0.5,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -385,7 +385,7 @@
       "message": "帮我创建 IT 工单",
       "expected": "ticket_create",
       "predicted": "ticket_create",
-      "confidence": 0.5,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -403,7 +403,7 @@
       "message": "查询工单状态",
       "expected": "ticket_status",
       "predicted": "ticket_status",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -412,7 +412,7 @@
       "message": "我的工单处理到哪了",
       "expected": "ticket_status",
       "predicted": "ticket_status",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -421,7 +421,7 @@
       "message": "取消我的工单",
       "expected": "ticket_cancel",
       "predicted": "ticket_cancel",
-      "confidence": 0.5,
+      "confidence": 0.8,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -439,7 +439,7 @@
       "message": "升级给 IT 服务台处理",
       "expected": "human_handoff",
       "predicted": "human_handoff",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"
@@ -457,7 +457,7 @@
       "message": "早上好，有人可以帮忙吗",
       "expected": "greeting",
       "predicted": "greeting",
-      "confidence": 0.5,
+      "confidence": 0.65,
       "reasoning": "local fallback",
       "llm_used": false,
       "recognition_source": "fallback_disabled"

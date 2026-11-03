@@ -40,7 +40,6 @@ SEED_EMPLOYEES = (
     ("1001", "alice", "engineering"), ("1002", "dave", "engineering"), ("2001", "bob", "engineering"),
     ("2002", "carol", "engineering"), ("3001", "fiona", "finance"), ("9001", "erin", "it"), ("9002", "grace", "security"),
     ("E1001", "e1001", "engineering"), ("EMP1001", "emp1001", "engineering"),
-    ("S0001", "itc-ops", "it"),  # service identity that files proactive tickets (config/alert_rules.yaml)
 )
 
 

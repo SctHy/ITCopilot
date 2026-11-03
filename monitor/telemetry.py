@@ -1,6 +1,6 @@
 """OpenTelemetry 链路追踪：一次 /chat 为根 span，PydanticAI 自动产生模型调用与工具调用子 span。
 
-仅在设置 OTEL_EXPORTER_OTLP_ENDPOINT（如 http://jaeger:4317）时启用；未启用时 tracer 为 no-op，零开销。
+仅在设置 OTEL_EXPORTER_OTLP_ENDPOINT（OTLP gRPC 收集端）时启用；未启用时 tracer 为 no-op，零开销。
 默认不把 prompt / 模型输出写入 span（可能含员工信息），需要排障时设 IT_COPILOT_OTEL_INCLUDE_CONTENT=true。
 """
 from __future__ import annotations

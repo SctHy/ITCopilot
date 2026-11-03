@@ -91,7 +91,7 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
             "episodic_hits": len(mem_ctx.relevant_history) if mem_ctx else 0,
             "profile_hit": bool(mem_ctx and mem_ctx.user_profile),
         },
-        "intent": {"source": intent_result.recognition_source, "confidence": intent_result.confidence, "group_agreement": intent_result.source_scores.get("group_agreement")},
+        "intent": {"source": intent_result.recognition_source, "confidence": intent_result.confidence},
         "approval": {"required": bool(approval), "approval_id": approval_id},
         "fallback": {"intent_source": intent_result.recognition_source},
         "stage_ms": stage_ms,

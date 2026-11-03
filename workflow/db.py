@@ -198,24 +198,6 @@ channel_outbox = Table(
 Index("ix_channel_outbox_due", channel_outbox.c.status, channel_outbox.c.not_before)
 Index("ix_channel_outbox_conv", channel_outbox.c.conv_key, channel_outbox.c.seq)
 
-# Every alert the proactive intake saw and what it decided (accept / would_accept / ignore / off).
-# In observe mode this log is the review set for switching to auto.
-proactive_decisions = Table(
-    "proactive_decisions", metadata,
-    Column("id", String(200), primary_key=True),                # "<source>:<fingerprint>:<startsAt>": resends are one decision
-    Column("source", String(40), nullable=False),
-    Column("fingerprint", String(200), nullable=False),
-    Column("alertname", String(200), nullable=False),
-    Column("decision", String(20), nullable=False),
-    Column("mode", String(20), nullable=False),
-    Column("rules_version", String(40), nullable=False),
-    Column("rule_id", String(80)),
-    Column("reason", Text, nullable=False),
-    Column("approval_id", String(200)),
-    Column("alert", JSON, nullable=False),
-    Column("created_at", Float, nullable=False),
-)
-Index("ix_proactive_created", proactive_decisions.c.created_at)
 
 
 # ── Embeddings ────────────────────────────────────────────────────────────────

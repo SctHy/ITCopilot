@@ -44,12 +44,6 @@ def test_profile_conflict_marks_old_fact_superseded():
     assert any(f["value"] == "研发" and f["status"] == "superseded" for f in merged["facts"])
 
 
-def test_local_embedding_is_normalized():
-    vector = IntentRecognizer._local_embed("VPN 连不上")
-    assert len(vector) == 256
-    assert abs(sum(x * x for x in vector) - 1.0) < 1e-6
-
-
 def test_versioned_intent_suite_is_complete():
     cases = load_intent_cases()
     assert len(cases) >= 40

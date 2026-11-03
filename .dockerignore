@@ -28,8 +28,6 @@ data/
 frontend/
 docs/
 tests/
-config/grafana/
-config/prometheus/
 .npm-cache/
 .playwright-cli/
 output/

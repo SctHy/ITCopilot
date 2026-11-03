@@ -1,8 +1,6 @@
 """Offline Phase 7 boundary tests; no network or real model calls."""
 import asyncio
 import os
-import subprocess
-import sys
 import tempfile
 
 import pytest
@@ -12,7 +10,6 @@ from pydantic_ai.models.function import FunctionModel
 
 from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request, RoutingDecision
 from workflow.approval import approval_summary
-from agents.intent_calibration import calibrate, ece, brier
 from agents.intent_recognizer import IntentCategory, IntentRecognizer
 from agents.planner import ExecutionPlan, PlanStep, build_plan
 from core.redaction import redact
@@ -24,17 +21,6 @@ from tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, T
 @pytest.mark.parametrize("message,agent", [("配置 VPN", "network_software"), ("配置 vpn", "network_software"), ("连接 WIFI", "network_software"), ("连接 wifi", "network_software"), ("处理 MFA", "access"), ("处理 mfa", "access")])
 def test_planner_normalizes_english_keywords(message, agent):
     assert any(step.agent_type == agent for step in build_plan(message, "x").steps)
-
-
-@pytest.mark.parametrize("value", [0.01, 0.25, 0.5, 0.99])
-def test_calibration_probability_is_bounded(value):
-    assert 0 < calibrate(value, 0.75) < 1
-
-
-@pytest.mark.parametrize("rows", [[(.9, True), (.2, False)], [(.6, True), (.5, False)], [(.1, False)]])
-def test_calibration_metrics_are_finite(rows):
-    assert 0 <= ece(rows) <= 1
-    assert 0 <= brier(rows) <= 1
 
 
 @pytest.mark.parametrize("key", ["password", "secret", "authorization", "api_key"])
@@ -248,12 +234,6 @@ def test_followup_inherits_previous_group_only_without_topic_switch(monkeypatch,
 def test_urgency_rules_apply_when_llm_unavailable(monkeypatch, message, urgency):
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
     assert asyncio.run(IntentRecognizer("sk-local").recognize(message)).urgency.value == urgency
-
-
-def test_local_embedding_is_stable_across_processes():
-    code = "from agents.intent_recognizer import IntentRecognizer as R; print(R._local_embed('VPN 连不上'))"
-    runs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env={**os.environ, "PYTHONHASHSEED": seed}).stdout for seed in ("1", "2")}
-    assert len(runs) == 1
 
 
 def test_trace_tools_route_is_not_shadowed_by_request_id_route():

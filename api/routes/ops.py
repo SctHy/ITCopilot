@@ -90,7 +90,6 @@ EVAL_SUITES = (
     ("intent_v2", "意图留出集 · 真实模型", "intent_ablation_live.json", (("LLM 准确率", "strategies.llm.accuracy", "percent"), ("融合准确率", "strategies.fusion.accuracy", "percent"), ("留出样本", "test_n", "number"))),
     ("rag_v2", "检索消融 · 60 文档 / 40 查询", "rag_ablation_v2.json", (("BM25 Recall@3", "strategies.bm25.recall_at_3", "percent"), ("Vector Recall@3", "strategies.vector.recall_at_3", "percent"), ("Hybrid Recall@3", "strategies.hybrid.recall_at_3", "percent"))),
     ("intent", "意图识别", "intent_latest.json", (("准确率", "accuracy", "percent"), ("Macro-F1", "macro_f1", "percent"), ("用例数", "total", "number"))),
-    ("calibration", "置信度校准", "intent_calibration_latest.json", (("ECE 校准前", "ece_before", "number"), ("ECE 校准后", "ece_after", "number"), ("Brier 校准后", "brier_after", "number"))),
     ("rag", "混合检索 RAG", "rag_latest.json", (("Hybrid Recall@5", "hybrid.recall_at_5", "percent"), ("Hybrid MRR", "hybrid.mrr", "number"), ("Vector Recall@5", "vector.recall_at_5", "percent"))),
     ("memory", "三级记忆", "memory_latest.json", (("情景召回", "metrics.episodic_recall", "percent"), ("无关注入率", "metrics.unrelated_injection_rate", "percent"))),
     ("planner", "有界 Planner", "planner_latest.json", (("计划有效率", "plan_validity", "percent"), ("用例数", "total", "number"))),

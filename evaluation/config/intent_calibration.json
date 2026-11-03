@@ -1,5 +1,0 @@
-{
-  "schema_version": 2,
-  "temperatures_by_source": {},
-  "note": "Legacy in-sample fallback fit retired. Install a source-matched candidate explicitly after validation."
-}

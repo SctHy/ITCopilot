@@ -7,7 +7,6 @@ from agents.intent_recognizer import IntentCategory, IntentRecognizer
 from tooling.tool_manager import MCPToolManager, Tool
 from tooling.knowledge_base import KnowledgeBase
 from agents.planner import build_plan, is_complex_request
-from agents.intent_calibration import calibrate, ece, brier, fit_temperatures
 
 
 def test_tool_manager_schema_cache_and_fallback():
@@ -91,12 +90,3 @@ def test_planner_keywords_are_case_insensitive():
     lower = build_plan("配置 vpn", "lower")
     assert [step.agent_type for step in upper.steps] == [step.agent_type for step in lower.steps]
     assert any(step.agent_type == "network_software" for step in upper.steps)
-
-
-def test_temperature_calibration_is_bounded_and_improves_overconfident_rows():
-    rows = {"network": [(.95, True), (.95, False), (.8, True), (.8, False)]}
-    temperatures = fit_temperatures(rows)
-    assert temperatures["network"] > 0
-    calibrated = [(calibrate(p, temperatures["network"]), ok) for p, ok in rows["network"]]
-    assert all(0 < p < 1 for p, _ in calibrated)
-    assert ece(calibrated) >= 0 and brier(calibrated) >= 0

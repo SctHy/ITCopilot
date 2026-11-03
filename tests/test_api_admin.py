@@ -100,8 +100,8 @@ def test_eval_reports_summarize_committed_offline_reports(client):
     body = http.get("/eval/reports").json()
     assert body["gate"] == {"status": "passed", "all_passed": True}
     suites = {suite["id"]: suite for suite in body["suites"]}
-    assert {"intent", "calibration", "rag", "memory", "planner", "safety", "intent_v2", "rag_v2", "application_v2"} <= set(suites)
-    assert all(suites[name]["status"] == "passed" and suites[name]["metrics"] for name in ("intent", "calibration", "rag", "memory", "planner", "safety"))
+    assert {"intent", "rag", "memory", "planner", "safety", "intent_v2", "rag_v2", "application_v2"} <= set(suites)
+    assert all(suites[name]["status"] == "passed" and suites[name]["metrics"] for name in ("intent", "rag", "memory", "planner", "safety"))
     assert suites["intent_v2"]["title"] == "意图留出集 · 真实模型"
     rag = {m["label"]: m["value"] for m in suites["rag"]["metrics"]}
     assert rag["Hybrid Recall@5"] == 1.0 and rag["Vector Recall@5"] == 1.0

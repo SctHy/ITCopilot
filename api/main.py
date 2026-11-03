@@ -117,12 +117,6 @@ async def lifespan(app: FastAPI):
     if env_flag("IT_COPILOT_WORKER_ENABLED", "true"):
         state.worker.start()
     state.events = RedisEventBus(state.memory._redis) if state.memory else InMemoryEventBus()
-    from intake.alerts import ProactiveIntake
-
-    async def related_knowledge(query):
-        return await state.kb.search_async(query, top_k=3)
-
-    state.proactive = ProactiveIntake(state.workflow.engine, state.workflow, knowledge=related_knowledge)
     state.channels, state.feishu = await _start_channels()
     if state.memory:
         # 后台维护（会话压缩 + 画像提炼）走有界 worker，同一用户的积压更新合并为一次。

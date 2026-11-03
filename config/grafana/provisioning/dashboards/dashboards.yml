@@ -1,8 +1,0 @@
-apiVersion: 1
-providers:
-  - name: it-copilot
-    folder: IT-Copilot
-    type: file
-    disableDeletion: true
-    options:
-      path: /var/lib/grafana/dashboards

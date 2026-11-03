@@ -39,7 +39,6 @@ async def application(*, model=None, redis_url=None, documents=()):
             "IT_COPILOT_GITEA_REPOS": "",
             "IT_COPILOT_APPROVAL_WAIT_S": "10",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "",
-            "INTENT_EMBEDDING_PROVIDER": "local",
             "IT_INTENT_LLM_ENABLED": "true",
         }
         if redis_url:
@@ -66,7 +65,6 @@ async def application(*, model=None, redis_url=None, documents=()):
                                 "registry",
                                 "channels",
                                 "feishu",
-                                "proactive",
                                 "events",
                             )
                         },

@@ -1,4 +1,8 @@
-"""IT-Copilot 意图识别：PydanticAI 结构化输出、向量相似度和规则三路投票，并做置信度校准。"""
+"""IT-Copilot 意图识别：PydanticAI 结构化输出；模型不可用时退回关键词规则。
+
+曾试过 LLM、向量相似度、关键词规则三路加权投票：88 条样本的留出集上 LLM 与投票都是 44/44，
+规则 30%、向量（bge-small-zh 匹配模板句）57%，投票没有带来收益，已移除。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +10,6 @@ import json
 import logging
 import os
 import re
-import zlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -16,8 +19,6 @@ from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
-from agents.intent_calibration import calibrate, load_temperatures
-from agents.intent_embedding import IntentEmbedding
 from core.llm import build_model
 from monitor import metrics
 
@@ -66,29 +67,6 @@ INTENT_GROUPS: Dict[IntentCategory, str] = {
     I.TICKET_CREATE: "ticket", I.TICKET_STATUS: "ticket", I.TICKET_CANCEL: "ticket",
     I.HUMAN_HANDOFF: "escalation",
     I.GREETING: "general", I.CHITCHAT: "general", I.OUT_OF_SCOPE: "general", I.OTHER: "general",
-}
-
-# 向量匹配的意图模板。
-TEMPLATES: Dict[IntentCategory, List[str]] = {
-    I.DEVICE_FAILURE: ["电脑蓝屏", "显示器黑屏", "键盘无法使用"],
-    I.DEVICE_PROVISIONING: ["申请新电脑", "入职需要设备", "领取办公电脑"],
-    I.PASSWORD_RESET: ["重置密码", "忘记域账号密码", "密码过期"],
-    I.ACCOUNT_UNLOCK: ["账号被锁定", "解锁企业账号"],
-    I.MFA_ISSUE: ["MFA 验证失败", "收不到二次验证", "重新绑定验证器"],
-    I.PERMISSION_REQUEST: ["申请系统权限", "开通应用访问权限"],
-    I.ACCESS_REVIEW: ["检查我的权限", "权限复核"],
-    I.VPN_ISSUE: ["VPN 连不上", "VPN 连接超时"],
-    I.WIFI_ISSUE: ["办公 WiFi 断开", "无线网络连不上"],
-    I.NETWORK_ISSUE: ["网络很慢", "无法访问内网"],
-    I.SOFTWARE_INSTALL: ["安装办公软件", "安装开发工具"],
-    I.SOFTWARE_LICENSE: ["申请软件许可证", "许可证过期"],
-    I.EMAIL_COLLAB_ISSUE: ["邮箱收不到邮件", "会议协作工具异常"],
-    I.TICKET_CREATE: ["帮我创建 IT 工单", "提交服务台请求"],
-    I.TICKET_STATUS: ["查询工单状态", "我的工单处理到哪了"],
-    I.TICKET_CANCEL: ["取消我的工单", "撤回服务台申请"],
-    I.HUMAN_HANDOFF: ["转人工", "升级给 IT 服务台"],
-    I.GREETING: ["你好", "有人可以帮忙吗"],
-    I.CHITCHAT: ["谢谢", "辛苦了"],
 }
 
 # 规则匹配关键词：命中数最多的意图胜出。
@@ -150,7 +128,6 @@ FOLLOWUP_CUES = re.compile(r"还是不行|仍然|依旧|那个|这个|它|第二
 # 这些组不代表具体 IT 领域；追问句命中它们时应继承上一轮的意图组。
 NON_DOMAIN_GROUPS = {"general", "knowledge"}
 SOCIAL_INTENTS = {I.GREETING, I.CHITCHAT, I.OUT_OF_SCOPE}
-VOTE_WEIGHTS = (("llm", .55), ("embedding", .25), ("pattern", .2))
 del I
 
 
@@ -185,7 +162,6 @@ class IntentResult:
     urgency: UrgencyLevel = UrgencyLevel.NORMAL
     entities: Dict[str, List[str]] = field(default_factory=dict)
     reasoning: str = ""
-    embedding_source: str = "local-ngram"
     clarification_needed: bool = False
     missing_slots: List[str] = field(default_factory=list)
     inherited_from_previous: bool = False
@@ -203,18 +179,12 @@ def _fallback_vote(source: str) -> Dict[str, Any]:
 
 
 class IntentRecognizer:
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", strategy: Optional[str] = None):
-        default_calibration = os.path.join(os.path.dirname(__file__), "../evaluation/config/intent_calibration.json")
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = ""):
         self.llm = build_model(api_key, base_url, model)
         self.model = model
-        self.strategy = strategy or os.getenv("IT_INTENT_STRATEGY", "fusion")
-        if self.strategy not in {"pattern", "embedding", "llm", "fusion"}:
-            raise ValueError("unknown intent strategy")
         self._classifier = Agent(output_type=ToolOutput(IntentClassification, name="classify_it_request", description="分类 IT 意图并抽取非敏感实体。"), name="intent_classifier")
-        self._embedding = IntentEmbedding()
         self._cache: Dict[str, IntentResult] = {}
         self._cache_limit = max(100, int(os.getenv("IT_INTENT_CACHE_SIZE", "2048")))
-        self._calibration_path = os.getenv("IT_INTENT_CALIBRATION_PATH", default_calibration)
         self._clarify_threshold = float(os.getenv("IT_INTENT_CLARIFY_THRESHOLD", "0.60"))
         self._metrics = _fresh_metrics()
 
@@ -230,17 +200,14 @@ class IntentRecognizer:
             return self._cache[key]
 
         pattern = self._pattern(message)
-        embedding = await self._embedding_match(message) if self.strategy in {"embedding", "fusion"} else _fallback_vote("unused")
-        if self.strategy in {"llm", "fusion"} and os.getenv("IT_INTENT_LLM_ENABLED", "true").lower() in {"1", "true", "yes"}:
+        if os.getenv("IT_INTENT_LLM_ENABLED", "true").lower() in {"1", "true", "yes"}:
             llm = await self._llm(message, history)
         else:
             self._metrics["fallback_calls"] += 1
             self._metrics["fallback_disabled"] += 1
             llm = _fallback_vote("fallback_disabled")
 
-        intent, confidence, scores = self.select_vote(self.strategy, llm, embedding, pattern)
-        temperatures = load_temperatures(self._calibration_path, source=self.calibration_source(llm, embedding))
-        confidence = calibrate(confidence, temperatures.get(INTENT_GROUPS.get(intent, "general"), 1.0))
+        intent, confidence, scores = self.select(llm, pattern)
         inherited_intent = self._inherited_intent(message, pattern["intent"], previous_intent_group)
         if inherited_intent is not None:
             intent, confidence = inherited_intent, max(confidence, .6)
@@ -248,7 +215,7 @@ class IntentRecognizer:
 
         entities = self._merge_entities(self._extract_entities(message), llm.get("entities", {}))
         missing = self._missing_slots(intent, entities)
-        low_confidence = confidence < self._clarify_threshold or scores.get("group_agreement", 1.0) < 0.34
+        low_confidence = confidence < self._clarify_threshold
         if low_confidence and not missing:
             missing = ["请补充具体 IT 问题或上下文"]
 
@@ -260,7 +227,6 @@ class IntentRecognizer:
             urgency=llm.get("urgency") or self._urgency(message, intent),
             entities=entities,
             reasoning=str(llm.get("reasoning", ""))[:500],
-            embedding_source=embedding.get("source", "local-ngram"),
             clarification_needed=bool(missing),
             missing_slots=missing,
             inherited_from_previous=inherited_intent is not None,
@@ -277,18 +243,12 @@ class IntentRecognizer:
             self._cache.pop(next(iter(self._cache)))
         return result
 
-    def calibration_source(self, llm, embedding):
-        model = f"openai:{self.model}" if llm.get("_llm_used") else "fallback"
-        return f"{self.strategy}|{model}|{embedding.get('source', 'none')}"
-
-    @classmethod
-    def select_vote(cls, strategy, llm, embedding, pattern):
-        if strategy == "fusion":
-            return cls._vote(llm, embedding, pattern)
-        if strategy == "llm" and str(llm.get("_source", "")).startswith("fallback"):
-            return pattern["intent"], float(pattern.get("confidence", 0)), {"pattern_fallback": float(pattern.get("confidence", 0)), "group_agreement": 1.0}
-        selected = {"llm": llm, "embedding": embedding, "pattern": pattern}[strategy]
-        return selected["intent"], float(selected.get("confidence", 0)), {strategy: float(selected.get("confidence", 0)), "group_agreement": 1.0}
+    @staticmethod
+    def select(llm: Dict[str, Any], pattern: Dict[str, Any]):
+        """LLM 结果优先；LLM 失败或被关闭时用规则结果，并在分数里标明 pattern_fallback。"""
+        if str(llm.get("_source", "")).startswith("fallback"):
+            return pattern["intent"], float(pattern.get("confidence", 0)), {"pattern_fallback": float(pattern.get("confidence", 0))}
+        return llm["intent"], float(llm.get("confidence", 0)), {"llm": float(llm.get("confidence", 0))}
 
     @staticmethod
     def _inherited_intent(message: str, pattern_intent: IntentCategory, previous_group: Optional[str]) -> Optional[IntentCategory]:
@@ -338,32 +298,6 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
             "entities": self._clean_entities(data.entities.model_dump()), "_llm_used": True, "_source": "llm_tool_use",
         }
 
-    async def _embedding_match(self, message: str) -> Dict[str, Any]:
-        try:
-            groups, query, source = await self._embedding.vectors(message, TEMPLATES, self._local_embed)
-        except Exception as exc:
-            logger.debug("embedding fallback: %s", type(exc).__name__)
-            return {"intent": IntentCategory.OTHER, "confidence": 0., "source": "local-ngram"}
-        best, best_score = IntentCategory.OTHER, 0.
-        for intent, vectors in groups.items():
-            score = max((sum(a * b for a, b in zip(query, vector)) for vector in vectors), default=0.)
-            if score > best_score:
-                best, best_score = intent, score
-        return {"intent": best, "confidence": max(0., min(1., best_score)), "source": source}
-
-    @staticmethod
-    def _local_embed(text: str) -> List[float]:
-        """256 维字符 trigram 哈希向量（L2 归一化），作为无外部 embedding 时的兜底。
-
-        使用 crc32 而非内置 hash()：后者按进程随机加盐，会让同一句话在不同进程得到不同向量。
-        """
-        vector = [0.] * 256
-        text = (text or "").lower()
-        for i in range(max(0, len(text) - 2)):
-            vector[zlib.crc32(text[i:i + 3].encode()) % 256] += 1.
-        norm = sum(x * x for x in vector) ** .5 or 1.
-        return [x / norm for x in vector]
-
     @staticmethod
     def _clean_entities(value: Any) -> Dict[str, List[str]]:
         if not isinstance(value, dict):
@@ -395,23 +329,6 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
         if not hits:
             return {"intent": IntentCategory.OTHER, "confidence": 0.}
         return {"intent": intent, "confidence": min(.95, .5 + .15 * hits)}
-
-    @staticmethod
-    def _vote(llm: Dict[str, Any], embedding: Dict[str, Any], pattern: Dict[str, Any]):
-        sources = {"llm": llm, "embedding": embedding, "pattern": pattern}
-        scores: Dict[IntentCategory, float] = {}
-        for name, weight in VOTE_WEIGHTS:
-            result = sources[name]
-            intent = result.get("intent", IntentCategory.OTHER)
-            scores[intent] = scores.get(intent, 0.) + weight * max(0., min(1., float(result.get("confidence", 0.))))
-        intent, score = max(scores.items(), key=lambda x: x[1])
-        # LLM 不可用时，明确的本地规则命中优先于 OTHER 的低信息结果。
-        if intent == IntentCategory.OTHER and pattern.get("intent") != IntentCategory.OTHER:
-            intent, score = pattern["intent"], max(score, float(pattern.get("confidence", 0.)))
-        groups = [INTENT_GROUPS.get(item.get("intent", IntentCategory.OTHER), "general") for item in sources.values()]
-        group_agreement = max(groups.count(group) for group in set(groups)) / len(groups)
-        source_scores = {name: float(item.get("confidence", 0.)) for name, item in sources.items()}
-        return intent, max(.5, round(score, 4)), {**source_scores, "group_agreement": round(group_agreement, 4)}
 
     @staticmethod
     def _extract_entities(message: str) -> Dict[str, List[str]]:

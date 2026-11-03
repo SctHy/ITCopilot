@@ -14,7 +14,6 @@
 | 故障转工单 | 将前序诊断证据传入工单步骤，补齐信息后申请审批 | 本地持久化工单；前序失败时阻断依赖步骤 |
 | 服务运行治理 | 采集调用成功率、延迟与链路事件，触发降级和恢复探针 | 请求 trace、监控指标、失败原因及离线回归记录 |
 | 飞书群报障 | 群里 @ 机器人或私聊，话题内追问免 @；与网页走同一条对话与审批链路 | 话题内答复；审批结果（批准执行、拒绝、过期、策略失效）回推到原话题 |
-| 告警主动建单 | Alertmanager 告警按规则匹配；先观察、确认后自动；建单仍需审批 | 带告警证据与相关知识的建单申请；观察期“本来会建的单”记录 |
 | 策略变更 | 改 `access_policy.yaml` 无需重启；按新版本复核在途工作，只收紧不放宽 | 失效的待审批单、取消的未执行动作、提前回收的授权，均有审计 |
 
 ## 工程设计重点
@@ -24,7 +23,7 @@
 - **可恢复的受控执行**：审批通过与执行动作在同一事务写入（outbox），带租约的 worker 以版本号 CAS 认领；外部调用分为确定失败 / 可重试 / 结果未知三类，结果未知先回查目标系统再决定是否重做；批量中途失败按 saga 撤销已授予的权限，不可逆变更转人工复核。
 - **实时执行流与统一工具治理**：意图、路由、工具开始/结束、审批等事件在执行中写入 Redis Streams，SSE 实时推送并支持 `Last-Event-ID` 断线续传；所有 Agent 工具经同一执行层（超时、熔断、只读重试、写操作幂等键）。
 - **策略变更即时复核**：策略文件按修改时间热加载；版本变化后，旧版本下的待审批单失效或提高审批人数，未执行的动作取消，生效中的授权按新上限提前回收；审批人决定前、worker 执行第一个动作前都会再查一次（[ADR 0008](docs/adr/0008-revalidate-on-policy-change.md)）。
-- **IM 入口与主动受理**（借鉴 DeepSeek dsh-superagent）：飞书消息先落库再处理，回复与审批通知走出站 outbox，按会话保序、退避重试、幂等去重；只在被叫到时说话，一次请求最多一次回应、一次答复、一次结果通知（[ADR 0009](docs/adr/0009-feishu-channel-stored-work.md)）。告警按规则确定性准入，`off / observe / auto` 三档，自动模式也只生成待审批申请（[ADR 0010](docs/adr/0010-proactive-intake-observe-first.md)）。
+- **IM 入口**（借鉴 DeepSeek dsh-superagent）：飞书消息先落库再处理，回复与审批通知走出站 outbox，按会话保序、退避重试、幂等去重；只在被叫到时说话，一次请求最多一次回应、一次答复、一次结果通知（[ADR 0009](docs/adr/0009-feishu-channel-stored-work.md)）。
 - **可观测与可验收**：Prometheus / OpenTelemetry 关联运行指标与调用轨迹；安全回归、PostgreSQL 并发、真实 Keycloak/Gitea 集成在 CI 中运行；真实模型实验以业务状态断言判定成功并保留失败样本。
 
 当前边界：本项目不宣称跨系统 exactly-once（外部系统无幂等键时依靠目标状态回查）；Gitea 是权限系统的沙箱替身，不是企业 IAM。详见 [设计取舍](docs/design-tradeoffs.md)、[ADR](docs/adr/) 与 [威胁模型](docs/threat-model.md)。
@@ -35,7 +34,6 @@
 flowchart LR
   U[Web 前端] -- OIDC PKCE --> KC[Keycloak]
   FS[飞书] -- 事件回调 --> IN[(channel_inbox)] --> API
-  AM[Alertmanager] -- webhook --> PI[主动受理 / 规则 + 模式] -->|auto: 建单申请| H
   DB -. 审批结果 .-> OUT[(channel_outbox)] -. 回复/通知 .-> FS
   U -- Bearer JWT --> API[FastAPI /chat · /chat/stream]
   API -. JWKS 校验 .-> KC
@@ -63,7 +61,7 @@ flowchart LR
 
 ## 核心能力
 
-- 基于 PydanticAI 的结构化意图输出（`classify_it_request`）、多轮补槽和纠正；默认 LLM 主路由、失败时标记规则兜底，保留三路融合消融开关。温度参数按模型/来源隔离，默认不启用旧的样本内拟合。
+- 基于 PydanticAI 的结构化意图输出（`classify_it_request`）、多轮补槽和纠正；模型失败或被关闭时退回关键词规则，结果标明来源。
 - 四种规划策略（`IT_COPILOT_PLANNING_MODE`）：`generalist`（默认，一个 Agent 持有全部工具）、`bounded`（LLM 规划 + Triage/Endpoint/Access/Network/Ticket 专职 Agent，按领域隔离工具）、`bounded_all`、`single`；支持性能路由与降级兜底。
 - 向量、BM25、Hybrid 三种检索，Hybrid 使用 RRF 合并并返回 citation。
 - 多 Agent 规划：LLM 结构化输出计划（失败回退规则规划器），最多 4 步，只在用户要求时建单；独立步骤并行，依赖证据传入下游，前置失败阻断依赖；token 预算按步骤数计算，在波次间检查。
@@ -86,8 +84,8 @@ flowchart LR
 | RAG | BM25、向量检索（fastembed 本地 bge-small-zh-v1.5）、RRF、部门过滤 |
 | 前端 | Vue 3、Vite 8、原生 SSE |
 | 工具协议 | MCP Python SDK 2.x（Streamable HTTP / stdio 客户端，MCPServer 服务端） |
-| 可观测性 | Prometheus 指标、OpenTelemetry（OTLP → Jaeger）、进程内 SLO 告警、Grafana 仪表盘 |
-| 部署 | Docker Compose：postgres / keycloak / gitea（含初始化任务）/ redis / api / worker / frontend，`observability` profile 加 Prometheus / Grafana / Jaeger |
+| 可观测性 | Prometheus 指标、OpenTelemetry（可选，导出到任意 OTLP 后端）、进程内 SLO 告警 |
+| 部署 | Docker Compose：postgres / keycloak / gitea（含初始化任务）/ redis / api / worker / frontend |
 | 质量 | GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）、pytest、node:test、LLM-as-Judge 框架、离线评测脚本 |
 
 ## 实验与证据（公开基准）
@@ -120,7 +118,7 @@ flowchart LR
 
 | 实验 | 结果与口径 |
 |---|---|
-| 意图消融 | 88 条人工编写样本，44 校准 / 44 留出；真实 DeepSeek Flash：LLM 与融合均 44/44；未证明融合更优，默认采用较简单的 LLM 路由 |
+| 意图消融 | 88 条人工编写样本，44 校准 / 44 留出；真实 DeepSeek Flash：LLM 与三路融合均 44/44，单路规则 30%、向量（bge-small-zh 匹配模板句，事后补测）57%；融合没有收益，融合与置信度校准已移除，保留 LLM + 规则兜底 |
 | RAG | 60 文档、40 查询：Recall@3 为 BM25 0.95 / vector 0.925 / hybrid 0.975（英文 MiniLM 时 vector 0.525 / hybrid 0.725）；SQLite 与 pgvector 结果一致；LLM 改写重排（默认关闭）Recall@3 1.0、MRR 0.900→1.0，每次检索多约 2.4 秒 |
 | 业务开发集 | 24 场景 × 2 策略，真实模型与 Redis/Chroma/SQLite（v3 时）；组合修复前 single/bounded 均 13/24，之后 23/24 与 22/24；这是开发集回归 |
 | 独立应用验证 | 另冻结 12 场景，每策略重复 3 次：single 36/36、bounded 33/36（3 次预算停止）；详见 `evaluation/reports/application_holdout_live.json`，不将开发集改善当泛化结果 |
@@ -146,16 +144,14 @@ cp .env.example .env                                  # 填写 OPENAI_API_KEY �
 cp .env.example .env                                   # 填写 OPENAI_* 模型配置
 docker compose up -d --build                           # 前端 http://127.0.0.1:8080 · API http://127.0.0.1:8001/docs
                                                        # Keycloak :8180（演示账号 <用户名>-pass）· Gitea 沙箱 :3001
-docker compose --profile observability up -d           # Grafana :3000（admin / it-copilot）· Prometheus :9090 · Jaeger :16686
 ```
 
-Compose 默认 `IT_COPILOT_AUTH_MODE=oidc`，前端跳转 Keycloak 登录；`gitlab` 权限申请通过 Gitea 沙箱仓库 `it-sandbox/platform` 生效，可在 Gitea 中直接看到协作者变化。开启链路追踪：在 `.env` 中设置 `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` 后重启 api。对外部署前替换所有默认口令并关闭 Keycloak 密码模式（`directAccessGrantsEnabled`）。
+Compose 默认 `IT_COPILOT_AUTH_MODE=oidc`，前端跳转 Keycloak 登录；`gitlab` 权限申请通过 Gitea 沙箱仓库 `it-sandbox/platform` 生效，可在 Gitea 中直接看到协作者变化。开启链路追踪：在 `.env` 中把 `OTEL_EXPORTER_OTLP_ENDPOINT` 设为自己的 OTLP 收集端后重启 api。对外部署前替换所有默认口令并关闭 Keycloak 密码模式（`directAccessGrantsEnabled`）。
 
-### 飞书机器人与告警主动建单（可选）
+### 飞书机器人（可选）
 
 1. 在飞书开放平台创建企业自建应用，开启机器人；事件订阅地址填 `https://<公网域名>/channels/feishu/events`（本地开发需内网穿透），订阅 `im.message.receive_v1`。
 2. 在 `.env` 填写 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY`；在 `config/feishu_users.yaml` 把员工的飞书 `user_id`/`open_id` 映射到系统身份。重启 API 后，私聊机器人或在群里 @ 它即可。
-3. 告警：设置 `IT_COPILOT_ALERT_TOKEN`，`docker compose --profile observability up -d` 会同时启动 Alertmanager，并把已有的 Prometheus 告警推给 `/proactive/alerts`。`config/alert_rules.yaml` 默认是 `observe` 模式，先用 `GET /proactive/decisions?decision=would_accept` 复核，确认无误后再改成 `auto`。
 
 分步启动可使用 `./run_local.sh` 与 `cd frontend && npm ci && npm run dev -- --host 127.0.0.1 --port 5173`。真实密钥只允许出现在未被 Git 跟踪的 `.env`。
 
@@ -169,7 +165,6 @@ cd .. && python scripts/evaluate_all.py     # 离线门禁：意图 / 记忆 / R
 python scripts/evaluate_security.py         # 21 项安全回归（也在 pytest 中运行）
 python scripts/benchmark_stream.py          # 实时事件流首事件时延（真实 TCP，模拟模型时延）
 IT_COPILOT_TEST_DATABASE_URL=postgresql+psycopg://... pytest tests/test_workflow.py   # 工作流测试跑在 PostgreSQL
-python scripts/calibrate_intents.py         # 从 v2 报告的 calibration 子集拟合候选；--install 显式安装
 python scripts/evaluate_application.py      # 在线：真实 HTTP 链路、业务状态断言；使用独立 Redis :16379
 python scripts/judge_application_report.py  # 对已保存轨迹补充 Judge 评分，不改变业务判定
 # 在线：τ-bench 式多轮评测，每种策略一个进程（--redis-url 用不同 db），总并发不要超过模型服务商的并发上限
@@ -188,7 +183,7 @@ python scripts/evaluate_rag_wixqa.py [--embedding-model BAAI/bge-small-en-v1.5]
 | 采集 | 在事件发生处埋点（`monitor/metrics.py`）：Agent 结果与失败原因、token、工具调用结果与熔断状态、意图来源/澄清/继承、知识库命中、审批事件、MCP 连接；低基数标签，不含 user_id |
 | 追踪 | 每次 `/chat` 一个根 span，PydanticAI 自动生成模型调用与工具调用子 span；默认不记录 prompt 内容 |
 | 判断 | 可用性 / 延迟两个 SLO（默认 95%），按 Google SRE 多窗口多燃烧率告警：1h&5m > 14.4x 为 critical，6h&30m > 6x 为 warning；Agent / 工具用近 5 分钟窗口，不用累计值 |
-| 告警 | 状态机：触发、升级、恢复各通知一次（可配 Webhook），连续两个周期正常才恢复；同一套规则也以 PromQL 形式提供给 Prometheus（`config/prometheus/alerts/`） |
+| 告警 | 状态机：触发、升级、恢复各通知一次（可配 Webhook），连续两个周期正常才恢复 |
 | 反馈 | 近期表现转为路由降权；超阈值的专职 Agent 进入冷却，请求由 Triage 兜底；冷却结束只放行一个探针，成功即恢复 |
 
 ### 外部 MCP 工具
@@ -208,8 +203,8 @@ api/                 HTTP 入口
   deps.py            身份解析、角色检查、请求 ID、后台任务
   schemas.py         请求与响应模型
   routes/            chat（含 SSE）、approvals（含策略）、knowledge、auth、ops（健康/监控/trace/评测）、intake
-intake/              外部入口：飞书（校验、准入、身份映射）、IM 收发件箱、告警主动受理
-agents/              Agent 编排、工具、意图识别（含 embedding 与校准）、Planner、多轮对话状态
+intake/              外部入口：飞书（校验、准入、身份映射）、IM 收发件箱
+agents/              Agent 编排、工具、意图识别、Planner、多轮对话状态
 workflow/            审批库（CAS、职责分离、outbox、策略复核）、执行 worker、策略加载
   adapters/          目标系统适配器：Gitea、本地目录；失败分类契约
 memory/              Redis 锁与幂等、三级记忆
@@ -217,7 +212,7 @@ tooling/             统一工具执行层、知识库、MCP 客户端与服务�
 core/                基础设施：身份、模型工厂、事件流、向量存储与 embedding、Skill 加载、脱敏、并发
 monitor/             Prometheus 指标、SLO 燃烧率与告警状态机、OpenTelemetry
 migrations/          Alembic 迁移
-config/              访问策略、告警规则、飞书身份映射、演示身份、MCP、Prometheus / Alertmanager / Grafana
+config/              访问策略、告警规则、飞书身份映射、演示身份、MCP
 skills/              Agent 技能说明（SKILL.md）
 evaluation/ scripts/ 数据集、评测框架与评测脚本、可复现报告
 deploy/              Keycloak realm（由 config/dev_users.yaml 生成）

@@ -539,10 +539,7 @@ class AgentOrchestrator:
         self._skill_manager = skill_manager
         self._planning_mode = None
         self._planner = LLMPlanner(self._llm) if os.getenv("IT_COPILOT_LLM_PLANNER", "true").lower() in {"1", "true", "yes"} else None
-        # Fusion remains available for ablations. Do not pay for weak local signals
-        # or interpret their disagreement as missing business information by default.
-        self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model,
-            strategy=os.getenv("IT_INTENT_STRATEGY", "llm"))
+        self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model)
         self._recent_tool_traces = deque(maxlen=200)
         self.tool_executor = ToolExecutor(timeout_s=_env_float("IT_COPILOT_TOOL_TIMEOUT_S", 10))
         # 工具分三层，每次变更都从这三层重新组装，保证下线的外部工具会真正从 Agent 移除。

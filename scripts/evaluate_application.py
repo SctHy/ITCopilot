@@ -220,7 +220,6 @@ async def main():
                         echo=False,
                     )
         source_calls = state.orchestrator._intent_recognizer.metrics()
-        intent_strategy = state.orchestrator._intent_recognizer.strategy
     summary = {}
     for mode in args.planning.split(","):
         group = [r for r in rows if r["planning"] == mode]
@@ -240,7 +239,7 @@ async def main():
         "upstream": upstream_model(),
         "started_at": started_at,
         "code_sha256": code_sha256,
-        "intent_strategy": intent_strategy,
+        "intent_strategy": "llm",
         "dataset": str(source.relative_to(ROOT)) if source.is_relative_to(ROOT) else source.name,
         "dataset_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "source_calls": source_calls,

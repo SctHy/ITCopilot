@@ -1,20 +1,7 @@
-import json
 
-from agents.intent_calibration import load_temperatures
 from agents.conversation_state import merge_state
 from agents.planner import build_plan, is_complex_request
 from agents.intent_recognizer import IntentRecognizer
-
-
-def test_calibration_never_crosses_model_or_fallback_boundaries(tmp_path):
-    path = tmp_path / "calibration.json"
-    path.write_text(json.dumps({"temperatures": {"network": 0.25}}))
-    assert load_temperatures(path, source="fusion|anthropic:live|local-ngram") == {}
-    path.write_text(
-        json.dumps({"temperatures_by_source": {"llm|anthropic:live|none": {"network": 0.8}}})
-    )
-    assert load_temperatures(path, source="llm|anthropic:live|none") == {"network": 0.8}
-    assert load_temperatures(path, source="llm|fallback|none") == {}
 
 
 def test_create_ticket_does_not_require_existing_ticket_number():
@@ -35,10 +22,8 @@ def test_compound_diagnosis_routes_and_has_no_dangling_dependencies():
 def test_llm_failure_remains_labelled_fallback():
     from agents.intent_recognizer import IntentCategory, _fallback_vote
 
-    predicted, _, scores = IntentRecognizer.select_vote(
-        "llm",
+    predicted, _, scores = IntentRecognizer.select(
         _fallback_vote("fallback_exception"),
-        {},
         {"intent": IntentCategory.VPN_ISSUE, "confidence": 0.65},
     )
     assert predicted == IntentCategory.VPN_ISSUE and "pattern_fallback" in scores

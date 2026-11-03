@@ -147,3 +147,13 @@
 - 检索质量：分词去掉词首尾的 `.`、`/`、`-`；切片按中英文句子边界切并保留原文字符。WixQA BM25 Recall@5 0.41 → 0.45；rag_v2 指标不变。
 - 测试：新增 5 项（缓存失效、BM25 公式对照、截断展开与全量 RRF 对照、切片、分词），后端 250 项通过（3 项需 PostgreSQL 的用例在 SQLite 下跳过）；CI 的 PostgreSQL 测试组在 PostgreSQL 18 + pgvector 0.8.3（docker）上 51 项通过。
 
+## v3.9 — 收缩范围
+
+删掉不在演示主线上、或评测已证明没有收益的部分。
+
+- 监控：删除 compose 里的 Grafana、Jaeger、Prometheus、Alertmanager 及其配置（`config/grafana/`、`config/prometheus/`、`config/alertmanager/`）。`/metrics`、`/monitor` 的进程内 SLO 告警和可选的 OpenTelemetry 导出保留，追踪可接任意 OTLP 后端。
+- 告警主动建单（ADR 0010，改为已废弃）：删除 `intake/alerts.py`、`POST /proactive/alerts`、`GET /proactive/decisions`、`config/alert_rules.yaml`、服务身份 S0001 与相关指标；迁移 0006 删除 `proactive_decisions` 表。
+- 意图识别：删除向量匹配（`agents/intent_embedding.py`，含 SiliconFlow 依赖）、三路加权投票与置信度校准（`agents/intent_calibration.py`、`scripts/calibrate_intents.py`、`scripts/evaluate_intent_ablation.py`、`evaluation/config/intent_calibration.json`）。理由：留出集上 LLM 与融合都是 44/44，单路规则 30%、向量 57%，校准默认配置为空。现在是 LLM 结构化输出 + 关键词规则兜底，`IT_INTENT_STRATEGY` 不再使用。历史报告保留。
+- 离线门禁的意图识别以前走类默认的融合路径，与线上（LLM 路径）不一致；现在只有一条路径。重新生成的 `intent_latest.json` 预测与准确率不变，21 条兜底样本的置信度由 0.5 变为规则给出的 0.65。
+- 测试：删除被移除功能的测试，后端 246 项通过、3 项需 PostgreSQL 的用例在 SQLite 下跳过。
+
