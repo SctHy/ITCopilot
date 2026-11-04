@@ -13,7 +13,7 @@ python-multipart==0.0.33    # FastAPI 文件上传支持
 redis==8.1.0
 pgvector==0.5.1            # PostgreSQL 向量列与 <=> 余弦距离（知识库与长期记忆，本地 SQLite 用 numpy 计算）
 numpy==2.5.4
-fastembed==0.9.1           # 本地中文 embedding（ONNX，bge-small-zh-v1.5），不依赖 torch
+fastembed==0.9.1           # 本地中英 embedding（ONNX，jina-embeddings-v2-base-zh），不依赖 torch
 sqlalchemy==2.1.6          # 应用数据库：审批/执行与向量表（SQLite 本地，PostgreSQL 部署）
 alembic==1.20.1            # schema 迁移（启动时自动 upgrade head）
 psycopg[binary]==3.3.6     # PostgreSQL 驱动
@@ -27,8 +27,7 @@ opentelemetry-sdk==1.45.2                       # PydanticAI 埋点 → OTLP（�
 opentelemetry-exporter-otlp-proto-grpc==1.45.2
 
 # ── HTTP 客户端 ───────────────────────────────────────────────────────────────
-httpx==0.28.1              # Gitea 适配器、告警 Webhook
-httpx2==2.16.0             # MCP 2.x Streamable HTTP 客户端传输
+httpx2==2.16.0             # Gitea 适配器、飞书、告警 Webhook，以及 MCP 2.x Streamable HTTP 传输（mcp/openai/pydantic-ai 均依赖 httpx2）
 
 # ── 工具 ──────────────────────────────────────────────────────────────────────
 python-dotenv==1.2.4

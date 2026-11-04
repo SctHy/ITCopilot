@@ -24,12 +24,30 @@
 | embedding | 模式 | Expert R@1 | Expert R@5 | Expert MRR | Simulated R@1 | Simulated R@5 | Simulated MRR | p50 延迟 |
 |---|---|---|---|---|---|---|---|---|
 | — | BM25 | 0.21 | 0.45 | 0.36 | 0.13 | 0.34 | 0.25 | 4 ms |
-| bge-small-zh（默认） | 向量 | 0.12 | 0.29 | 0.23 | 0.07 | 0.24 | 0.16 | 10 ms |
-| bge-small-zh（默认） | 混合 | 0.21 | 0.41 | 0.33 | 0.12 | 0.35 | 0.24 | 12 ms |
-| bge-small-en | 向量 | 0.24 | 0.55 | 0.42 | **0.20** | 0.47 | **0.35** | 12 ms |
-| bge-small-en | 混合 | **0.28** | **0.59** | **0.46** | 0.16 | **0.51** | 0.34 | 13–14 ms |
+| bge-small-zh（原默认） | 向量 | 0.12 | 0.29 | 0.23 | 0.07 | 0.24 | 0.16 | 10 ms |
+| bge-small-zh（原默认） | 混合 | 0.21 | 0.41 | 0.33 | 0.12 | 0.35 | 0.24 | 12 ms |
+| bge-small-en | 向量 | 0.24 | 0.55 | 0.42 | 0.20 | 0.47 | 0.35 | 12 ms |
+| bge-small-en | 混合 | 0.28 | 0.59 | 0.46 | 0.16 | 0.51 | 0.34 | 13–14 ms |
+| jina-v2-base-zh（默认） | 向量 | 0.25 | 0.57 | 0.44 | 0.20 | 0.46 | 0.35 | 19 ms |
+| jina-v2-base-zh（默认） | 混合 | 0.34 | 0.57 | 0.50 | 0.18 | 0.51 | 0.36 | 22 ms |
+| multilingual-mpnet | 向量 | 0.19 | 0.41 | 0.34 | 0.13 | 0.36 | 0.26 | 22 ms |
+| multilingual-mpnet | 混合 | 0.25 | 0.52 | 0.41 | 0.15 | 0.45 | 0.31 | 23 ms |
+| embeddinggemma-300m | 向量 | 0.28 | 0.67 | 0.50 | 0.24 | 0.63 | 0.43 | 24 ms |
+| embeddinggemma-300m | 混合 | 0.33 | 0.62 | 0.51 | 0.22 | 0.57 | 0.40 | 27 ms |
 
-报告：[rag_wixqa_bge-small-zh-v1.5.json](../evaluation/reports/rag_wixqa_bge-small-zh-v1.5.json)、[rag_wixqa_bge-small-en-v1.5.json](../evaluation/reports/rag_wixqa_bge-small-en-v1.5.json)。
+报告：`evaluation/reports/rag_wixqa_<模型>.json`，如 [rag_wixqa_jina-embeddings-v2-base-zh.json](../evaluation/reports/rag_wixqa_jina-embeddings-v2-base-zh.json)、[rag_wixqa_bge-small-zh-v1.5.json](../evaluation/reports/rag_wixqa_bge-small-zh-v1.5.json)。
+
+同时在自写中文 rag-v2（60 篇 / 40 查询）上对比（`scripts/evaluate_rag_ablation.py --embedding-model ...`，报告 `rag_ablation_v2[_<模型>].json`）。中文集上几个双语模型都到顶，区分度有限：
+
+| embedding | 体积 | 向量 Recall@3 / MRR | 混合 Recall@3 / MRR | 向量查询延迟 |
+|---|---|---|---|---|
+| bge-small-zh（原默认） | 0.09 GB | 0.925 / 0.850 | 0.975 / 0.900 | 5 ms |
+| jina-v2-base-zh（默认） | 0.64 GB | 1.0 / 0.988 | 1.0 / 0.958 | 11 ms |
+| multilingual-mpnet | 1.0 GB | 1.0 / 0.963 | 1.0 / 0.958 | 8 ms |
+| embeddinggemma-300m | 1.24 GB | 1.0 / 0.971 | 1.0 / 0.933 | 10 ms |
+| Qwen3-Embedding-0.6B-Q | 1.12 GB | 1.0 / 0.938 | 1.0 / 0.933 | 193 ms |
+
+默认改用 jina-v2-base-zh：中文最好，英文与英文专用模型持平，Apache-2.0。embeddinggemma-300m 在英文上最好，但体积约 2 倍、权重用 Gemma 使用条款，要随镜像分发，留作可选；Qwen3 查询延迟太高。三个双语候选在记忆评测（memory-v1、memory-ablation-v2）上与 bge-small-zh 结果一致。
 
 ### 这个基准暴露的问题与修复
 
@@ -53,7 +71,7 @@
 ### 结论
 
 - 自写 60 篇语料上的 Recall@3 是 0.95–0.975，在六千篇规模的真实语料上 Recall@5 只有 0.3–0.6。自写语料主题少、干扰项少，不能代表真实召回。
-- 默认的中文 embedding 在英文语料上比 BM25 还差，混合检索被它拖低（Expert R@5 0.41 < BM25 0.45）。换成英文模型后，混合在 ExpertWritten 上最好，在 Simulated 上 R@5 最好、R@1 低于纯向量。embedding 必须匹配语料语言；混合检索不总是优于单路，需要按语料实测。
+- 原默认的中文 embedding bge-small-zh 在英文语料上比 BM25 还差，混合检索被它拖低（Expert R@5 0.41 < BM25 0.45）。embedding 必须覆盖语料语言；现默认的中英双语 jina-v2-base-zh 在英文上与英文模型持平。混合检索不总是优于单路（embeddinggemma 下纯向量 R@5 高于混合），需要按语料实测。
 - 只测检索，没有测回答忠实度。
 
 ## 2. AgentDojo 间接提示注入

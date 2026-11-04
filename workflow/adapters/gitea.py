@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-import httpx
+import httpx2
 
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError
 
@@ -22,12 +22,12 @@ class GiteaAdapter:
     name = "gitea"
 
     def __init__(self, base_url: str, token: str, repos: Dict[str, str], username_of: Callable[[str], Optional[str]],
-                 *, basic_auth: Optional[tuple] = None, timeout_s: float = 10.0, transport: Optional[httpx.AsyncBaseTransport] = None):
+                 *, basic_auth: Optional[tuple] = None, timeout_s: float = 10.0, transport: Optional[httpx2.AsyncBaseTransport] = None):
         self.repos = repos                     # policy system -> "owner/repo"
         self.username_of = username_of
         # Service account credentials: a scoped token in deployments, basic auth for the compose sandbox bootstrap.
         headers = {"Authorization": f"token {token}"} if token else {}
-        self._client = httpx.AsyncClient(base_url=base_url.rstrip("/") + "/api/v1", headers=headers, auth=basic_auth if not token else None,
+        self._client = httpx2.AsyncClient(base_url=base_url.rstrip("/") + "/api/v1", headers=headers, auth=basic_auth if not token else None,
                                          timeout=timeout_s, transport=transport)
 
     async def close(self) -> None:
@@ -48,15 +48,15 @@ class GiteaAdapter:
             raise PermanentError(f"{system} 没有映射到 Gitea 仓库")
         return repo
 
-    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+    async def _request(self, method: str, path: str, **kwargs) -> httpx2.Response:
         try:
             response = await self._client.request(method, path, **kwargs)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+        except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout) as exc:
             # The request never reached Gitea.
             raise TransientError(f"Gitea 连接失败（{type(exc).__name__}）") from exc
-        except httpx.TimeoutException as exc:
+        except httpx2.TimeoutException as exc:
             raise AmbiguousError(f"Gitea 请求超时，结果未知（{type(exc).__name__}）") from exc
-        except httpx.TransportError as exc:
+        except httpx2.TransportError as exc:
             raise AmbiguousError(f"Gitea 传输中断，结果未知（{type(exc).__name__}）") from exc
         if response.status_code >= 500:
             raise AmbiguousError(f"Gitea 返回 {response.status_code}，结果未知")

@@ -1,4 +1,7 @@
-"""文本向量：fastembed（ONNX，无 torch）本地加载中文模型，默认 BAAI/bge-small-zh-v1.5。
+"""文本向量：fastembed（ONNX，无 torch）本地加载中英双语模型，默认 jinaai/jina-embeddings-v2-base-zh。
+
+bge-small-zh-v1.5 在英文语料上向量召回比 BM25 还差（WixQA Expert R@5 0.29），jina-zh 在中文 rag-v2 上
+更好、在英文 WixQA 上与英文模型 bge-small-en 持平（0.57），见 docs/evaluation-public.md。
 
 英文的 all-MiniLM-L6-v2 在中文语料上向量召回很差（rag-v2：Recall@3 0.525），换模型只改
 IT_COPILOT_EMBEDDING_MODEL；core/vector_store.py 会用新模型重新向量化旧数据。
@@ -15,9 +18,20 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
-# bge-zh 对短查询建议加检索指令；文档侧不加。
-QUERY_INSTRUCTIONS = {"BAAI/bge-small-zh-v1.5": "为这个句子生成表示以用于检索相关文章："}
+DEFAULT_EMBEDDING_MODEL = "jinaai/jina-embeddings-v2-base-zh"
+# 各模型官方说明里的检索前缀：bge-zh 只给短查询加指令；e5、embeddinggemma 查询和文档两侧都要加。
+_QWEN3_QUERY = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+QUERY_INSTRUCTIONS = {
+    "BAAI/bge-small-zh-v1.5": "为这个句子生成表示以用于检索相关文章：",
+    "intfloat/multilingual-e5-large": "query: ",
+    "google/embeddinggemma-300m": "task: search result | query: ",
+    "Qwen/Qwen3-Embedding-0.6B": _QWEN3_QUERY,
+    "Qwen/Qwen3-Embedding-0.6B-Q": _QWEN3_QUERY,
+}
+DOCUMENT_PREFIXES = {
+    "intfloat/multilingual-e5-large": "passage: ",
+    "google/embeddinggemma-300m": "title: none | text: ",
+}
 
 _load_lock = threading.Lock()
 
@@ -57,7 +71,8 @@ class Embedder:
         return vectors
 
     def embed_documents(self, texts: Sequence[str]) -> List[np.ndarray]:
-        return self._embed(texts)
+        prefix = DOCUMENT_PREFIXES.get(self.model_name, "")
+        return self._embed([prefix + text for text in texts])
 
     def embed_query(self, text: str) -> np.ndarray:
         return self._embed([QUERY_INSTRUCTIONS.get(self.model_name, "") + text])[0]

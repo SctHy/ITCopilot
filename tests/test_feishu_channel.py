@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 
-import httpx
+import httpx2
 import pytest
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -111,20 +111,20 @@ def test_identity_comes_from_the_mapping_file_only(tmp_path, monkeypatch):
 
 def test_client_classifies_failures_and_refreshes_the_token():
     calls, replies = [], iter([
-        httpx.Response(200, json={"code": 0}),
-        httpx.Response(400, json={"code": 230011, "msg": "message recalled"}),
-        httpx.Response(400, json={"code": 99991663, "msg": "invalid token"}),
-        httpx.Response(503, text="busy"),
+        httpx2.Response(200, json={"code": 0}),
+        httpx2.Response(400, json={"code": 230011, "msg": "message recalled"}),
+        httpx2.Response(400, json={"code": 99991663, "msg": "invalid token"}),
+        httpx2.Response(503, text="busy"),
     ])
 
     def handler(request):
         calls.append((request.url.path, request.headers.get("authorization"), request.content))
         if request.url.path.endswith("tenant_access_token/internal"):
-            return httpx.Response(200, json={"code": 0, "tenant_access_token": f"t{len(calls)}", "expire": 7200})
+            return httpx2.Response(200, json={"code": 0, "tenant_access_token": f"t{len(calls)}", "expire": 7200})
         return next(replies)
 
     async def scenario():
-        client = FeishuClient(SETTINGS, transport=httpx.MockTransport(handler))
+        client = FeishuClient(SETTINGS, transport=httpx2.MockTransport(handler))
         await client.send({"message_id": "om_1"}, "你好", "k" * 64)
         with pytest.raises(ChannelError) as recalled:
             await client.send({"message_id": "om_1"}, "你好", "k2")

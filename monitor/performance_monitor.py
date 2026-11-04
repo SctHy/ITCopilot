@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-import httpx
+import httpx2
 
 from monitor import metrics
 
@@ -349,7 +349,7 @@ class PerformanceMonitor:
     async def _send_webhook(self, event: str, alert: Alert) -> None:
         payload = {"event": event, **{k: v for k, v in asdict(alert).items() if k != "clear_ticks"}}
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx2.AsyncClient(timeout=5.0) as client:
                 await client.post(self._webhook, json=payload)
         except Exception as ex:
             logger.warning("告警 Webhook 发送失败: %s", type(ex).__name__)

@@ -7,7 +7,7 @@
 每条查询取前 20 个片段，按出现顺序去重成文章列表，与标注的 article_ids 比对。
 
     python scripts/evaluate_rag_wixqa.py --fetch                    # 下载固定版本并校验 sha256
-    python scripts/evaluate_rag_wixqa.py                            # 默认 embedding（中文 bge-small-zh）
+    python scripts/evaluate_rag_wixqa.py                            # 默认 embedding（中英 jina-v2-base-zh）
     python scripts/evaluate_rag_wixqa.py --embedding-model BAAI/bge-small-en-v1.5
 
 索引写入 data/external/wixqa/kb-<模型>.sqlite3，再次运行直接复用。

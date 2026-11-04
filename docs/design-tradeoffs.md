@@ -65,7 +65,7 @@ PydanticAI 可以直接把 MCP 服务挂成 toolset，但那样外部工具会�
 
 向量检索适合语义改写，BM25 对错误码、命令和产品名更稳；Hybrid 用 RRF 融合两者，不让任一分数标度主导。
 
-Embedding 用 fastembed 在本地跑 `BAAI/bge-small-zh-v1.5`（ONNX，约 95MB，不依赖 torch，不调用外部 API）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。每行向量记录生成它的模型，换模型时按新模型重新向量化，不会把不同模型的向量混在一起。
+Embedding 用 fastembed 在本地跑 `jinaai/jina-embeddings-v2-base-zh`（ONNX，约 640MB，不依赖 torch，不调用外部 API，Apache-2.0）。Chroma 默认的 all-MiniLM-L6-v2 是英文模型，在中文语料上 vector Recall@3 只有 0.525，还把 hybrid 拉到 0.725、低于纯 BM25 的 0.95；换成中文模型 bge-small-zh-v1.5 后 vector 0.925、hybrid 1.0，检索延迟从约 50ms 降到约 5ms。bge-small-zh 在英文语料（WixQA）上向量 R@5 只有 0.29、比 BM25 还差，企业 IT 文档又常中英混写，所以换成中英双语的 jina-v2-base-zh：rag-v2 vector 与 hybrid Recall@3 都是 1.0（MRR 0.988 / 0.958），WixQA Expert 向量 R@5 0.57；代价是模型大 7 倍、查询延迟约 10ms → 20ms。embeddinggemma-300m 在 WixQA 上更好（0.67），但约 1.2GB、权重用 Gemma 使用条款，要随镜像分发，没有选它，需要时设 `IT_COPILOT_EMBEDDING_MODEL` 即可。每行向量记录生成它的模型，换模型时按新模型重新向量化，不会把不同模型的向量混在一起。
 
 向量不单独起服务，存在应用数据库的 `vector_documents` 表里：PostgreSQL 用 pgvector（`embedding <=> :q` 余弦距离），本地与测试用 SQLite 存 float32、numpy 计算相似度，两边跑同一组契约测试，rag-v2 指标一致。理由是数据量只有千级片段，复用已有的 PostgreSQL 比多维护一套向量库（Chroma 及其 35 个独占依赖，或 Milvus 的 milvus + etcd + minio）划算；部门过滤也能在 SQL 里召回前完成。现在是精确检索，片段到十万级再加 HNSW 索引，千万级再考虑 Milvus。
 

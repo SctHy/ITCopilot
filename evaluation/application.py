@@ -13,7 +13,7 @@ import tempfile
 from contextlib import ExitStack, asynccontextmanager
 from unittest.mock import patch
 
-import httpx
+import httpx2
 
 from core.identity import issue_dev_token
 
@@ -91,8 +91,8 @@ async def application(*, model=None, redis_url=None, documents=()):
                         for pool in state.orchestrator._pool.values():
                             for agent in pool:
                                 agent._llm = model
-                    async with httpx.AsyncClient(
-                        transport=httpx.ASGITransport(app=api.app),
+                    async with httpx2.AsyncClient(
+                        transport=httpx2.ASGITransport(app=api.app),
                         base_url="http://evaluation",
                         headers=auth("alice"),
                         timeout=180,

@@ -43,7 +43,7 @@ flowchart LR
   A --> G[PydanticAI Agent / 工具循环 / 结构化输出]
   G --> GW[OpenAI-compatible 模型服务（DeepSeek）]
   A --> T[工具治理 / Schema / TTL / timeout / circuit breaker]
-  A --> R[混合 RAG / BM25 + pgvector（bge-small-zh）+ RRF]
+  A --> R[混合 RAG / BM25 + pgvector（jina-v2-base-zh）+ RRF]
   A --> M[三级记忆 / Redis + pgvector]
   T --> H{审批门 / 策略 + 职责分离}
   H -->|approved: 同事务写入 outbox| DB[(PostgreSQL 审批 / 动作 / 授权台账 / 审计)]
@@ -81,7 +81,7 @@ flowchart LR
 | 身份 | OIDC（Keycloak 26，授权码 + PKCE；API 侧 JWKS 校验 RS256），开发/评测用本地签发令牌；RBAC：employee / approver / it_admin / auditor |
 | 存储 | PostgreSQL 18 + pgvector（审批、动作 outbox、授权台账、审计，以及知识库与记忆的向量；本地与测试用 SQLite，向量相似度用 numpy 计算），SQLAlchemy Core + Alembic 迁移；Redis（锁/幂等/工作记忆/事件流） |
 | 执行 | outbox + 租约 worker（API 内与独立进程可并存），适配器：Gitea REST（真实权限系统沙箱）、本地目录 |
-| RAG | BM25、向量检索（fastembed 本地 bge-small-zh-v1.5）、RRF、部门过滤 |
+| RAG | BM25、向量检索（fastembed 本地 jina-embeddings-v2-base-zh）、RRF、部门过滤 |
 | 前端 | Vue 3、Vite 8、原生 SSE |
 | 工具协议 | MCP Python SDK 2.x（Streamable HTTP / stdio 客户端，MCPServer 服务端） |
 | 可观测性 | Prometheus 指标、OpenTelemetry（可选，导出到任意 OTLP 后端）、进程内 SLO 告警 |
@@ -94,7 +94,7 @@ flowchart LR
 
 | 实验 | 结果与口径 |
 |---|---|
-| WixQA 检索 | Wix 客服中心 6,221 篇文章（35,083 片段）、400 条人工查询，走线上检索链路，按文章计分。ExpertWritten Recall@5：BM25 0.45；默认中文 embedding 向量 0.29 / 混合 0.41，中文模型在英文语料上拖低了混合检索；换 bge-small-en 后向量 0.55 / 混合 0.59。这个基准暴露了检索在万级片段下的延迟问题：倒排索引 BM25、SQLite 向量矩阵缓存和版本检查索引把混合检索 p50 从 0.63–0.80 s 降到 12–14 ms，结果与旧算法逐条一致 |
+| WixQA 检索 | Wix 客服中心 6,221 篇文章（35,083 片段）、400 条人工查询，走线上检索链路，按文章计分。ExpertWritten Recall@5：BM25 0.45；原默认 bge-small-zh 向量 0.29 / 混合 0.41，中文模型在英文语料上拖低了混合检索；现默认 jina-v2-base-zh 向量 0.57 / 混合 0.57，与英文模型 bge-small-en（0.55 / 0.59）持平。这个基准暴露了检索在万级片段下的延迟问题：倒排索引 BM25、SQLite 向量矩阵缓存和版本检查索引把混合检索 p50 从 0.63–0.80 s 降到 12–14 ms，结果与旧算法逐条一致 |
 | AgentDojo 间接注入 | 4 个套件 949 个攻击组合，应用 `BaseAgent` 运行时 + deepseek-flash，写操作不经审批直接执行：需要写操作的攻击 0/908 成功（攻击下 411 个组合执行过写操作）；只读目标判定成功 15/41，逐条复核全是 Agent 在警告用户时提到了攻击者的酒店名，基准按字符串判定。utility 无攻击 0.84、攻击下 0.80；banking 的 0 主要因为模型转账前先确认，不计为抵抗力 |
 
 ## 实验与证据（v3 新增）

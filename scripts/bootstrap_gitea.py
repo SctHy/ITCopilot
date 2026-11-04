@@ -15,7 +15,7 @@ import secrets
 import sys
 import time
 
-import httpx
+import httpx2
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from workflow.store import SEED_EMPLOYEES  # noqa: E402
@@ -25,12 +25,12 @@ def main() -> int:
     base = os.environ.get("IT_COPILOT_GITEA_URL", "http://127.0.0.1:3001").rstrip("/") + "/api/v1"
     auth = (os.environ.get("IT_COPILOT_GITEA_USER", "itc-svc"), os.environ["IT_COPILOT_GITEA_PASSWORD"])
     repos = dict(item.split("=", 1) for item in os.getenv("IT_COPILOT_GITEA_REPOS", "gitlab=it-sandbox/platform").split(",") if "=" in item)
-    with httpx.Client(base_url=base, auth=auth, timeout=10) as http:
+    with httpx2.Client(base_url=base, auth=auth, timeout=10) as http:
         for _ in range(60):
             try:
                 if http.get("/version").status_code == 200:
                     break
-            except httpx.TransportError:
+            except httpx2.TransportError:
                 pass
             time.sleep(2)
         else:

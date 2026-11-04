@@ -17,6 +17,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv
 from evaluation.reporting import ROOT, DATASETS_DIR, write_report
+from core.embedding import DEFAULT_EMBEDDING_MODEL, embedding_model_name
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import MCPToolManager, Tool
 from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
@@ -52,8 +53,12 @@ async def main():
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--database-url", help="empty database to evaluate on (default: temporary SQLite)")
     parser.add_argument("--live-limit", type=int, default=0, help="live rewrite+rerank on the first N queries; 0 = all")
+    parser.add_argument("--embedding-model", help="override IT_COPILOT_EMBEDDING_MODEL")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
+    if args.embedding_model:
+        os.environ["IT_COPILOT_EMBEDDING_MODEL"] = args.embedding_model
+    model = embedding_model_name()
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     source = DATASETS_DIR / "rag_v2_corpus.json"
     docs = json.loads(source.read_text())
@@ -92,11 +97,14 @@ async def main():
                 rows.append(row)
             reports["hybrid_rewrite_rerank"] = summarize(rows)
             reports["hybrid_paired"] = summarize(reports["hybrid"]["cases"][: len(live_cases)])
+    # 默认模型沿用原报告名，其他模型按模型名分开存，便于对比。
+    name = "rag_ablation_v2.json" if model == DEFAULT_EMBEDDING_MODEL else f"rag_ablation_v2_{model.split('/')[-1]}.json"
     write_report(
-        "rag_ablation_v2.json",
+        name,
         {
             "suite": "rag-v2",
             "status": "complete",
+            "embedding_model": model,
             "documents": len(docs),
             "queries": len(queries),
             "live_rerank": args.live,

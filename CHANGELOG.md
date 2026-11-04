@@ -158,3 +158,8 @@
 - 测试：删除被移除功能的测试，后端 246 项通过、3 项需 PostgreSQL 的用例在 SQLite 下跳过。
 - 技能自改进（ADR 0011，`evaluation/improvement.py`、`scripts/self_improve.py`）：失败归因、模型提案只改技能正文、确定性守卫、基线与候选同轮配对重跑、开发集净提升且单侧 McNemar p ≤ 0.1 才看留出集与安全集；默认不改线上技能。只做过 2 个任务的冒烟运行，没有效果证据。
 
+## v3.10 — 默认 embedding 换为中英双语模型，HTTP 客户端统一
+
+- 默认 embedding 由 `BAAI/bge-small-zh-v1.5` 改为 `jinaai/jina-embeddings-v2-base-zh`（Apache-2.0，约 640MB）。WixQA Expert 向量 R@5 0.29 → 0.57、混合 0.41 → 0.57；rag-v2 混合 Recall@3 / MRR 0.975 / 0.900 → 1.0 / 0.958；记忆评测不变；查询延迟约 10 → 20 ms。已有数据在首次打开集合时按新模型重新向量化。还比较了 multilingual-mpnet、embeddinggemma-300m、Qwen3-Embedding-0.6B-Q，见 docs/evaluation-public.md。
+- `core/embedding.py` 支持按模型配置查询与文档两侧前缀（e5、embeddinggemma、Qwen3）；`scripts/evaluate_rag_ablation.py` 新增 `--embedding-model`，非默认模型的报告按模型名分开存；原 bge-small-zh 报告（含在线改写重排）改名为 `rag_ablation_v2_bge-small-zh-v1.5.json`。
+- HTTP 客户端统一为 `httpx2`：mcp、openai、pydantic-ai 都依赖它，项目代码（Gitea 适配器、飞书、告警 Webhook、评测与脚本）从 `httpx` 迁移过来，requirements 去掉 `httpx`。

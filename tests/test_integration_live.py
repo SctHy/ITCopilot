@@ -8,7 +8,7 @@
 import asyncio
 import os
 
-import httpx
+import httpx2
 import pytest
 
 from workflow.adapters import AdapterRegistry
@@ -24,7 +24,7 @@ GITEA = os.getenv("IT_COPILOT_TEST_GITEA_URL")
 
 
 def keycloak_token(username):
-    response = httpx.post(f"{ISSUER}/protocol/openid-connect/token", data={
+    response = httpx2.post(f"{ISSUER}/protocol/openid-connect/token", data={
         "grant_type": "password", "client_id": "it-copilot-web", "username": username, "password": f"{username}-pass"})
     response.raise_for_status()
     return response.json()["access_token"]

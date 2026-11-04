@@ -1,6 +1,6 @@
 """When does the user see progress? Live execution events vs. the old replay-after-completion SSE.
 
-Runs the real application behind a real uvicorn server on a loopback TCP port (httpx's
+Runs the real application behind a real uvicorn server on a loopback TCP port (httpx2's
 in-process ASGITransport buffers whole responses and cannot observe streaming), offline
 (fakeredis, temporary stores), with a model
 substitute that sleeps a fixed time per call, so the result isolates the streaming
@@ -26,7 +26,7 @@ sys.path.insert(0, str(_ROOT))
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
 from pydantic_ai.models.function import FunctionModel  # noqa: E402
 
-import httpx  # noqa: E402
+import httpx2  # noqa: E402
 import uvicorn  # noqa: E402
 
 from api.main import app  # noqa: E402
@@ -59,7 +59,7 @@ async def measure(runs: int, latency: float):
         while not server.started:
             await asyncio.sleep(0.01)
         port = server.servers[0].sockets[0].getsockname()[1]
-        http = httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", headers=auth(), timeout=60)
+        http = httpx2.AsyncClient(base_url=f"http://127.0.0.1:{port}", headers=auth(), timeout=60)
         for i in range(runs):
             started = time.monotonic()
             seen = {}

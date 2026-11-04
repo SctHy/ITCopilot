@@ -191,7 +191,7 @@ def test_rerank_invalid_index_falls_back_to_original_order():
 def test_thinking_type_reaches_upstream_request(monkeypatch):
     import json
 
-    import httpx2 as httpx
+    import httpx2
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -201,13 +201,13 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 
     def handler(request):
         seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={
+        return httpx2.Response(200, json={
             "id": "x", "object": "chat.completion", "created": 0, "model": "m",
             "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
         })
 
     monkeypatch.setenv("OPENAI_THINKING_TYPE", "disabled")
-    provider = OpenAIProvider(base_url="http://upstream.test/v1", api_key="k", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    provider = OpenAIProvider(base_url="http://upstream.test/v1", api_key="k", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
     model = OpenAIChatModel("m", provider=provider, settings=_thinking_settings())
     assert asyncio.run(complete_text(model, "hi", max_tokens=8)).text == "ok"
     assert seen["body"]["thinking"] == {"type": "disabled"}

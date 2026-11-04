@@ -20,9 +20,9 @@ RUN uv pip install --system -r requirements.txt
 # data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
 RUN mkdir -p /app/data && chown -R app:app /app/data
 
-# 构建期预下载中文 embedding 模型（与 core/embedding.py 默认值一致），避免首次请求时在线下载导致超时。
+# 构建期预下载 embedding 模型（与 core/embedding.py 默认值一致），避免首次请求时在线下载导致超时。
 USER app
-RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('BAAI/bge-small-zh-v1.5').embed(['预热']))"
+RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('jinaai/jina-embeddings-v2-base-zh').embed(['预热']))"
 
 COPY --chown=app:app . .
 

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
-import httpx
+import httpx2
 import yaml
 
 from intake.base import ChannelError, InboundMessage
@@ -196,9 +196,9 @@ class FeishuClient:
 
     name = CHANNEL
 
-    def __init__(self, settings: FeishuSettings, *, timeout_s: float = 10.0, transport: Optional[httpx.AsyncBaseTransport] = None):
+    def __init__(self, settings: FeishuSettings, *, timeout_s: float = 10.0, transport: Optional[httpx2.AsyncBaseTransport] = None):
         self.settings = settings
-        self._client = httpx.AsyncClient(base_url=settings.base_url.rstrip("/") + "/open-apis", timeout=timeout_s, transport=transport)
+        self._client = httpx2.AsyncClient(base_url=settings.base_url.rstrip("/") + "/open-apis", timeout=timeout_s, transport=transport)
         self._token: Optional[str] = None
         self._token_expires = 0.0
 
@@ -218,7 +218,7 @@ class FeishuClient:
         headers = {"Authorization": f"Bearer {await self._tenant_token()}"} if auth else {}
         try:
             response = await self._client.request(method, path, headers=headers, **kwargs)
-        except httpx.TransportError as exc:
+        except httpx2.TransportError as exc:
             raise ChannelError(f"飞书请求失败（{type(exc).__name__}）") from exc
         try:
             data = response.json()

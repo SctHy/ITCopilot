@@ -2,7 +2,7 @@
 import asyncio
 import time
 
-import httpx
+import httpx2
 import pytest
 
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError
@@ -61,7 +61,7 @@ def test_validation_errors_do_not_trip_the_breaker():
 
 def gitea(handler):
     return GiteaAdapter("http://gitea", "t", {"gitlab": "it/platform"}, lambda e: {"1001": "alice"}.get(e),
-                        transport=httpx.MockTransport(handler))
+                        transport=httpx2.MockTransport(handler))
 
 
 ACTION = {"tool_name": "request_access", "arguments": {"employee_id": "1001", "system": "gitlab", "role": "developer"}}
@@ -70,19 +70,19 @@ ACTION = {"tool_name": "request_access", "arguments": {"employee_id": "1001", "s
 def test_gitea_grant_observe_and_revoke_against_a_fake_server():
     collaborators = {}
 
-    def handler(request: httpx.Request):
+    def handler(request: httpx2.Request):
         path = request.url.path
         if path == "/api/v1/repos/it/platform/collaborators/alice":
             if request.method == "PUT":
                 collaborators["alice"] = __import__("json").loads(request.content)["permission"]
-                return httpx.Response(204)
+                return httpx2.Response(204)
             if request.method == "DELETE":
                 collaborators.pop("alice", None)
-                return httpx.Response(204)
-            return httpx.Response(204 if "alice" in collaborators else 404)
+                return httpx2.Response(204)
+            return httpx2.Response(204 if "alice" in collaborators else 404)
         if path == "/api/v1/repos/it/platform/collaborators/alice/permission":
-            return httpx.Response(200, json={"permission": collaborators.get("alice", "read")})
-        return httpx.Response(200, json={})
+            return httpx2.Response(200, json={"permission": collaborators.get("alice", "read")})
+        return httpx2.Response(200, json={})
 
     adapter = gitea(handler)
 
@@ -99,10 +99,10 @@ def test_gitea_grant_observe_and_revoke_against_a_fake_server():
 
 
 @pytest.mark.parametrize("failure,expected", [
-    (httpx.ConnectError("refused"), TransientError),
-    (httpx.ReadTimeout("slow"), AmbiguousError),
-    (httpx.Response(502), AmbiguousError),
-    (httpx.Response(403), PermanentError),
+    (httpx2.ConnectError("refused"), TransientError),
+    (httpx2.ReadTimeout("slow"), AmbiguousError),
+    (httpx2.Response(502), AmbiguousError),
+    (httpx2.Response(403), PermanentError),
 ])
 def test_gitea_failure_classification(failure, expected):
     def handler(request):
@@ -116,6 +116,6 @@ def test_gitea_failure_classification(failure, expected):
 
 def test_gitea_unknown_user_is_permanent():
     adapter = GiteaAdapter("http://gitea", "t", {"gitlab": "it/platform"}, lambda e: None,
-                           transport=httpx.MockTransport(lambda r: httpx.Response(204)))
+                           transport=httpx2.MockTransport(lambda r: httpx2.Response(204)))
     with pytest.raises(PermanentError, match="Gitea 账号"):
         asyncio.run(adapter.preflight(ACTION))

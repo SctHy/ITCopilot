@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 class KnowledgeBase:
     """
-    RAG 知识库。向量由本地中文 embedding（core/embedding.py，默认 bge-small-zh-v1.5）生成，
+    RAG 知识库。向量由本地中英 embedding（core/embedding.py，默认 jina-embeddings-v2-base-zh）生成，
     存在 PostgreSQL（pgvector）或本地 SQLite，不调用外部 Embeddings API。
     """
 
