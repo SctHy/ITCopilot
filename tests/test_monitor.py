@@ -3,8 +3,15 @@ import asyncio
 
 import pytest
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType
-from monitor.performance_monitor import AlertManager, Condition, PerformanceMonitor, SLOTracker, Thresholds
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.types import AgentType
+from monitor.performance_monitor import (
+    AlertManager,
+    Condition,
+    PerformanceMonitor,
+    SLOTracker,
+    Thresholds,
+)
 from tooling.tool_manager import MCPToolManager, Tool
 
 T0 = 100_000.0

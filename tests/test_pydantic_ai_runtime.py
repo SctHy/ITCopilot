@@ -5,8 +5,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agents.agent_orchestrator import AgentCallError, AgentOrchestrator, AgentType, Request
-from agents.intent_recognizer import IntentCategory, IntentRecognizer
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.intent.recognizer import IntentRecognizer
+from agents.intent.taxonomy import IntentCategory
+from agents.types import AgentCallError, AgentType, Request
 from tooling.tool_manager import MCPToolManager
 
 
@@ -20,7 +22,7 @@ def _tool_returns(messages):
     return [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
 
 
-def test_tool_loop_records_trace_usage_and_whitelist_prompt():
+def test_tool_loop_records_trace_usage_and_lean_prompt():
     seen = {}
 
     async def respond(messages, info):
@@ -37,10 +39,11 @@ def test_tool_loop_records_trace_usage_and_whitelist_prompt():
         assert result.success and result.status == "success"
         assert result.tools_used == ["lookup_error_code"]
         assert result.tool_traces[0]["tool_use_id"] == "c1" and result.tool_traces[0]["success"] is True
-        assert result.token_usage == {"input_tokens": 30, "output_tokens": 10}
+        assert result.token_usage == {"input_tokens": 30, "output_tokens": 10, "cache_read_tokens": 0}
         assert seen["tool_content"]["meaning"] == "VPN 身份认证或连接失败"
         assert "lookup_error_code" in seen["tools"] and "reset_password" not in seen["tools"]
-        assert "工具白名单" in seen["instructions"] and "lookup_error_code" in seen["instructions"]
+        # 工具清单只随工具定义下发，不在 system prompt 里重复。
+        assert "规则：" in seen["instructions"] and "lookup_error_code" not in seen["instructions"]
 
     asyncio.run(run())
 

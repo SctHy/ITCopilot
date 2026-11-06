@@ -16,8 +16,9 @@ def _module():
 
 
 def test_generalist_uses_one_agent_with_tools_from_every_domain():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
-    from agents.intent_recognizer import IntentCategory
+    from agents.agent_orchestrator import AgentOrchestrator
+    from agents.intent.taxonomy import IntentCategory
+    from agents.types import AgentType, Request
 
     calls = [("lookup_error_code", {"error_code": "VPN-691"}), ("lookup_asset", {"asset_id": "DEV-1"})]
 
@@ -62,7 +63,8 @@ def test_paired_analysis_counts_discordant_cases_strictly_across_repeats():
 
 
 def test_bounded_all_gives_specialists_every_tool_and_bounded_does_not():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType
+    from agents.agent_orchestrator import AgentOrchestrator
+    from agents.types import AgentType
 
     orchestrator = AgentOrchestrator("test")
     orchestrator.planning_mode = "bounded_all"

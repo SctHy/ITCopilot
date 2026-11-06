@@ -84,7 +84,7 @@ def test_sqlite_reads_do_not_wait_for_an_open_write_transaction(tmp_path):
 
     from sqlalchemy import text
 
-    from workflow.db import make_engine, read
+    from core.db import make_engine, read
 
     engine = make_engine(f"sqlite:///{tmp_path / 'locks.sqlite3'}")
     with engine.begin() as db:
@@ -119,3 +119,15 @@ def test_query_sees_writes_after_a_cached_query(collection):
     assert collection.query(["打印机卡纸"], n_results=1)["ids"][0] == ["printer"]
     collection.delete(["printer"])
     assert "printer" not in collection.query(["打印机卡纸"], n_results=3)["ids"][0]
+
+
+def test_not_equal_filter_excludes_value_and_keeps_rows_missing_the_field(db_url):
+    store = VectorStore(db_url)
+    memories = store.collection("episodic")
+    memories.upsert(["a1", "b1", "legacy"], ["VPN 报错 691", "VPN 证书过期", "VPN 旧记录"],
+                    [{"user_id": "u", "conv_id": "a"}, {"user_id": "u", "conv_id": "b"}, {"user_id": "u"}])
+    others = memories.query(["VPN"], n_results=5, where={"$and": [{"user_id": "u"}, {"conv_id": {"$ne": "a"}}]})
+    assert set(others["ids"][0]) == {"b1", "legacy"}
+    with pytest.raises(TypeError):
+        memories.query(["VPN"], n_results=5, where={"conv_id": {"$ne": 1}})
+    store.dispose()

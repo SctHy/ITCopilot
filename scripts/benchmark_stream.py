@@ -23,14 +23,13 @@ import time
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
-from pydantic_ai.models.function import FunctionModel  # noqa: E402
-
 import httpx2  # noqa: E402
 import uvicorn  # noqa: E402
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
 
 from api.main import app  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
+from evaluation.fake_model import scripted_model  # noqa: E402
 
 REPORT = _ROOT / "evaluation/reports/stream_latency_v3.json"
 
@@ -43,7 +42,7 @@ def slow_model(latency_s: float):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
             return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"error_code": "VPN-691"})])
         return ModelResponse(parts=[TextPart("VPN-691 表示认证失败：确认账号未锁定，检查系统时间和客户端版本。")])
-    return FunctionModel(reply)
+    return scripted_model(reply)
 
 
 def pct(values, q):

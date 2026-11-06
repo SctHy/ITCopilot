@@ -4,13 +4,8 @@ import asyncio
 import pytest
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import (
-    AccessAgent,
-    AgentType,
-    ModelUnavailableError,
-    Request,
-    profile,
-)
+from agents.base_agent import AccessAgent
+from agents.types import AgentType, ModelUnavailableError, Request
 
 
 def _raising_model(exc: Exception):
@@ -21,7 +16,7 @@ def _raising_model(exc: Exception):
 
 
 def _agent(exc: Exception):
-    agent = AccessAgent(_raising_model(exc), model="test", profile=profile("access", "处理账号", []))
+    agent = AccessAgent(_raising_model(exc), model="test")
     agent.agent_type = AgentType.ACCESS
     return agent
 

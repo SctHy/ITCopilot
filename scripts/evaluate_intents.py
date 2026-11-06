@@ -16,14 +16,14 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env")
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
 os.environ.setdefault("no_proxy", os.environ["NO_PROXY"])
 
-from agents.intent_recognizer import IntentRecognizer
+from agents.intent.recognizer import IntentRecognizer
 from evaluation.evaluator import IntentEvaluator, load_intent_cases
 from evaluation.reporting import DATASETS_DIR, REPORTS_DIR, status
-
 
 PASS_ACCURACY = 0.75
 
@@ -44,8 +44,11 @@ async def main() -> int:
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-    summary = {k: metrics[k] for k in ("total", "correct", "accuracy", "macro_f1", "llm_calls", "llm_success", "fallback_calls", "fallback_disabled", "fallback_errors", "last_error", "llm_only_accuracy", "llm_only_total", "fallback_accuracy", "fallback_total")}
+    summary = {k: metrics[k] for k in ("total", "correct", "accuracy", "macro_f1", "llm_calls", "llm_success", "fallback_calls", "fallback_disabled", "fallback_errors", "last_error", "llm_only_accuracy", "llm_only_total", "fallback_accuracy", "fallback_total", "strict_accuracy", "urgency_accuracy", "latency_s")}
+    summary.update({k: v for k, v in metrics.items() if k.startswith("jev_")})
     print(json.dumps(summary, ensure_ascii=False))
+    for tag, row in metrics["by_tag"].items():
+        print(f"  {tag:<16} {row['correct']:>3}/{row['n']:<3} {row['accuracy']:.0%}")
     if metrics.get("llm_calls", 0) == 0:
         print("WARNING: 本次没有调用 LLM；结果是规则兜底基线，不代表真实 Tool Use 质量。")
     elif metrics.get("llm_success", 0) == 0:

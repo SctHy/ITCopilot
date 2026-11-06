@@ -163,3 +163,42 @@
 - 默认 embedding 由 `BAAI/bge-small-zh-v1.5` 改为 `jinaai/jina-embeddings-v2-base-zh`（Apache-2.0，约 640MB）。WixQA Expert 向量 R@5 0.29 → 0.57、混合 0.41 → 0.57；rag-v2 混合 Recall@3 / MRR 0.975 / 0.900 → 1.0 / 0.958；记忆评测不变；查询延迟约 10 → 20 ms。已有数据在首次打开集合时按新模型重新向量化。还比较了 multilingual-mpnet、embeddinggemma-300m、Qwen3-Embedding-0.6B-Q，见 docs/evaluation-public.md。
 - `core/embedding.py` 支持按模型配置查询与文档两侧前缀（e5、embeddinggemma、Qwen3）；`scripts/evaluate_rag_ablation.py` 新增 `--embedding-model`，非默认模型的报告按模型名分开存；原 bge-small-zh 报告（含在线改写重排）改名为 `rag_ablation_v2_bge-small-zh-v1.5.json`。
 - HTTP 客户端统一为 `httpx2`：mcp、openai、pydantic-ai 都依赖它，项目代码（Gitea 适配器、飞书、告警 Webhook、评测与脚本）从 `httpx` 迁移过来，requirements 去掉 `httpx`。
+
+## v3.11 — Jev（TypeSafe System One）接入与难例评测
+
+- 意图难例集 `evaluation/datasets/intent_v3.json`：156 条，覆盖口语、易混、否定、多诉求、多轮、改口、伪装范围外、注入、日志、信息不足等 13 个维度，附 12 条标注规则与可接受意图；评测器新增严格准确率、分维度/分划分准确率、紧急度与延迟统计。
+- 修复追问继承覆盖 LLM 结果：“还是不行”会把 LLM 已识别的 vpn_issue 改成组代表 network_issue；分类 prompt 补上与标注规则一致的类别边界。DeepSeek 在 v3 test 划分 71–72/75 → 75/75。
+- 意图识别默认 Jev 优先（`IT_INTENT_BACKEND=auto`，有 `TYPESAFE_API_KEY` 时生效）：置信度 < 0.7、超时（2s）或失败时转 LLM；系统与角色按策略枚举做选择题，工号、工单号由正则抽取（新增裸编号与历史回读）。v3 上 155/156、test 75/75、严格准确率 91.0% → 97.4%，约 6% 请求转 LLM，p50 1.30s → 0.30s；补槽结果与纯 LLM 一致。Jev 置信度校准误差 0.045（DeepSeek 0.100），DeepSeek 的自报置信度区分不了对错。
+- 结果重排新增 Jev 后端（`IT_COPILOT_RERANK_BACKEND=jev`），默认仍为 LLM：WixQA Expert MRR 不重排 0.50 / Jev 0.56 / LLM 0.69（Simulated 0.36 / 0.46 / 0.64），Jev p50 0.3s、LLM 1.1s。见 `rerank_wixqa.json`。
+- 只读工具返回的提示注入检测（`agents/injection_guard.py`，`IT_COPILOT_INJECTION_GUARD=jev`，默认关闭）：353 条检测集（AgentDojo 5 种攻击模板 + 本项目中文 SOP 困难负例与中文注入）上 Jev 与 DeepSeek 均 100% 检出、0 误报，Jev p50 0.29s。AgentDojo travel 只读攻击 20 例端到端未见收益：开关前后模型都没有真正替攻击者推荐，计为“成功”的都是模型在警示里点名了被推广的酒店。
+- 新增 `core/jev.py`、`scripts/evaluate_intent_jev.py`、`scripts/evaluate_rerank.py`、`scripts/build_injection_dataset.py`、`scripts/evaluate_injection.py`；`evaluate_agentdojo.py` 新增 `--injection-tasks`、`--report-suffix`。测试 261 项通过。
+
+## v3.12 — 上下文预算、前缀缓存、实时正文流与模块解耦
+
+- 上下文：知识检索结果只给模型标题、正文、日期和短引用（5 条结果 3076 → 802 字符，去掉分数与 64 位哈希，模型也不再把长哈希抄进回答），`top_k` 上限 20 → 10；最近对话按真实多轮消息传入，助手回答截断到 600 字；回答要求“先结论、一般不超过 300 字”。
+- 前缀缓存：system prompt 只放每个 Agent 固定的内容，skill、缺失字段、依赖证据、背景与实体移到本轮用户消息；历史截断是确定的，相邻轮次前缀一致。token 用量新增 `cache_read_tokens`，指标 `it_copilot_llm_tokens_total{direction="cache_read"}`。
+- 实时正文：单 Agent 路径边生成边推送 `answer_delta`，转去调用工具时推送 `answer_reset`；`content_delta` 语义不变。前端渲染回答草稿。
+- 应用缓存命中计数 `it_copilot_cache_lookups_total{cache,result}`（工具结果、意图）。
+- 解耦：`agent_orchestrator.py`（782 行）拆为 `agents/types.py`、`agents/base_agent.py`、`agents/agent_orchestrator.py`；`AgentToolSpec`/`make_tool` 移到 `tooling/tool_spec.py`（tooling 不再依赖 agents）；`workflow/db.py` 移到 `core/db.py`（core 不再依赖 workflow）；知识检索标为 `self_governed`，只由 MCPToolManager 负责超时/熔断/缓存，执行层不再叠一层；意图类别规则合并为一张表，删除评测专用的 `evaluation/jev_intent.py`。
+- 修复评测脚本把 `token_usage` 所有字段相加：现在只计输入 + 输出（`evaluation.reporting.billable_tokens`）。
+- 验证（DeepSeek，意图走 LLM 以便与基线对比）：应用分层集 64 场景 64/64 → 64/64，端到端延迟 p50 6.64 → 4.97 s，Agent 输入 token −29%、输出 −45%，输入的 84% 命中前缀缓存（`application_strata_v3_context_full.json`）；多轮模拟用户 50 任务 33/50、27/50 → 41/50（10 个任务从两次都失败变为通过，1 个从两次都通过变为失败），中位延迟 28.4 → 25.2 s。意图 v3 留出集仍为 75/75。测试 265 项通过。
+
+## v3.13 — 精简提示词与工具、记忆去重、bug 修复与测试补全
+
+- 提示词（pi 风格）：每个 Agent 的 system prompt 改为“一句角色 + 共用规则”，去掉与工具定义重复的工具白名单和角色/职责/流程/输出契约；`AgentProfile` 只留 temperature 与 max_tokens。规则每条对应评测里出现过的失败：先查 SOP 并写 citation、用户要求引用时本轮重新检索、只在用户明确要求时建单或提交申请。
+- Skill：每个 Agent 适用的 skill 全部放进 system prompt（可信位置、对每个 Agent 固定、前缀缓存稳定），不再按关键词注入到用户消息里；声明与规则冲突时以规则为准。access skill 写明申请字段以工具参数为准。
+- 工具：移除 `inspect_request_context`、`suggest_required_fields`、`build_diagnostic_plan`（信息已在提示里或结果恒定，74 轮评测里被调用 33 次，每次多一轮模型往返）；接待 Agent 不再需要工具；精简工具描述。
+- 记忆：情景记忆只检索其他会话（当前会话已在多轮历史与摘要里，原实现会重复注入）；多轮历史取整个工作记忆（原先最近 8 条与压缩阈值 15 条之间的消息哪里都看不到）；助手历史附一行本轮工具/审批记录（只有回答文字时模型会在后续轮次否认自己做过的事）；画像提炼约 3 轮一次、成功才推进计数；画像 JSON 不再转义中文。向量过滤新增 `$ne`。
+- Bug：裸单号/工号正则把 `incident`、`including` 当单号、把设备错误码 `E1003` 当工号；计划预算把缓存命中 token 重复计入；对话评测把历史同时作为消息和背景发两遍；`self_governed` 工具丢了总时限；注入检测扫描本地工具且每个 Agent 各建一个连接池（改为 `untrusted_output` 标记 + 编排器共享、关停时释放）；Jev 低置信度后 LLM 也失败时丢弃 Jev 答案；数值环境变量为空字符串时进程起不来（统一 `core/env.py`）；空白检索词不回退用户原话；`BaseAgent` 不传 profile 时报错；登录员工工号不计入槽位导致建单被拦（身份敏感的重置/解锁仍需用户明确给出）；模型声称已提交但本轮没有写操作成功（检测后纠正一次）。
+- 测试：后端 265 → 312 项（Jev 客户端、流式事件、注入包裹、两轮 `/chat` 历史、记忆去重与节流、工具 Schema 与体积预算、意图规则与编号边界、无据声称纠正等），前端 14 → 22 项（回答草稿逻辑抽成 `lib/answerDraft.js`）。
+- 验证（DeepSeek，意图走 LLM 以便与基线对比）：应用分层集 64/64 → 64/64，Agent 输入 token 467k → 296k（−37%）、输出 49k → 20k（−59%），输入 86% 命中前缀缓存，工具调用 219 → 139，端到端延迟 p50 6.64 → 4.75 s、p95 12.67 → 8.79 s（`application_strata_v3_final.json`）；多轮模拟 50 任务 33/50、27/50 → 41/50（排除模拟用户越界后 35/40），Agent token 1.54M → 0.79M，中位延迟 28.4 → 19.4 s（`simulated_v4_generalist_final.json`）。单次运行有波动：c2-asset-grant-jira 在多次重跑中偶有失败。
+
+## v3.14 — Jev 前置判断、精简 skill、模块拆分与难例应用评测集
+
+- Jev 在意图识别的同一请求里并行回答两件事：是否需要知识库（需要时把与意图识别并行预取的检索结果附进本轮消息，省掉 Agent 专门检索的一轮；预取出错按无结果处理）、用户这一轮要求了哪些写操作（没要求的写操作在执行前拒绝，工具列表不变以保持前缀缓存）。没有 Jev 时两项都不生效。
+- Skill 精简约一半（去掉与规则、工具描述重复的内容；删掉“建单后必须返回 ticket_id”这条与审批流程矛盾、导致模型反复改口的要求），skill 块不再带 description。
+- 拆分：`agents/intent/taxonomy.py`（类别、规则表、Jev 问题）、`agents/intent/entities.py`（编号抽取）、`agents/prompting.py`（规则、本轮消息、历史、无据声称识别）、`agents/agent_stats.py`；登录工号默认逻辑移到 `conversation_state.with_login_employee`。
+- 清理：删除只被测试使用的 `EndToEndEvaluator` 及其数据结构（evaluator.py 808 → 397 行）、`call(rerank_top_k=…)` 死路径、`Skill.matches`、未被引用的 `safety_v1.json`、运维面板里展示已删除融合策略的 intent_v2 套件。
+- Bug：资产号 `DEV-023` 被当成错误码；“错误码是 E1003”被当成工号；用户本轮要求重新提交时，“历史里提交过”的豁免让无据声称漏过纠正；评测器 `no_approval` 只看最后一轮、写操作结果只认最后一轮的审批。
+- 新增难例应用评测集 `application_hard_v4.json`（46 场景：长对话、不该写的陷阱、难措辞的写操作、带干扰文档的引用、安全、多个写操作）及检查项 `forbid_text`、`require_text_any`、`distractors`、`forbid_grant`、多权限、`free`。同一套题：改动前代码 43/46（错用历史背景文档作出处、回显用户粘贴的密码、长对话漏提交）、当前代码 + LLM 意图 44/46、当前代码 + Jev 46/46；p50 延迟 7.2 → 4.5 → 3.3 s，Agent token 549k → 271k → 270k。
+- 原 64 场景集（Jev 意图）63/64；多轮模拟（Jev 意图）37/50，失败多为模拟用户提出任务外的写请求，与此前 41/50 的差异在两次运行的波动范围内。测试 353 项。

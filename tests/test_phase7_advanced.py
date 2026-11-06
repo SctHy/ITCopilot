@@ -8,14 +8,16 @@ from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request, RoutingDecision
-from workflow.approval import approval_summary
-from agents.intent_recognizer import IntentCategory, IntentRecognizer
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.intent.recognizer import IntentRecognizer
+from agents.intent.taxonomy import IntentCategory
 from agents.planner import ExecutionPlan, PlanStep, build_plan
+from agents.types import AgentType, Request, RoutingDecision
 from core.redaction import redact
 from memory.conversation_memory import MemoryManager
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, Tool
+from workflow.approval import approval_summary
 
 
 @pytest.mark.parametrize("message,agent", [("配置 VPN", "network_software"), ("配置 vpn", "network_software"), ("连接 WIFI", "network_software"), ("连接 wifi", "network_software"), ("处理 MFA", "access"), ("处理 mfa", "access")])
@@ -174,11 +176,12 @@ def test_sse_route_is_registered():
 
 
 def test_sse_stream_emits_status_and_completed_events(monkeypatch):
+    from fastapi.testclient import TestClient
+
     import api.main
     from api import schemas, state
     from api.routes import chat as chat_routes
     from core.events import InMemoryEventBus
-    from fastapi.testclient import TestClient
     from tests.conftest import auth
 
     async def fake_chat(payload, principal, rid, emit=None):
@@ -237,8 +240,9 @@ def test_urgency_rules_apply_when_llm_unavailable(monkeypatch, message, urgency)
 
 
 def test_trace_tools_route_is_not_shadowed_by_request_id_route():
-    import api.main
     from fastapi.testclient import TestClient
+
+    import api.main
     from tests.conftest import auth
     client = TestClient(api.main.app)
     assert client.get("/trace/tools", headers=auth("grace")).json() == {"items": []}   # auditor

@@ -26,7 +26,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 from core.llm import build_model, complete_text  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
-from evaluation.reporting import DATASETS_DIR, ROOT, write_report  # noqa: E402
+from evaluation.reporting import DATASETS_DIR, ROOT, billable_tokens, write_report  # noqa: E402
 from evaluation.simulated import STOP, generate_tasks, grade, simulator_flags, user_prompt  # noqa: E402
 from workflow.store import SEED_EMPLOYEES  # noqa: E402
 
@@ -49,7 +49,7 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
             body = response.json()
             trace = (await http.get("/trace/" + body["request_id"], headers=requester)).json().get("trace", {})
             tool_calls += [{k: c.get(k) for k in ("tool_name", "input", "success")} for c in trace.get("tool_traces", [])]
-            agent_tokens += sum(body.get("token_usage", {}).values())
+            agent_tokens += billable_tokens(body.get("token_usage"))
             transcript += [{"role": "user", "content": message}, {"role": "assistant", "content": body["response"]}]
             reply = (await complete_text(user_llm, user_prompt(task, transcript), max_tokens=200, request_timeout=60)).text.strip()
             user_calls += 1

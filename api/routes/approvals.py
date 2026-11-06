@@ -1,6 +1,5 @@
 """审批收件箱、审批决定、人工对账、访问策略与员工业务状态。"""
 import asyncio
-import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api import state
 from api.deps import current_principal, forbid, require_admin, require_roles, require_workflow
 from api.schemas import ApprovalDecision
+from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 from monitor import metrics
 from workflow.store import ApprovalForbidden
@@ -55,7 +55,7 @@ async def decide_approval(approval_id: str, payload: ApprovalDecision, principal
         metrics.APPROVALS.labels(event=body["status"]).inc()
     if body["status"] == "approved" and state.worker:
         # 执行由持久 worker 完成；这里只短暂等待，让快速路径直接返回结果，慢的外部系统返回 queued/executing。
-        body = await state.worker.wait_settled(approval_id, float(os.getenv("IT_COPILOT_APPROVAL_WAIT_S", "5"))) or body
+        body = await state.worker.wait_settled(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
     return body
 
 
@@ -66,7 +66,7 @@ async def reconcile_approval(approval_id: str, principal: Principal = Depends(re
     if not body:
         raise HTTPException(404, "approval not found")
     if state.worker:
-        body = await state.worker.wait_settled(approval_id, float(os.getenv("IT_COPILOT_APPROVAL_WAIT_S", "5"))) or body
+        body = await state.worker.wait_settled(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
     return body
 
 

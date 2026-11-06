@@ -6,6 +6,8 @@ import pytest
 
 os.environ.setdefault("IT_COPILOT_AUTH_MODE", "dev")
 os.environ.setdefault("IT_COPILOT_ENV", "development")
+# 测试不连外部 Jev；需要时显式注入 JevClient。
+os.environ["IT_INTENT_BACKEND"] = "llm"
 
 
 def auth(username: str = "alice", **overrides) -> dict:

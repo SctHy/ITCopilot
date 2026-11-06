@@ -1,65 +1,43 @@
-"""EndToEndEvaluator / LLMJudge with FunctionModel stand-ins: scoring, deterministic checks, judge failure, baseline."""
+"""LLMJudge：正常评分、格式不合规时重试后判失败、分数越界视为不合规。模型用 FunctionModel 替身。"""
 import asyncio
 import json
 
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import AgentOrchestrator
-from evaluation.evaluator import DEFAULT_DIALOG_CASES, EndToEndEvaluator
+from evaluation.evaluator import LLMJudge
 
 
-def agent_model():
+def judge_with(*replies):
+    calls = []
+
     async def respond(messages, info):
-        if info.output_tools:
-            return ModelResponse(parts=[])  # 意图识别走规则兜底即可
-        return ModelResponse(parts=[TextPart("请提供错误码，我会先做只读诊断，必要时创建工单。")])
-    return FunctionModel(respond)
+        calls.append(messages)
+        reply = replies[min(len(calls), len(replies)) - 1]
+        return ModelResponse(parts=[TextPart(reply if isinstance(reply, str) else json.dumps(reply))])
+
+    judge = LLMJudge(FunctionModel(respond), "judge-test")
+    return judge, calls
 
 
-def judge_model(scores):
-    async def respond(messages, info):
-        return ModelResponse(parts=[TextPart(scores if isinstance(scores, str) else json.dumps(scores))])
-    return FunctionModel(respond)
+SCORES = {"relevance": .9, "accuracy": .8, "completeness": .7, "helpfulness": .9}
 
 
-def make_evaluator(tmp_path, judge_scores):
-    orchestrator = AgentOrchestrator("sk-local")
-    orchestrator.planning_mode = "single"  # the case checks intent routing to a specialist
-    model = agent_model()
-    orchestrator._intent_recognizer.llm = model
-    for agents in orchestrator._pool.values():
-        for agent in agents:
-            agent._llm = model
-    evaluator = EndToEndEvaluator(orchestrator, orchestrator._intent_recognizer, "sk-local", baseline_path=str(tmp_path / "baseline.json"))
-    evaluator._judge._llm = judge_model(judge_scores)
-    return evaluator
+def test_valid_scores_are_parsed():
+    judge, calls = judge_with(SCORES)
+    scores = asyncio.run(judge.judge("VPN 连不上", "先检查账号锁定", context="VPN SOP"))
+    assert not scores.judge_failed and scores.attempts == 1 and len(calls) == 1
+    assert (scores.relevance, scores.accuracy, scores.completeness, scores.helpfulness) == (.9, .8, .7, .9)
 
 
-def test_dialog_case_is_scored_checked_and_saved_as_baseline(tmp_path, monkeypatch):
-    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    evaluator = make_evaluator(tmp_path, {"relevance": .9, "accuracy": .9, "completeness": .8, "helpfulness": .9})
-    report = asyncio.run(evaluator.run(dialog_cases=DEFAULT_DIALOG_CASES[:1]))
-    assert report.status == "complete" and report.passed == report.total == 1
-    result = report.results[0]
-    assert result.metadata["deterministic_checks"] == {"agent": True}       # 路由到 network_software
-    assert report.avg_scores["relevance"] == .9
-    assert (tmp_path / "baseline.json").exists()
+def test_non_json_output_is_retried_once_then_succeeds():
+    judge, calls = judge_with("我觉得回答还不错", SCORES)
+    scores = asyncio.run(judge.judge("VPN 连不上", "先检查账号锁定"))
+    assert not scores.judge_failed and scores.attempts == 2
+    assert "格式修正要求" in calls[1][-1].parts[-1].content
 
 
-def test_judge_failure_is_excluded_and_does_not_update_baseline(tmp_path, monkeypatch):
-    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    evaluator = make_evaluator(tmp_path, "我觉得回答还不错")                  # 没有 JSON 评分
-    report = asyncio.run(evaluator.run(dialog_cases=DEFAULT_DIALOG_CASES[:1]))
-    assert report.status == "failed" and report.evaluation_errors == 1
-    assert report.results[0].metadata["judge_failed"] is True
-    assert not (tmp_path / "baseline.json").exists()
-
-
-def test_regression_against_previous_baseline_is_detected(tmp_path, monkeypatch):
-    monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    good = {"relevance": .95, "accuracy": .95, "completeness": .95, "helpfulness": .95}
-    asyncio.run(make_evaluator(tmp_path, good).run(dialog_cases=DEFAULT_DIALOG_CASES[:1]))
-    worse = make_evaluator(tmp_path, {"relevance": .5, "accuracy": .5, "completeness": .5, "helpfulness": .5})
-    report = asyncio.run(worse.run(dialog_cases=DEFAULT_DIALOG_CASES[:1]))
-    assert report.regressions and "回归" in report.regression_note
+def test_persistently_invalid_output_marks_judge_failed():
+    judge, calls = judge_with({"relevance": 1.5, "accuracy": .8, "completeness": .7, "helpfulness": .9})
+    scores = asyncio.run(judge.judge("VPN 连不上", "先检查账号锁定"))
+    assert scores.judge_failed and len(calls) == 2 and scores.relevance is None

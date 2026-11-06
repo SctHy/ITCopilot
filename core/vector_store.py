@@ -1,11 +1,11 @@
-"""向量存储：与应用数据库同库（PostgreSQL + pgvector；本地与测试用 SQLite），表结构见 workflow/db.py。
+"""向量存储：与应用数据库同库（PostgreSQL + pgvector；本地与测试用 SQLite），表结构见 core/db.py。
 
 接口是 upsert / get / query / delete / count 几个集合操作，知识库与记忆模块不关心后端：
   - PostgreSQL：相似度在库内计算，``embedding <=> :q`` 为余弦距离；
   - SQLite：按过滤条件取出候选向量，用 numpy 计算余弦距离；向量矩阵按（集合版本, 过滤条件）缓存在进程内。
 演示规模（千级片段）两边都是精确检索；数据量上来后在 PostgreSQL 上加 HNSW 索引。
 
-过滤条件只支持字符串等值、``{"$in": [...]}`` 和 ``{"$and": [...]}``，在 SQL 里按 JSON 字段求值。
+过滤条件只支持字符串等值、``{"$in": [...]}``、``{"$ne": ...}`` 和 ``{"$and": [...]}``，在 SQL 里按 JSON 字段求值。
 """
 from __future__ import annotations
 
@@ -16,11 +16,12 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-from sqlalchemy import Float, and_, bindparam, delete, func, select, update
+from sqlalchemy import Float, and_, bindparam, delete, func, or_, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 
+from core.db import Embedding, read, shared_engine
+from core.db import vector_documents as T
 from core.embedding import Embedder
-from workflow.db import Embedding, read, shared_engine, vector_documents as T
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ def _conditions(where: Optional[Dict[str, Any]]) -> list:
         field = T.c.meta[key].as_string()
         if isinstance(value, dict) and set(value) == {"$in"} and all(isinstance(v, str) for v in value["$in"]):
             out.append(field.in_(list(value["$in"])))
+        elif isinstance(value, dict) and set(value) == {"$ne"} and isinstance(value["$ne"], str):
+            # 字段缺失时 JSON 取值为 NULL，"!=" 会把这一行排除；这里视为“不等于”，保留它。
+            out.append(or_(field.is_(None), field != value["$ne"]))
         elif isinstance(value, str):
             out.append(field == value)
         else:
@@ -46,7 +50,7 @@ def _conditions(where: Optional[Dict[str, Any]]) -> list:
 
 
 class VectorStore:
-    """一个数据库上的若干集合；引擎与迁移和同库的工作流共用（workflow.db.shared_engine）。"""
+    """一个数据库上的若干集合；引擎与迁移和同库的工作流共用（core.db.shared_engine）。"""
 
     def __init__(self, url: str, embedder: Optional[Embedder] = None):
         self.engine = shared_engine(url)

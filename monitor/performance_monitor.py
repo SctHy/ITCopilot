@@ -25,6 +25,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import httpx2
 
+from core.env import env_float
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,6 @@ logger = logging.getLogger(__name__)
 SEVERITY_ORDER = {"warning": 1, "critical": 2}
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def _now_iso() -> str:
@@ -176,8 +172,8 @@ class Thresholds:
     @classmethod
     def from_env(cls) -> "Thresholds":
         return cls(
-            agent_latency_ms=_env_float("IT_COPILOT_ALERT_AGENT_LATENCY_MS", 8000),
-            routing_latency_ms=_env_float("IT_COPILOT_ROUTING_LATENCY_MS", 8000),
+            agent_latency_ms=env_float("IT_COPILOT_ALERT_AGENT_LATENCY_MS", 8000),
+            routing_latency_ms=env_float("IT_COPILOT_ROUTING_LATENCY_MS", 8000),
         )
 
 
@@ -188,13 +184,13 @@ class PerformanceMonitor:
         self._orchestrator = orchestrator
         self._tool_manager = tool_manager
         self._mcp_client = mcp_client
-        self._interval = interval_s if interval_s is not None else _env_float("IT_COPILOT_MONITOR_INTERVAL_S", 10)
+        self._interval = interval_s if interval_s is not None else env_float("IT_COPILOT_MONITOR_INTERVAL_S", 10)
         self._webhook = webhook_url if webhook_url is not None else os.getenv("IT_COPILOT_ALERT_WEBHOOK") or None
-        self._latency_threshold_s = latency_threshold_s if latency_threshold_s is not None else _env_float("IT_COPILOT_SLO_LATENCY_S", 10)
+        self._latency_threshold_s = latency_threshold_s if latency_threshold_s is not None else env_float("IT_COPILOT_SLO_LATENCY_S", 10)
         self.thresholds = thresholds or Thresholds.from_env()
         self.slos = {
-            "chat_availability": SLOTracker("chat_availability", availability_target or _env_float("IT_COPILOT_SLO_AVAILABILITY", .95)),
-            "chat_latency": SLOTracker("chat_latency", latency_target or _env_float("IT_COPILOT_SLO_LATENCY_TARGET", .95)),
+            "chat_availability": SLOTracker("chat_availability", availability_target or env_float("IT_COPILOT_SLO_AVAILABILITY", .95)),
+            "chat_latency": SLOTracker("chat_latency", latency_target or env_float("IT_COPILOT_SLO_LATENCY_TARGET", .95)),
         }
         self.alerts = AlertManager(self._notify)
         self._tool_snapshots: Deque[Tuple[float, Dict[str, Tuple[int, int]]]] = deque(maxlen=512)

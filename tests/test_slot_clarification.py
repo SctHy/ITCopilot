@@ -1,6 +1,8 @@
 import asyncio
 
-from agents.intent_recognizer import IntentCategory, IntentRecognizer, UrgencyLevel
+from agents.intent.entities import extract_entities
+from agents.intent.recognizer import IntentRecognizer
+from agents.intent.taxonomy import IntentCategory, UrgencyLevel
 
 
 def _recognizer(intent: IntentCategory):
@@ -70,7 +72,6 @@ def test_account_unlock_with_employee_id_extracts_slot():
 
 
 def test_employee_id_pattern_supports_colon_copula_and_chinese_labels():
-    recognizer = IntentRecognizer("test", model="test")
     for message, expected in (
         ("工号:1001", ["1001"]),
         ("工号：1001", ["1001"]),
@@ -78,5 +79,5 @@ def test_employee_id_pattern_supports_colon_copula_and_chinese_labels():
         ("工号为 1001", ["1001"]),
         ("员工编号 8866", ["8866"]),
     ):
-        entities = recognizer._extract_entities(message)
+        entities = extract_entities(message)
         assert entities["employee_id"] == expected, message

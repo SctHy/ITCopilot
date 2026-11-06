@@ -2,11 +2,13 @@ import asyncio
 import os
 import tempfile
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType
-from agents.intent_recognizer import IntentCategory, IntentRecognizer
-from tooling.tool_manager import MCPToolManager, Tool
-from tooling.knowledge_base import KnowledgeBase
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.intent.recognizer import IntentRecognizer
+from agents.intent.taxonomy import IntentCategory
 from agents.planner import build_plan, is_complex_request
+from agents.types import AgentType
+from tooling.knowledge_base import KnowledgeBase
+from tooling.tool_manager import MCPToolManager, Tool
 
 
 def test_tool_manager_schema_cache_and_fallback():

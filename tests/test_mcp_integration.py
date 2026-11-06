@@ -8,7 +8,8 @@ import time
 import pytest
 import uvicorn
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.types import AgentType, Request
 from tooling.mcp_client import MCPServerConfig, StandardMCPClient, load_servers
 from tooling.mcp_server import create_http_app, create_server
 from tooling.tool_manager import MCPToolManager

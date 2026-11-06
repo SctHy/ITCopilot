@@ -11,10 +11,12 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
-from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.types import AgentType, Request
+from evaluation.reporting import write_report
 from monitor.performance_monitor import PerformanceMonitor
 from tooling.tool_manager import MCPToolManager
-from evaluation.reporting import write_report
 
 
 async def main():

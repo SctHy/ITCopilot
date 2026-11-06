@@ -3,8 +3,9 @@ import asyncio
 
 
 def test_planner_passes_evidence_and_blocks_failed_dependencies():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentResponse, Request
+    from agents.agent_orchestrator import AgentOrchestrator
     from agents.planner import ExecutionPlan, PlanStep
+    from agents.types import AgentResponse, Request
 
     async def run():
         o = AgentOrchestrator("test")
@@ -45,8 +46,9 @@ def test_planner_passes_evidence_and_blocks_failed_dependencies():
 
 
 def test_budget_stop_preserves_spent_tokens_and_tool_evidence():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentResponse, Request
+    from agents.agent_orchestrator import AgentOrchestrator
     from agents.planner import ExecutionPlan, PlanStep
+    from agents.types import AgentResponse, Request
 
     async def run():
         o = AgentOrchestrator("test")
@@ -90,7 +92,8 @@ def test_plan_budget_default_and_override(monkeypatch):
 
 
 def test_diagnostic_agents_can_file_tickets_but_triage_cannot():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType
+    from agents.agent_orchestrator import AgentOrchestrator
+    from agents.types import AgentType
 
     orchestrator = AgentOrchestrator("test")
     has_ticket = {t: "create_ticket" in agents[0].get_tools() for t, agents in orchestrator._pool.items()}
@@ -112,8 +115,9 @@ def _scripted_agent_model(seen_tools, calls):
 
 
 def test_plan_steps_hide_ticket_tool_when_a_ticket_step_owns_it():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+    from agents.agent_orchestrator import AgentOrchestrator
     from agents.planner import ExecutionPlan, PlanStep
+    from agents.types import AgentType, Request
 
     async def run():
         orchestrator = AgentOrchestrator("test")
@@ -129,19 +133,20 @@ def test_plan_steps_hide_ticket_tool_when_a_ticket_step_owns_it():
 
 
 def test_diagnose_then_ticket_needs_four_rounds_and_is_not_cut_off():
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+    from agents.agent_orchestrator import AgentOrchestrator
+    from agents.types import AgentType, Request
 
     async def run():
         orchestrator = AgentOrchestrator("test")
         agent = orchestrator._pool[AgentType.ENDPOINT][0]
         agent._llm = _scripted_agent_model([], [
             ("lookup_asset", {"asset_id": "DEV-002"}),
-            ("build_diagnostic_plan", {"environment": "laptop", "reproduced": True}),
+            ("lookup_asset", {"asset_id": "DEV-003"}),
             ("create_ticket", {"title": "黑屏", "description": "已诊断"}),
         ])
         from core.identity import Principal
         alice = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
         response = await agent.handle(Request("DEV-002 黑屏，诊断后建工单", conversation_state={}, principal=alice))
-        assert response.status == "success" and response.tools_used == ["lookup_asset", "build_diagnostic_plan", "create_ticket"]
+        assert response.status == "success" and response.tools_used == ["lookup_asset", "lookup_asset", "create_ticket"]
 
     asyncio.run(run())

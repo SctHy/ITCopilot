@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-import os
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, Optional
@@ -13,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from api import state
 from api.deps import current_principal, forbid, request_id, spawn
 from api.schemas import ChatRequest, ChatResponse
+from core.env import env_float
 from core.events import TERMINAL_EVENTS, EventPublisher
 from core.identity import Principal
 from monitor import metrics
@@ -41,32 +41,50 @@ class _Stages:
             metrics.CHAT_STAGE_LATENCY.labels(stage=stage).observe(elapsed)
 
 
+async def _prefetch_knowledge(message: str, department):
+    """预取只是加速手段：检索出错时当作没有结果，不能拖垮整轮（Agent 仍可自己调用检索工具）。"""
+    if not state.tool_manager:
+        return None
+    try:
+        return await state.tool_manager.search("knowledge_search", message, top_k=3, department=department)
+    except Exception as exc:
+        logger.warning("knowledge prefetch failed: %s", type(exc).__name__)
+        return None
+
+
 async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, stages: _Stages, emit=None):
     """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。用户与部门取自已验证身份。"""
-    from agents.agent_orchestrator import Request
-    from agents.conversation_state import known_entities, merge_state
+    from agents.conversation_state import known_entities, merge_state, with_login_employee
+    from agents.tools import slim_hit
+    from agents.types import Request
 
     user_id = principal.subject
     with stages("memory_context"):
         mem_ctx = await state.memory.get_context(user_id, conv_id, query=payload.message) if state.memory else None
-    history = [{"role": m.role.value, "content": m.content} for m in mem_ctx.recent_messages[-5:]] if mem_ctx and mem_ctx.recent_messages else None
+    history = mem_ctx.history_turns() if mem_ctx and mem_ctx.recent_messages else None
     conv_state = (getattr(mem_ctx, "state", {}) or {}) if mem_ctx else {}
     with stages("intent"):
-        intent_result = await state.orchestrator.recognize_intent(payload.message, history=history, previous_intent_group=conv_state.get("intent_group"))
+        # 知识库预取与意图识别并行：本地检索几十毫秒，用不用由意图识别（Jev）判断，省掉 Agent 专门检索的那一轮。
+        intent_result, prefetched = await asyncio.gather(
+            state.orchestrator.recognize_intent(payload.message, history=history[-5:] if history else None, previous_intent_group=conv_state.get("intent_group")),
+            _prefetch_knowledge(payload.message, principal.department),
+        )
     if emit:
         await emit("intent", {"intent": intent_result.intent.value, "intent_group": intent_result.intent_group,
                               "confidence": round(intent_result.confidence, 4), "source": intent_result.recognition_source})
 
     req = Request(
-        message=payload.message, user_id=user_id, conv_id=conv_id, context=mem_ctx.to_prompt_text() if mem_ctx else "",
+        message=payload.message, user_id=user_id, conv_id=conv_id, context=mem_ctx.to_prompt_text(include_recent=False) if mem_ctx else "",
         history=history, entities=intent_result.entities, intent=intent_result.intent, intent_group=intent_result.intent_group,
         urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=principal.department, request_id=rid,
-        principal=principal, emit=emit,
+        principal=principal, emit=emit, allowed_writes=intent_result.requested_actions,
+        knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge and prefetched and prefetched.success else [],
     )
     req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
     # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
-    req.conversation_state = merge_state(conv_state, intent_result.intent_group, intent_result.entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
-    req.entities = known_entities(req.conversation_state, intent_result.entities)
+    entities = with_login_employee(intent_result.entities, conv_state, principal.employee_id, intent_result.intent.value)
+    req.conversation_state = merge_state(conv_state, intent_result.intent_group, entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
+    req.entities = known_entities(req.conversation_state, entities)
 
     async def before_unsafe_tool(name):
         # Chat tools only prepare immutable approval data. Actual effects happen in the
@@ -165,7 +183,7 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
         intent_source_scores=intent_result.source_scores, clarification_needed=bool(req.conversation_state.get("missing_fields")),
         missing_slots=req.conversation_state.get("missing_fields", []), inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
-        tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used, latency_ms=result.latency_ms,
+        tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used or bool(req.knowledge), latency_ms=result.latency_ms,
         escalated=result.escalated, plan=result.plan, findings=result.findings, approval_required=bool(approval), approval_id=approval_id,
         token_usage=result.token_usage, stage_ms=stages.ms,
     )
@@ -211,7 +229,7 @@ async def _run_streamed(payload: ChatRequest, principal: Principal, rid: str, em
 
 
 async def _subscribe(stream: str, after: Optional[str]):
-    heartbeat_s = float(os.getenv("IT_COPILOT_SSE_HEARTBEAT_S", "15"))
+    heartbeat_s = env_float("IT_COPILOT_SSE_HEARTBEAT_S", 15)
     while True:
         events = await state.events.read(stream, after, block_s=heartbeat_s)
         if not events:
@@ -230,7 +248,7 @@ def _stream_response(stream: str, after: Optional[str]) -> StreamingResponse:
 
 @router.post("/chat/stream")
 async def chat_stream(payload: ChatRequest, principal: Principal = Depends(current_principal)):
-    """实时执行事件流：intent → routed/plan → tool_started/tool_finished → approval_required → content_delta → completed。
+    """实时执行事件流：intent → routed/plan → tool_started/tool_finished（单 Agent 时穿插 answer_delta / answer_reset 实时正文）→ approval_required → content_delta → completed。
 
     每个事件带 id，可用 GET /chat/stream/{request_id} + Last-Event-ID 断线续传。相同 client_request_id 的
     重复提交只订阅已有执行，不会再跑一遍。"""

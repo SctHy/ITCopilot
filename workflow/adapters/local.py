@@ -11,8 +11,8 @@ from typing import Any, Dict, Optional
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.engine import Engine
 
+from core.db import directory_effects, directory_employees, directory_grants, directory_tickets
 from workflow.adapters.base import PermanentError
-from workflow.db import directory_effects, directory_employees, directory_grants, directory_tickets
 
 
 class LocalDirectoryAdapter:

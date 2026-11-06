@@ -15,11 +15,12 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field
 
+from core.env import env_float
 
 logger = logging.getLogger(__name__)
 AGENT_TYPES = ("triage", "endpoint", "access", "network_software", "ticket")
@@ -166,7 +167,7 @@ class LLMPlanner:
         prompt = PLANNER_PROMPT.format(max_steps=MAX_PLAN_STEPS, message=message, history=json.dumps((history or [])[-4:], ensure_ascii=False))
         try:
             run = self._agent.run(prompt, model=self.llm, model_settings=ModelSettings(max_tokens=800, temperature=0.))
-            output = (await asyncio.wait_for(run, timeout=float(os.getenv("IT_COPILOT_PLANNER_TIMEOUT_S", "30")))).output
+            output = (await asyncio.wait_for(run, timeout=env_float("IT_COPILOT_PLANNER_TIMEOUT_S", 30))).output
         except Exception as exc:
             self.metrics["fallback_plans"] += 1
             self.metrics["last_error"] = type(exc).__name__

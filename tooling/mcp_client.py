@@ -21,9 +21,9 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, Implementation, PaginatedRequestParams
 
-from agents.tools import AgentToolSpec
 from monitor import metrics
 from tooling.tool_manager import MCPToolManager, Tool
+from tooling.tool_spec import AgentToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +256,8 @@ class StandardMCPClient:
             self._agent_tools[alias] = AgentToolSpec(
                 name=alias, description="外部 MCP 资料工具：" + (remote.description or remote.name)[:1500],
                 input_schema=remote.input_schema, handler=agent_handler, allowed_agents=tuple(config.agents),
-                retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True))
+                retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True),
+                untrusted_output=True)
         self._update_metrics(config.name)
         if self._on_change:
             self._on_change()

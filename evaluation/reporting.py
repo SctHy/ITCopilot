@@ -21,5 +21,11 @@ def write_report(filename: str, report: Dict[str, Any], *, echo: bool = True) ->
     return path
 
 
+def billable_tokens(usage) -> int:
+    """输入 + 输出 token；cache_read_tokens 是输入里命中前缀缓存的部分，不能再加一遍。"""
+    usage = usage or {}
+    return int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
+
+
 def status(passed: bool) -> str:
     return "passed" if passed else "failed"

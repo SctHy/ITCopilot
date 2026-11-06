@@ -1,12 +1,12 @@
 import asyncio
-import pytest
 
+import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
-from pydantic_ai.models.function import FunctionModel
 
 from api import deps
 from core.identity import principal_from_token
 from evaluation.application import application, auth
+from evaluation.fake_model import scripted_model
 
 
 def access_model():
@@ -40,7 +40,7 @@ def access_model():
             )
         return ModelResponse(parts=[TextPart("已生成待审批请求，未执行权限变更。")])
 
-    return FunctionModel(reply)
+    return scripted_model(reply)
 
 
 def test_http_chat_approval_execution_and_replay():

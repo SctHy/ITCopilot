@@ -22,6 +22,7 @@ from api import state
 from api.deps import env_flag
 from api.routes import approvals, auth, chat, intake, knowledge, ops
 from api.routes.chat import _channel_turn
+from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
 from core.identity import dev_mode_allowed
 from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
@@ -61,7 +62,7 @@ async def _start_channels():
         except ChannelError as exc:
             logger.warning("飞书机器人 open_id 获取失败，群聊中的 @ 将无法识别（可设置 FEISHU_BOT_OPEN_ID）：%s", exc)
     service = ChannelService(state.workflow.engine, {"feishu": client}, _channel_turn, {"feishu": resolve_principal},
-                             poll_s=float(os.getenv("IT_COPILOT_CHANNEL_POLL_S", "1")))
+                             poll_s=env_float("IT_COPILOT_CHANNEL_POLL_S", 1))
     state.workflow.notify = service.notify_approval
     service.start()
     logger.info("feishu channel enabled (allowed chats: %s)", sorted(settings.allowed_chats) or "all")
@@ -73,9 +74,9 @@ async def lifespan(app: FastAPI):
     from agents.agent_orchestrator import AgentOrchestrator
     from core.concurrency import ProfileUpdater
     from core.skill_loader import SkillManager
-    from monitor.telemetry import setup_tracing, shutdown_tracing
     from memory.conversation_memory import MemoryManager
     from monitor.performance_monitor import PerformanceMonitor
+    from monitor.telemetry import setup_tracing, shutdown_tracing
     from tooling.knowledge_base import KnowledgeBase
     from tooling.mcp_server import create_http_app, create_server
     from tooling.tool_manager import MCPToolManager, Tool
@@ -113,7 +114,7 @@ async def lifespan(app: FastAPI):
     state.workflow = await asyncio.to_thread(WorkflowStore, db_url)
     state.registry = build_registry(state.workflow)
     state.workflow.route = lambda action: state.registry.for_action(action).name
-    state.worker = ExecutionWorker(state.workflow, state.registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))
+    state.worker = ExecutionWorker(state.workflow, state.registry, poll_s=env_float("IT_COPILOT_WORKER_POLL_S", 1))
     if env_flag("IT_COPILOT_WORKER_ENABLED", "true"):
         state.worker.start()
     state.events = RedisEventBus(state.memory._redis) if state.memory else InMemoryEventBus()
@@ -149,6 +150,7 @@ async def lifespan(app: FastAPI):
             state.workflow.close()
             if state.mcp_client:
                 await state.mcp_client.close()
+            await state.orchestrator.aclose()
             _mcp_mount.app = None
     if state.background_tasks:
         await asyncio.gather(*state.background_tasks, return_exceptions=True)

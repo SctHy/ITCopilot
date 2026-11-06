@@ -33,11 +33,11 @@ from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from intake.base import ChannelError, InboundMessage, Sender
+from core import db as schema
+from core.db import channel_inbox, channel_outbox
 from core.identity import Principal
+from intake.base import ChannelError, InboundMessage, Sender
 from monitor import metrics
-from workflow import db as schema
-from workflow.db import channel_inbox, channel_outbox
 
 logger = logging.getLogger(__name__)
 

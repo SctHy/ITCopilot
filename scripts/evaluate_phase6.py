@@ -13,11 +13,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
-from workflow.approval import approval_summary
+from agents.agent_orchestrator import AgentOrchestrator
+from agents.types import AgentType, Request
 from core.redaction import redact
 from evaluation.reporting import status, write_report
 from tooling.knowledge_base import KnowledgeBase
+from workflow.approval import approval_summary
 
 
 def check_secret_redaction() -> bool:

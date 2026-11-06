@@ -1,4 +1,7 @@
-"""IT-Copilot 意图识别：PydanticAI 结构化输出；模型不可用时退回关键词规则。
+"""IT-Copilot 意图识别：Jev 优先，低置信度或失败时转 PydanticAI 结构化输出；模型都不可用时退回关键词规则。
+
+Jev（TypeSafe System One）只做固定选项判断：意图、紧急度，以及策略里有限取值的系统与角色；
+工号、工单号、错误码等自由字符串由正则抽取。intent_v3 难例集上的对比见 evaluation/reports/intent_v3_jev.json。
 
 曾试过 LLM、向量相似度、关键词规则三路加权投票：88 条样本的留出集上 LLM 与投票都是 44/44，
 规则 30%、向量（bge-small-zh 匹配模板句）57%，投票没有带来收益，已移除。
@@ -11,119 +14,36 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
+from agents.intent.entities import clean_entities, extract_entities, merge_entities
+from agents.intent.taxonomy import (
+    CATEGORY_GUIDE,
+    INTENT_GROUPS,
+    INTENT_WRITE_ACTION,
+    KEYWORDS,
+    REPRESENTATIVE_INTENTS,
+    REQUIRED_SLOTS,
+    WRITE_ACTIONS,
+    IntentCategory,
+    UrgencyLevel,
+    jev_questions,
+    jev_state,
+)
+from core.env import env_float
+from core.jev import JevClient, top_choice
 from core.llm import build_model
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
 
 
-class IntentCategory(str, Enum):
-    DEVICE_FAILURE = "device_failure"
-    DEVICE_PROVISIONING = "device_provisioning"
-    PASSWORD_RESET = "password_reset"
-    ACCOUNT_UNLOCK = "account_unlock"
-    MFA_ISSUE = "mfa_issue"
-    PERMISSION_REQUEST = "permission_request"
-    ACCESS_REVIEW = "access_review"
-    VPN_ISSUE = "vpn_issue"
-    WIFI_ISSUE = "wifi_issue"
-    NETWORK_ISSUE = "network_issue"
-    SOFTWARE_INSTALL = "software_install"
-    SOFTWARE_LICENSE = "software_license"
-    EMAIL_COLLAB_ISSUE = "email_collab_issue"
-    HOWTO = "howto"
-    TICKET_CREATE = "ticket_create"
-    TICKET_STATUS = "ticket_status"
-    TICKET_CANCEL = "ticket_cancel"
-    HUMAN_HANDOFF = "human_handoff"
-    GREETING = "greeting"
-    CHITCHAT = "chitchat"
-    OUT_OF_SCOPE = "out_of_scope"
-    OTHER = "other"
-
-
-class UrgencyLevel(str, Enum):
-    LOW = "low"
-    NORMAL = "normal"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
 I = IntentCategory
-INTENT_GROUPS: Dict[IntentCategory, str] = {
-    I.DEVICE_FAILURE: "endpoint", I.DEVICE_PROVISIONING: "endpoint",
-    I.PASSWORD_RESET: "access", I.ACCOUNT_UNLOCK: "access", I.MFA_ISSUE: "access", I.PERMISSION_REQUEST: "access", I.ACCESS_REVIEW: "access",
-    I.VPN_ISSUE: "network", I.WIFI_ISSUE: "network", I.NETWORK_ISSUE: "network",
-    I.SOFTWARE_INSTALL: "software", I.SOFTWARE_LICENSE: "software", I.EMAIL_COLLAB_ISSUE: "software",
-    I.HOWTO: "knowledge",
-    I.TICKET_CREATE: "ticket", I.TICKET_STATUS: "ticket", I.TICKET_CANCEL: "ticket",
-    I.HUMAN_HANDOFF: "escalation",
-    I.GREETING: "general", I.CHITCHAT: "general", I.OUT_OF_SCOPE: "general", I.OTHER: "general",
-}
-
-# 规则匹配关键词：命中数最多的意图胜出。
-KEYWORDS: Dict[IntentCategory, List[str]] = {
-    I.VPN_ISSUE: ["vpn", "虚拟专网"],
-    I.PASSWORD_RESET: ["重置密码", "忘记密码", "密码过期", "域账号密码"],
-    I.ACCOUNT_UNLOCK: ["账号被锁", "账户被锁", "解锁账号", "解锁企业账号"],
-    I.MFA_ISSUE: ["mfa", "二次验证", "验证码收不到", "验证器"],
-    I.PERMISSION_REQUEST: ["申请权限", "开通权限", "访问权限", "权限"],
-    I.ACCESS_REVIEW: ["检查一下我的系统权限", "检查权限", "权限复核"],
-    I.DEVICE_PROVISIONING: ["申请电脑", "新电脑", "领设备", "设备申领", "办公设备"],
-    I.DEVICE_FAILURE: ["蓝屏", "黑屏", "电脑坏", "设备故障", "键盘失灵", "键盘无法使用"],
-    I.WIFI_ISSUE: ["wifi", "wi-fi", "无线网", "无线网络"],
-    I.NETWORK_ISSUE: ["网络慢", "内网", "网络故障"],
-    I.SOFTWARE_INSTALL: ["安装软件", "安装应用", "装软件", "安装开发工具", "安装办公软件"],
-    I.SOFTWARE_LICENSE: ["许可证", "license", "授权过期"],
-    I.EMAIL_COLLAB_ISSUE: ["邮箱", "邮件", "会议协作", "协作工具"],
-    I.TICKET_CREATE: ["创建工单", "提交工单", "服务台请求", "报修"],
-    I.TICKET_STATUS: ["工单状态", "工单进度", "处理到哪"],
-    I.TICKET_CANCEL: ["取消工单", "撤回工单"],
-    I.HUMAN_HANDOFF: ["转人工", "升级处理", "服务台人工", "升级给 IT"],
-    I.HOWTO: ["怎么", "如何", "教程", "配置步骤", "使用教程"],
-    I.OUT_OF_SCOPE: ["写一首诗", "天气怎么样", "股票", "讲个笑话"],
-    I.GREETING: ["你好", "您好", "hello", "hi", "嗨", "早上好"],
-    I.CHITCHAT: ["你是谁", "你叫什么", "你能做什么", "谢谢", "辛苦了", "再见"],
-}
-
-# 写操作类意图的必填槽位；缺失时先澄清。
-REQUIRED_SLOTS: Dict[IntentCategory, tuple] = {
-    I.PERMISSION_REQUEST: ("employee_id", "system"),
-    I.DEVICE_PROVISIONING: ("employee_id", "device_id"),
-    I.PASSWORD_RESET: ("employee_id",),
-    I.ACCOUNT_UNLOCK: ("employee_id",),
-    I.TICKET_CREATE: ("employee_id",),
-    I.TICKET_STATUS: ("ticket_id",),
-}
-
-# 追问继承上一轮意图组时，用于代表该组的意图。
-REPRESENTATIVE_INTENTS: Dict[str, IntentCategory] = {
-    "network": I.NETWORK_ISSUE, "access": I.PERMISSION_REQUEST, "endpoint": I.DEVICE_FAILURE,
-    "ticket": I.TICKET_STATUS, "software": I.SOFTWARE_INSTALL,
-}
-
-ENTITY_PATTERNS: Dict[str, str] = {
-    "employee_id": r"(?:员工编号|员工号|工号|employee[_ -]?id)\s*(?:是|为|:|：)?\s*([A-Za-z0-9_-]{3,32})",
-    "device_id": r"(?:设备号|资产号|asset[_ -]?tag|device[_ -]?id)\s*[:：]?\s*([A-Za-z0-9_-]{3,32})",
-    "hostname": r"(?:主机名|hostname)\s*[:：]?\s*([A-Za-z0-9_.-]{2,64})",
-    "ticket_id": r"(?:工单号|ticket[_ -]?id)\s*[:：]?\s*([A-Za-z0-9_-]{3,32})",
-    "error_code": r"\b((?:HTTP[-_ ]?)?[45]\d\d|VPN[-_]?\d{2,4}|MFA[-_]?\d{2,4}|[A-Z]{2,12}[-_]\d{2,5})\b",
-    "vpn_type": r"\b(SSL VPN|IPSec|WireGuard|OpenVPN)\b",
-}
-# 部门/地点允许中文且不去重，保持与历史输出一致。
-FREE_TEXT_ENTITY_PATTERNS: Dict[str, str] = {
-    "department": r"(?:部门|department)\s*[:：]?\s*([一-鿿A-Za-z0-9_-]{2,40})",
-    "location": r"(?:地点|办公地点|location)\s*[:：]?\s*([一-鿿A-Za-z0-9_-]{2,40})",
-}
-
 FOLLOWUP_CUES = re.compile(r"还是不行|仍然|依旧|那个|这个|它|第二个|上面|刚才|继续|然后呢", re.I)
 # 这些组不代表具体 IT 领域；追问句命中它们时应继承上一轮的意图组。
 NON_DOMAIN_GROUPS = {"general", "knowledge"}
@@ -167,10 +87,14 @@ class IntentResult:
     inherited_from_previous: bool = False
     llm_used: bool = False
     recognition_source: str = "fallback"
+    # 只有 Jev 给出判断时才有值；None 表示不知道，调用方按原行为处理（不预取、不限制写操作）。
+    requested_actions: Optional[FrozenSet[str]] = None
+    needs_knowledge: Optional[bool] = None
 
 
 def _fresh_metrics() -> Dict[str, Any]:
-    return {"llm_calls": 0, "llm_success": 0, "fallback_calls": 0, "fallback_disabled": 0, "fallback_errors": 0, "last_error": None}
+    return {"llm_calls": 0, "llm_success": 0, "fallback_calls": 0, "fallback_disabled": 0, "fallback_errors": 0, "last_error": None,
+            "jev_calls": 0, "jev_accepted": 0, "jev_escalated": 0, "jev_errors": 0, "jev_last_error": None, "jev_input_tokens": 0}
 
 
 def _fallback_vote(source: str) -> Dict[str, Any]:
@@ -179,41 +103,68 @@ def _fallback_vote(source: str) -> Dict[str, Any]:
 
 
 class IntentRecognizer:
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = ""):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None):
         self.llm = build_model(api_key, base_url, model)
         self.model = model
+        # IT_INTENT_BACKEND：auto（有 TYPESAFE_API_KEY 时用 Jev）/ jev / llm。
+        backend = os.getenv("IT_INTENT_BACKEND", "auto").lower()
+        self._jev = jev or (JevClient.from_env(timeout_s=env_float("IT_INTENT_JEV_TIMEOUT_S", 2)) if backend in {"auto", "jev"} else None)
+        # intent_v3 上 0.7 时约 6% 请求转 LLM，留出集无损；见 evaluation/reports/intent_v3_jev.json。
+        self._jev_threshold = env_float("IT_INTENT_JEV_THRESHOLD", 0.7)
         self._classifier = Agent(output_type=ToolOutput(IntentClassification, name="classify_it_request", description="分类 IT 意图并抽取非敏感实体。"), name="intent_classifier")
         self._cache: Dict[str, IntentResult] = {}
         self._cache_limit = max(100, int(os.getenv("IT_INTENT_CACHE_SIZE", "2048")))
-        self._clarify_threshold = float(os.getenv("IT_INTENT_CLARIFY_THRESHOLD", "0.60"))
+        self._clarify_threshold = env_float("IT_INTENT_CLARIFY_THRESHOLD", 0.60)
         self._metrics = _fresh_metrics()
 
     def metrics(self) -> Dict[str, Any]:
         return dict(self._metrics)
+
+    async def aclose(self) -> None:
+        if self._jev:
+            await self._jev.aclose()
 
     def reset_metrics(self) -> None:
         self._metrics = _fresh_metrics()
 
     async def recognize(self, message: str, history: Optional[List[Dict[str, str]]] = None, previous_intent_group: Optional[str] = None) -> IntentResult:
         key = self._cache_key(message, history, previous_intent_group)
+        metrics.CACHE_LOOKUPS.labels(cache="intent", result="hit" if key in self._cache else "miss").inc()
         if key in self._cache:
             return self._cache[key]
 
         pattern = self._pattern(message)
+        jev = None
         if os.getenv("IT_INTENT_LLM_ENABLED", "true").lower() in {"1", "true", "yes"}:
-            llm = await self._llm(message, history)
+            jev = await self._jev_classify(message, history) if self._jev else None
+            if jev and jev["confidence"] >= self._jev_threshold:
+                self._metrics["jev_accepted"] += 1
+                llm = jev
+            else:
+                if jev:
+                    self._metrics["jev_escalated"] += 1
+                llm = await self._llm(message, history)
+                if jev and str(llm.get("_source", "")).startswith("fallback"):
+                    # LLM 也失败时，低置信度的 Jev 答案仍远好于关键词规则（intent_v3 上规则约 30%）。
+                    llm = {**jev, "_source": "jev_low_confidence"}
+                elif jev:
+                    llm["_jev_confidence"] = jev["confidence"]
         else:
             self._metrics["fallback_calls"] += 1
             self._metrics["fallback_disabled"] += 1
             llm = _fallback_vote("fallback_disabled")
 
         intent, confidence, scores = self.select(llm, pattern)
-        inherited_intent = self._inherited_intent(message, pattern["intent"], previous_intent_group)
+        if "_jev_confidence" in llm:
+            scores["jev"] = llm["_jev_confidence"]
+        # LLM 已结合历史给出领域意图时不再用规则覆盖（否则“还是不行”会把 vpn_issue 改成组代表 network_issue）。
+        llm_domain = llm.get("_llm_used") and INTENT_GROUPS.get(intent, "general") not in NON_DOMAIN_GROUPS
+        inherited_intent = None if llm_domain else self._inherited_intent(message, pattern["intent"], previous_intent_group)
         if inherited_intent is not None:
             intent, confidence = inherited_intent, max(confidence, .6)
         group = INTENT_GROUPS.get(intent, "general")
 
-        entities = self._merge_entities(self._extract_entities(message), llm.get("entities", {}))
+        entities = merge_entities(extract_entities(message), llm.get("entities", {}))
         missing = self._missing_slots(intent, entities)
         low_confidence = confidence < self._clarify_threshold
         if low_confidence and not missing:
@@ -233,6 +184,11 @@ class IntentRecognizer:
             llm_used=bool(llm.get("_llm_used")),
             recognition_source=llm.get("_source", "fallback"),
         )
+        if jev:
+            # 即使意图转给了 LLM，Jev 的这两项判断仍然可用；意图本身就是写操作时也算用户要求了。
+            implied = {INTENT_WRITE_ACTION[intent]} if intent in INTENT_WRITE_ACTION else set()
+            result.requested_actions = frozenset(jev["_actions"] | implied)
+            result.needs_knowledge = jev["_needs_sop"]
         metrics.INTENT_RECOGNITIONS.labels(source=result.recognition_source, intent_group=group).inc()
         if result.clarification_needed:
             metrics.INTENT_CLARIFICATIONS.labels(intent_group=group).inc()
@@ -248,7 +204,7 @@ class IntentRecognizer:
         """LLM 结果优先；LLM 失败或被关闭时用规则结果，并在分数里标明 pattern_fallback。"""
         if str(llm.get("_source", "")).startswith("fallback"):
             return pattern["intent"], float(pattern.get("confidence", 0)), {"pattern_fallback": float(pattern.get("confidence", 0))}
-        return llm["intent"], float(llm.get("confidence", 0)), {"llm": float(llm.get("confidence", 0))}
+        return llm["intent"], float(llm.get("confidence", 0)), {"jev" if str(llm.get("_source", "")).startswith("jev") else "llm": float(llm.get("confidence", 0))}
 
     @staticmethod
     def _inherited_intent(message: str, pattern_intent: IntentCategory, previous_group: Optional[str]) -> Optional[IntentCategory]:
@@ -271,17 +227,48 @@ class IntentRecognizer:
     def _missing_slots(intent: IntentCategory, entities: Dict[str, List[str]]) -> List[str]:
         return [key for key in REQUIRED_SLOTS.get(intent, ()) if not entities.get(key)]
 
+    async def _jev_classify(self, message: str, history: Optional[List[Dict[str, str]]]) -> Optional[Dict[str, Any]]:
+        """Jev 一次请求同时回答意图、紧急度、系统与角色；失败返回 None 交给 LLM。"""
+        self._metrics["jev_calls"] += 1
+        try:
+            response = await self._jev.ask(jev_state(message, history), jev_questions())
+            answers = response.answers
+            self._metrics["jev_input_tokens"] += int(response.usage.get("input_tokens") or 0)
+            intent, confidence = top_choice(answers["intent"])
+            result = {"intent": IntentCategory(intent), "confidence": confidence, "urgency": UrgencyLevel(answers["urgency"]["choice"]),
+                      "entities": {}, "reasoning": "", "_llm_used": True, "_source": "jev"}
+        except Exception as exc:
+            self._metrics["jev_errors"] += 1
+            self._metrics["jev_last_error"] = type(exc).__name__
+            logger.info("IT intent jev fallback: %s", type(exc).__name__)
+            return None
+        for slot in ("system", "role"):
+            value, prob = top_choice(answers[slot]) if slot in answers else ("none", 0.)
+            if value != "none" and prob >= .5:
+                result["entities"][slot] = [value]
+        noul = lambda key: float((answers.get(key) or {}).get("noul", 0.))  # noqa: E731
+        result["_actions"] = {tool for tool in WRITE_ACTIONS if noul(f"wants_{tool}") >= .5}
+        # 拿不准时预取：本地检索只要几十毫秒，漏取则要多一轮模型调用。
+        result["_needs_sop"] = noul("needs_sop") >= .4
+        # LLM 会从历史里读出编号（如上一轮回复里的工单号）；Jev 路径用正则补上，当前消息里的编号仍优先合并。
+        past = extract_entities("\n".join(str(item.get("content", "")) for item in (history or [])[-4:]))
+        for slot in ("employee_id", "ticket_id", "device_id"):
+            if past.get(slot):
+                result["entities"][slot] = past[slot][-1:]
+        return result
+
     async def _llm(self, message: str, history: Optional[List[Dict[str, str]]]) -> Dict[str, Any]:
         prompt = f"""你是企业 IT 服务台分类器。必须调用 classify_it_request，禁止直接输出自然语言。
 无论用户是在提 IT 问题，还是打招呼（greeting）、闲聊（chitchat）或超出范围（out_of_scope），都必须完整填写所有字段。
 confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80-0.95；greeting/chitchat/out_of_scope 也必须填合理值，建议 0.80-0.95；绝对不能留空、填 null 或填 0。
+{CATEGORY_GUIDE}
 用户消息：{message}
 历史：{json.dumps(history[-4:] if history else [], ensure_ascii=False)}"""
         self._metrics["llm_calls"] += 1
         try:
             settings = ModelSettings(max_tokens=max(1024, int(os.getenv("IT_INTENT_MAX_TOKENS", "1024"))), temperature=0.)
             run = self._classifier.run(prompt, model=self.llm, model_settings=settings)
-            data: IntentClassification = (await asyncio.wait_for(run, timeout=float(os.getenv("IT_INTENT_TIMEOUT_S", "45")))).output
+            data: IntentClassification = (await asyncio.wait_for(run, timeout=env_float("IT_INTENT_TIMEOUT_S", 45))).output
         except Exception as exc:
             self._metrics["fallback_calls"] += 1
             self._metrics["fallback_errors"] += 1
@@ -295,24 +282,10 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
         self._metrics["llm_success"] += 1
         return {
             "intent": data.intent, "confidence": confidence, "urgency": data.urgency, "reasoning": data.reasoning[:500],
-            "entities": self._clean_entities(data.entities.model_dump()), "_llm_used": True, "_source": "llm_tool_use",
+            "entities": clean_entities(data.entities.model_dump()), "_llm_used": True, "_source": "llm_tool_use",
         }
 
-    @staticmethod
-    def _clean_entities(value: Any) -> Dict[str, List[str]]:
-        if not isinstance(value, dict):
-            return {}
-        return {
-            str(k): list(dict.fromkeys(str(x)[:64] for x in v if isinstance(x, (str, int, float))))[:8]
-            for k, v in value.items() if isinstance(v, list)
-        }
 
-    @staticmethod
-    def _merge_entities(a: Dict[str, List[str]], b: Dict[str, List[str]]) -> Dict[str, List[str]]:
-        out = dict(a)
-        for k, v in b.items():
-            out[k] = list(dict.fromkeys(out.get(k, []) + v))[:8]
-        return out
 
     @staticmethod
     def _pattern(message: str) -> Dict[str, Any]:
@@ -330,11 +303,6 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
             return {"intent": IntentCategory.OTHER, "confidence": 0.}
         return {"intent": intent, "confidence": min(.95, .5 + .15 * hits)}
 
-    @staticmethod
-    def _extract_entities(message: str) -> Dict[str, List[str]]:
-        result = {k: list(dict.fromkeys(re.findall(p, message, re.I))) for k, p in ENTITY_PATTERNS.items()}
-        result.update({k: re.findall(p, message, re.I) for k, p in FREE_TEXT_ENTITY_PATTERNS.items()})
-        return result
 
     @staticmethod
     def _urgency(message: str, intent: IntentCategory) -> UrgencyLevel:

@@ -56,11 +56,17 @@ class ToolExecutor:
         return hashlib.sha256(json.dumps([request_id, name, args], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     async def run(self, spec, req, args: Dict[str, Any]) -> Any:
+        timeout = getattr(spec, "timeout_s", None) or self.timeout_s
+        if getattr(spec, "self_governed", False):
+            # 内层已有熔断、重试与兜底，这里只保留总时限：检索开启改写+重排时一次调用包含多次模型请求。
+            try:
+                return await asyncio.wait_for(self._call(spec, req, args), timeout=timeout)
+            except TimeoutError:
+                raise ToolTimeout(f"工具 {spec.name} 执行超过 {timeout:g}s") from None
         breaker = self.breaker(spec.name)
         if not breaker.allow():
             self._state(spec.name, breaker)
             raise ToolUnavailable(f"工具 {spec.name} 连续失败，已熔断，请稍后重试")
-        timeout = getattr(spec, "timeout_s", None) or self.timeout_s
         attempts = 1 + (self.read_retries if spec.retry_safe else 0)
         try:
             for attempt in range(1, attempts + 1):

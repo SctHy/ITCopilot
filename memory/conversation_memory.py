@@ -11,8 +11,8 @@
   - 工作记忆超过阈值时自动压缩（LLM 摘要），防止 context 爆炸
   - Embedding 由本地中文模型生成（core/embedding.py），LLM 用于摘要和画像提炼
 """
-import hashlib
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -24,15 +24,15 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
-from redis.exceptions import WatchError
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
+from redis.exceptions import WatchError
 
-from core.vector_store import VectorStore
-from core.llm import build_model, close_model, complete_text
 from core.concurrency import KeyedLocks, redis_lease
+from core.llm import build_model, close_model, complete_text
+from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,40 @@ class MemoryContext:
         """移除 Unicode 代理字符，防止编码错误。"""
         return text.encode("utf-8", errors="ignore").decode("utf-8")
 
-    def to_prompt_text(self) -> str:
-        """将记忆上下文格式化为 LLM 可用的文本。"""
+    def history_turns(self, limit: int = 20, assistant_chars: int = 600) -> List[Dict[str, str]]:
+        """工作记忆里的全部对话，供 Agent 作多轮消息历史。
+
+        工作记忆本身有界：攒到 COMPRESS_AT 条就把较早的部分压成摘要、只留最近 5 条，所以这里不再另截一刀；
+        否则“最近 N 条之外、尚未压缩”的消息既不在历史里也不在摘要里（情景记忆也不检索当前会话）。
+
+        助手回答按固定长度截断：既压住上下文（单条回答可达上千 token），截断结果又是确定的，
+        相邻两轮请求的历史前缀保持一致，模型服务的前缀缓存才能命中。
+        """
+        turns = []
+        for m in self.recent_messages[-limit:]:
+            if m.role not in (MsgRole.USER, MsgRole.ASSISTANT):
+                continue
+            content = self._clean(m.content)
+            if m.role == MsgRole.ASSISTANT and len(content) > assistant_chars:
+                content = content[:assistant_chars] + "…（已截断）"
+            if m.role == MsgRole.ASSISTANT and (m.metadata.get("tools") or m.metadata.get("approval_id")):
+                note = "本轮工具：" + ("、".join(m.metadata.get("tools") or []) or "无")
+                if m.metadata.get("approval_id"):
+                    note += f"；已生成待审批 {m.metadata['approval_id']}"
+                content += f"\n[{note}]"
+            turns.append({"role": m.role.value, "content": content})
+        return turns
+
+    def to_prompt_text(self, include_recent: bool = True) -> str:
+        """将记忆上下文格式化为 LLM 可用的文本；最近对话改走多轮消息时传 include_recent=False。"""
         parts = []
         if self.summary:
             parts.append(f"[会话摘要]\n{self._clean(self.summary)}")
         if self.relevant_history:
             parts.append("[相关历史]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
         if self.user_profile:
-            parts.append(f"[用户画像]\n{json.dumps(self.user_profile, ensure_ascii=True)}")
-        if self.recent_messages:
+            parts.append(f"[用户画像]\n{json.dumps(self.user_profile, ensure_ascii=False)}")
+        if include_recent and self.recent_messages:
             parts.append("[最近对话]")
             for m in self.recent_messages[-8:]:
                 parts.append(f"{m.role.value}: {self._clean(m.content)}")
@@ -108,6 +132,7 @@ class MemoryManager:
     MEMORY_MAX_TOKENS = 1200
     MEMORY_HALF_LIFE_DAYS = 30.0
     SUMMARY_MAX_CHARS = 800
+    PROFILE_EVERY_MESSAGES = 6  # 约 3 轮对话提炼一次画像
     PROFILE_DOC_PREFIX = "user_profile:"
 
     def __init__(
@@ -151,13 +176,15 @@ class MemoryManager:
 
     async def commit_turn(self, user_id, conv_id, request_id, message, response, trace=None, *, state=None):
         """原子保存一整轮及响应回执；由 conversation 锁保护。"""
-        def raw(role, content):
+        def raw(role, content, **extra):
             return json.dumps({"role": role, "content": self._safe_text(content),
-                "ts": datetime.now().isoformat(), "metadata": {"request_id": request_id}})
+                "ts": datetime.now().isoformat(), "metadata": {"request_id": request_id, **extra}})
         key = self._wm_key(user_id, conv_id)
         async with self._redis.pipeline(transaction=True) as pipe:
             if response.get("status") != "failed":
-                pipe.lpush(key, raw("user", message), raw("assistant", response["response"]))
+                # 记下本轮的工具与审批：历史里只有回答文字时，后几轮模型找不到执行证据，会反过来否认自己做过的事。
+                evidence = {"tools": list(response.get("tools_used") or []), "approval_id": response.get("approval_id")}
+                pipe.lpush(key, raw("user", message), raw("assistant", response["response"], **evidence))
                 pipe.expire(key, 86400)
                 if state is not None:
                     pipe.set(self._state_key(user_id, conv_id), json.dumps(state), ex=86400)
@@ -184,15 +211,27 @@ class MemoryManager:
 
     async def maintain(self, user_id, conv_id):
         # _compress 的快照与 WATCH 提交已保护一致性；生成摘要不占聊天锁。
+        # 先判断是否该提炼画像：压缩会把工作记忆截短，之后再数就会漏掉这批消息。
+        due_at = await self._profile_due(user_id, conv_id)
         await asyncio.wait_for(self._compress(user_id, conv_id), 30)
-        await self.update_profile(user_id, conv_id)
+        # 提炼成功才推进计数；失败（超时、拿不到租约）时这批消息下一轮还会再试。
+        if due_at is not None and await self.update_profile(user_id, conv_id):
+            await self._redis.set(self._profile_mark_key(user_id, conv_id), due_at, ex=86400)
 
-    async def update_profile(self, user_id: str, conv_id: str) -> None:
+    async def _profile_due(self, user_id: str, conv_id: str) -> Optional[int]:
+        """画像提炼要调一次 LLM：本会话新增够 PROFILE_EVERY_MESSAGES 条消息才做。到期时返回当前条数，否则 None。"""
+        count = await self._redis.llen(self._wm_key(user_id, conv_id))
+        mark = int(await self._redis.get(self._profile_mark_key(user_id, conv_id)) or 0)
+        if count < mark:  # 压缩后工作记忆变短，重新计数
+            mark = 0
+        return count if count - mark >= self.PROFILE_EVERY_MESSAGES else None
+
+    async def update_profile(self, user_id: str, conv_id: str) -> bool:
         digest = hashlib.sha256(self._safe_text(user_id).encode()).hexdigest()
         async with redis_lease(self._redis, f"lock:profile:{digest}"):
-            await self._update_profile(user_id, conv_id)
+            return await self._update_profile(user_id, conv_id)
 
-    async def _update_profile(self, user_id: str, conv_id: str) -> None:
+    async def _update_profile(self, user_id: str, conv_id: str) -> bool:
         """
         从当前工作记忆中提炼用户偏好，更新用户画像。
         用 LLM 提炼偏好，然后写入用户画像集合。
@@ -201,7 +240,7 @@ class MemoryManager:
         conv_id = self._safe_text(conv_id)
         messages = await self._get_working_memory(user_id, conv_id)
         if not messages:
-            return
+            return False
 
         current_profile = await self._get_profile(user_id)
 
@@ -238,8 +277,10 @@ class MemoryManager:
                 }],
             )
             logger.info(f"用户画像已更新: {user_id}")
+            return True
         except Exception as ex:
             logger.warning(f"更新用户画像失败: {ex}")
+            return False
 
     @staticmethod
     def _normalize_profile(value: Any) -> Dict[str, Any]:
@@ -401,30 +442,20 @@ class MemoryManager:
         return self._messages_from_raw(raws)
 
     async def _search_episodic(self, user_id: str, conv_id: str, query: str, intent_group: Optional[str] = None, entities: Optional[Dict[str, Any]] = None, max_tokens: int = MEMORY_MAX_TOKENS) -> List[str]:
-        """语义检索情景记忆（本地 embedding，不依赖外部 API）。"""
+        """跨会话语义检索情景记忆（本地 embedding）。
+
+        当前会话不在检索范围内：最近几轮已作为多轮消息传给模型，更早的部分有会话摘要，
+        再检索一遍只会把同一段问答重复塞进上下文。
+        """
         query_text = self._safe_text(query).strip()
         if not query_text:
             return []
+        conditions = [{"user_id": self._safe_text(user_id)}, {"conv_id": {"$ne": self._safe_text(conv_id)}}]
+        if intent_group:
+            conditions.append({"intent_group": self._safe_text(intent_group)})
         try:
-            where = {"$and": [{"user_id": self._safe_text(user_id)}, {"conv_id": self._safe_text(conv_id)}]}
-            if intent_group:
-                where["$and"].append({"intent_group": self._safe_text(intent_group)})
-            results = await self._query_episodic(
-                query_text,
-                n_results=self.HISTORY_TOP_K,
-                where=where,
-            )
+            results = await self._query_episodic(query_text, n_results=self.HISTORY_TOP_K, where={"$and": conditions})
             docs = self._rank_memory_rows(results, max_tokens, entities)
-            if len(docs) < self.HISTORY_TOP_K:
-                fallback_where = {"user_id": self._safe_text(user_id)}
-                if intent_group:
-                    fallback_where = {"$and": [{"user_id": self._safe_text(user_id)}, {"intent_group": self._safe_text(intent_group)}]}
-                fallback = await self._query_episodic(
-                    query_text,
-                    n_results=self.HISTORY_TOP_K,
-                    where=fallback_where,
-                )
-                docs.extend(self._rank_memory_rows(fallback, max_tokens, entities))
             return self._budget_texts(self._dedupe_texts(docs), max_tokens)[: self.HISTORY_TOP_K]
         except Exception as ex:
             logger.warning(f"情景记忆检索失败: {ex}")
@@ -495,6 +526,10 @@ class MemoryManager:
     @classmethod
     def _wm_key(cls, user_id: str, conv_id: str) -> str:
         return f"wm_v2:{cls._conversation_id(user_id, conv_id)}"
+
+    @classmethod
+    def _profile_mark_key(cls, user_id: str, conv_id: str) -> str:
+        return f"profile_mark_v1:{cls._conversation_id(user_id, conv_id)}"
 
     @classmethod
     def _summary_key(cls, user_id: str, conv_id: str) -> str:

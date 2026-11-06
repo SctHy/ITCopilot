@@ -61,7 +61,7 @@ flowchart LR
 
 ## 核心能力
 
-- 基于 PydanticAI 的结构化意图输出（`classify_it_request`）、多轮补槽和纠正；模型失败或被关闭时退回关键词规则，结果标明来源。
+- 意图识别 Jev（TypeSafe System One）优先、低置信度转 PydanticAI 结构化输出（`classify_it_request`），多轮补槽和纠正；模型都不可用时退回关键词规则，结果标明来源。156 条难例集上留出集 75/75，p50 0.3s。
 - 四种规划策略（`IT_COPILOT_PLANNING_MODE`）：`generalist`（默认，一个 Agent 持有全部工具）、`bounded`（LLM 规划 + Triage/Endpoint/Access/Network/Ticket 专职 Agent，按领域隔离工具）、`bounded_all`、`single`；支持性能路由与降级兜底。
 - 向量、BM25、Hybrid 三种检索，Hybrid 使用 RRF 合并并返回 citation。
 - 多 Agent 规划：LLM 结构化输出计划（失败回退规则规划器），最多 4 步，只在用户要求时建单；独立步骤并行，依赖证据传入下游，前置失败阻断依赖；token 预算按步骤数计算，在波次间检查。
@@ -174,7 +174,7 @@ python scripts/compare_strategies.py evaluation/reports/simulated_v4_*_run*.json
 python scripts/evaluate_rag_wixqa.py [--embedding-model BAAI/bge-small-en-v1.5]
 ```
 
-运行时入口：`GET /metrics`（含 `it_copilot_chat_stage_seconds{stage}`：memory_context / intent / agent / approval / commit 分阶段耗时，响应与 trace 里同时带 `stage_ms`）、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`，断线后 `GET /chat/stream/{request_id}` + `Last-Event-ID` 续读。执行在后台任务中进行，与连接解耦：客户端断开不会取消执行，相同 `client_request_id` 重复提交只订阅已有执行。正文目前是最终回答分片，不是模型 token 流。前端“运行与评测”页每 15 秒刷新上述状态。
+运行时入口：`GET /metrics`（含 `it_copilot_chat_stage_seconds{stage}`：memory_context / intent / agent / approval / commit 分阶段耗时，响应与 trace 里同时带 `stage_ms`）、`GET /monitor`（SLO 燃烧率、触发中的告警与处置建议、Agent/工具/MCP 健康度）、`GET /trace/{request_id}`、`GET /eval/reports`；流式接口：`POST /chat/stream`，断线后 `GET /chat/stream/{request_id}` + `Last-Event-ID` 续读。执行在后台任务中进行，与连接解耦：客户端断开不会取消执行，相同 `client_request_id` 重复提交只订阅已有执行。单 Agent 路径（默认 generalist）边生成边推送 `answer_delta`（模型 token 流，攒约 24 字一发）；某轮回复转去调用工具时推送 `answer_reset`，前端清掉这段过渡语。`content_delta` 仍是最终回答的分片，拼起来与 `completed` 一致；多 Agent 计划只有 `content_delta`。前端“运行与评测”页每 15 秒刷新上述状态。
 
 ### 监控设计
 
@@ -204,12 +204,13 @@ api/                 HTTP 入口
   schemas.py         请求与响应模型
   routes/            chat（含 SSE）、approvals（含策略）、knowledge、auth、ops（健康/监控/trace/评测）、intake
 intake/              外部入口：飞书（校验、准入、身份映射）、IM 收发件箱
-agents/              Agent 编排、工具、意图识别、Planner、多轮对话状态
+agents/              Agent 编排与运行时（提示组装、工具治理、流式输出）、工具、Planner、多轮对话状态
+  intent/            意图识别：分类体系与规则表、编号抽取、识别器（Jev 优先、LLM 兜底）
 workflow/            审批库（CAS、职责分离、outbox、策略复核）、执行 worker、策略加载
   adapters/          目标系统适配器：Gitea、本地目录；失败分类契约
 memory/              Redis 锁与幂等、三级记忆
 tooling/             统一工具执行层、知识库、MCP 客户端与服务端
-core/                基础设施：身份、模型工厂、事件流、向量存储与 embedding、Skill 加载、脱敏、并发
+core/                基础设施：数据库、身份、模型工厂与 Jev 客户端、事件流、向量存储与 embedding、Skill 加载、脱敏、并发
 monitor/             Prometheus 指标、SLO 燃烧率与告警状态机、OpenTelemetry
 migrations/          Alembic 迁移
 config/              访问策略、告警规则、飞书身份映射、演示身份、MCP

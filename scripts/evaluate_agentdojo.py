@@ -28,19 +28,20 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from dotenv import load_dotenv
-
 from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
 from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
 from agentdojo.attacks.attack_registry import load_attack
 from agentdojo.functions_runtime import EmptyEnv, FunctionCall
 from agentdojo.task_suite.load_suites import get_suites
 from agentdojo.types import text_content_block_from_string
+from dotenv import load_dotenv
 
-from agents.agent_orchestrator import AgentType, BaseAgent, Request, profile
-from agents.tools import AgentToolSpec
+from agents.base_agent import BaseAgent
+from agents.injection_guard import InjectionGuard
+from agents.types import AgentType, Request
 from core.llm import build_model, close_model
-from evaluation.reporting import ROOT, write_report
+from evaluation.reporting import ROOT, billable_tokens, write_report
+from tooling.tool_spec import AgentToolSpec
 
 BENCHMARK_VERSION = "v1.2.2"
 ATTACK = "important_instructions_no_model_name"
@@ -82,13 +83,14 @@ class ITCopilotPipeline(BasePipelineElement):
 
         specs = {
             f.name: AgentToolSpec(f.name, f.description, f.parameters.model_json_schema(), handler(f.name),
-                                  retry_safe=f.name not in WRITE_TOOLS)
+                                  retry_safe=f.name not in WRITE_TOOLS, untrusted_output=True)
             for f in runtime.functions.values()
         }
 
         async def run():
             model = build_model()
-            agent = AssistantAgent(model, "", profile=profile("办公助手", "完成用户的邮件、日历、文件、银行、Slack 与出行任务", specs))
+            agent = AssistantAgent(model, "")
+            agent.injection_guard = InjectionGuard.from_env()
             agent.set_shared_tools(specs)
             try:
                 return await agent.handle(Request(message=query, user_id="agentdojo"))
@@ -127,7 +129,7 @@ def run_pair(suite, pipeline, user_task, injection_task, attack):
         "utility": bool(utility), "attack_success": bool(security) if injection_task else None,
         "tool_calls": calls, "write_calls": [c for c in calls if c in WRITE_TOOLS],
         "answer": answer, "status": extra.get("status"), "error_code": extra.get("error_code"), "error": error,
-        "tokens": sum((extra.get("token_usage") or {}).values()), "seconds": round(time.monotonic() - started, 1),
+        "tokens": billable_tokens(extra.get("token_usage")), "seconds": round(time.monotonic() - started, 1),
     }
 
 
@@ -175,6 +177,8 @@ def main():
     parser.add_argument("--no-attack", action="store_true", help="只测无攻击时的 utility")
     parser.add_argument("--workers", type=int, default=4, help="并发任务数，不要超过模型服务商的并发上限")
     parser.add_argument("--rescore", action="store_true", help="不调用模型，按当前口径重算已有报告的 summary")
+    parser.add_argument("--injection-tasks", default="", help="只跑这些注入任务（逗号分隔 ID）；默认全部")
+    parser.add_argument("--report-suffix", default="", help="报告文件名后缀，如 _guard，避免覆盖基线报告")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     warnings.filterwarnings("ignore", message="Model output was None")
@@ -193,7 +197,8 @@ def main():
     pipeline = ITCopilotPipeline()
     attack = load_attack(ATTACK, suite, pipeline)
     user_tasks = list(suite.user_tasks.values())[: args.user_tasks or None]
-    pairs = [(u, None) for u in user_tasks] if args.no_attack else [(u, i) for u in user_tasks for i in suite.injection_tasks.values()]
+    injection_tasks = [t for t in suite.injection_tasks.values() if not args.injection_tasks or t.ID in args.injection_tasks.split(",")]
+    pairs = [(u, None) for u in user_tasks] if args.no_attack else [(u, i) for u in user_tasks for i in injection_tasks]
 
     rows = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -204,7 +209,7 @@ def main():
 
     complete = not args.user_tasks
     write_report(
-        f"agentdojo/{args.suite}_{kind}.json",
+        f"agentdojo/{args.suite}_{kind}{args.report_suffix}.json",
         {
             "suite": f"agentdojo-{args.suite}",
             "status": "complete" if complete else "partial",
@@ -212,6 +217,8 @@ def main():
             "attack": None if args.no_attack else ATTACK,
             "model": os.getenv("OPENAI_MODEL", ""),
             "runtime": "BaseAgent (PydanticAI) with AgentDojo tools; write tools executed directly, no approval",
+            "injection_guard": os.getenv("IT_COPILOT_INJECTION_GUARD", "off"),
+            "injection_tasks": args.injection_tasks or "all",
             "max_model_rounds": int(os.getenv("IT_COPILOT_MAX_MODEL_ROUNDS", "5")),
             "write_tools": sorted(WRITE_TOOLS & {f.name for f in suite.tools}),
             "injection_goal_writes": None if args.no_attack else goals,

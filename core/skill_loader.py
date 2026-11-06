@@ -26,32 +26,13 @@ class Skill:
     agents: List[str] = field(default_factory=list)
     enabled: bool = True
 
-    def matches(self, message: str, agent_type: Optional[str] = None) -> bool:
-        """
-        判断当前请求是否应该注入这个 Skill。
-
-        - agents 为空：适用于所有 Agent；否则只匹配指定 Agent。
-        - keywords 为空：作为全局 Skill 注入；否则只有命中关键词才注入。
-        """
-        if not self.enabled:
-            return False
-
-        if self.agents and agent_type and agent_type.lower() not in self.agents:
-            return False
-
-        if not self.keywords:
-            return True
-
-        lowered = (message or "").lower()
-        return any(keyword.lower() in lowered for keyword in self.keywords)
-
     def to_prompt_block(self, max_chars: int = 3200) -> str:
         """格式化为可直接拼入 system prompt 的文本块，并限制单个 Skill 长度。"""
         body = self.content.strip()
         if len(body) > max_chars:
             body = body[:max_chars].rstrip() + "\n..."
-        description = f"\n说明: {self.description}" if self.description else ""
-        return f"### {self.name}{description}\n{body}"
+        # description 是给人看的目录信息，不发给模型；标题加正文就够了。
+        return f"### {self.name}\n{body}"
 
     def to_summary(self) -> Dict[str, Any]:
         """返回 API 可序列化摘要，避免把完整长文本默认暴露给健康检查。"""
@@ -121,57 +102,25 @@ class SkillManager:
         """运行时热加载入口，供 API 调用。"""
         return self.load()
 
-    def prompt_for(self, message: str, agent_type: Optional[str] = None) -> str:
-        """
-        为当前用户请求构建 Skill prompt。
+    def prompt_for(self, agent_type: Optional[str] = None) -> str:
+        """某个 Agent 适用的全部 Skill，按总长度截断；agent_type 为 None（通用 Agent）时取全部。
 
-        只注入匹配的 Skill，并按总长度截断，避免挤占主对话上下文。
+        不再按消息关键词挑选：结果对每个 Agent 固定，可放进 system prompt（可信位置、前缀缓存稳定），
+        也不会因为关键词没命中而漏掉该遵守的规范。keywords 只作元数据保留。
         """
         blocks: List[str] = []
-        matched: List[tuple[Skill, List[str]]] = []
         remaining = self.max_prompt_chars
-        lowered_message = (message or "").lower()
-
         for skill in self._skills:
-            if not skill.matches(message, agent_type):
+            if not skill.enabled or (agent_type and skill.agents and agent_type.lower() not in skill.agents):
                 continue
-            matched_keywords = [
-                keyword for keyword in skill.keywords
-                if keyword.lower() in lowered_message
-            ]
             block = skill.to_prompt_block()
             if len(block) > remaining:
                 block = block[:remaining].rstrip() + "\n..."
             blocks.append(block)
-            matched.append((skill, matched_keywords))
             remaining -= len(block)
             if remaining <= 0:
                 break
-
-        if not blocks:
-            logger.debug(
-                "Skills 未命中: agent=%s message=%r",
-                agent_type or "all",
-                (message or "")[:80],
-            )
-            return ""
-
-        detail = "; ".join(
-            f"{skill.name}(keywords={', '.join(keywords) if keywords else 'all'})"
-            for skill, keywords in matched
-        )
-        logger.info(
-            "Skills 已注入: agent=%s matched=%s message=%r",
-            agent_type or "all",
-            detail,
-            (message or "")[:80],
-        )
-
-        return (
-            "以下是当前请求可用的 IT-Copilot Skills。"
-            "请优先遵循这些业务规则；如果与系统角色冲突，以系统角色和安全边界为准。\n\n"
-            + "\n\n".join(blocks)
-        )
+        return "\n\n".join(blocks)
 
     def summary(self) -> Dict[str, Any]:
         """返回 Skill 管理器状态，用于 /skills 接口和排障。"""

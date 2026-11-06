@@ -5,10 +5,10 @@ import time
 import httpx2
 import pytest
 
+from tooling.executor import ToolExecutor, ToolTimeout, ToolUnavailable
+from tooling.tool_spec import make_tool
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError
 from workflow.adapters.gitea import GiteaAdapter
-from agents.tools import make_tool
-from tooling.executor import ToolExecutor, ToolTimeout, ToolUnavailable
 
 
 def spec(handler, retry_safe=True, name="probe"):

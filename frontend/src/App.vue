@@ -531,6 +531,7 @@ import { completeOidcLogin, oidcLogout, startOidcLogin, storeToken } from './lib
 import RequestInspector from './components/RequestInspector.vue'
 
 import { createRequestState } from './lib/requestState'
+import { createAnswerDraft } from './lib/answerDraft.js'
 
 const settings = reactive(createInitialSettings())
 const requestState = createRequestState(settings)
@@ -805,6 +806,7 @@ async function sendMessage() {
   nextTick(() => messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' }))
   const request = requestState.begin('action')
   busy.value = true
+  const answerDraft = createAnswerDraft(messages.value, createMessageId)
   try {
     streamStatus.value = ''
     if (!settings.conversationId) {
@@ -813,11 +815,13 @@ async function sendMessage() {
     }
     const response = await requestChatStream(request.backend, { ...request.settings, conversationId: settings.conversationId }, content, (event, data) => {
       // 执行过程中实时到达的事件（不是完成后回放）。
+      if (request.isCurrent() && answerDraft.onEvent(event, data)) return
       const labels = {
         status: '已受理，正在识别问题', intent: `已识别：${data.intent}`, routed: `交给 ${(data.agent_types || []).join(' + ')} 处理`,
         plan: '已生成处理计划', step_started: `步骤开始：${data.title || data.step_id}`, step_finished: `步骤完成：${data.step_id}`,
         tool_started: `正在调用工具 ${data.tool}`, tool_finished: `工具 ${data.tool} ${data.success ? '完成' : '失败'}（${data.latency_ms}ms）`,
-        approval_required: `已提交审批，需 ${data.approvals_required} 人批准`, content_delta: '正在输出回复', resumed: '连接中断，正在续传'
+        approval_required: `已提交审批，需 ${data.approvals_required} 人批准`, content_delta: '正在输出回复', resumed: '连接中断，正在续传',
+        answer_reset: '正在调用工具'
       }
       streamStatus.value = labels[event] || streamStatus.value
     })
@@ -828,6 +832,7 @@ async function sendMessage() {
     }
     const trace = await loadToolTrace(response.requestId, request)
     if (!request.isCurrent()) return
+    answerDraft.remove()
     lastResponse.value = response
     lastTrace.value = trace
     const intentLabels = { greeting: '打招呼', chitchat: '闲聊', out_of_scope: '超出范围', vpn_issue: 'VPN 故障', password_reset: '密码重置', permission_request: '权限申请', other: '其他' }
@@ -843,6 +848,7 @@ async function sendMessage() {
     await loadMonitor()
   } catch (error) {
     if (!request.isCurrent()) return
+    answerDraft.remove()
     messages.value.push({ id: createMessageId(), role: 'assistant', content: error.message, meta: '请求失败', error: true })
   } finally {
     if (!request.isCurrent()) return

@@ -21,10 +21,11 @@ def test_shipped_skills_load_without_errors(shipped):
     assert shipped.errors == []
 
 
-def test_skill_is_injected_only_for_matching_keyword_and_agent(shipped):
-    assert "network-software-support" in shipped.prompt_for("VPN 连不上", "network_software")
-    assert "network-software-support" not in shipped.prompt_for("VPN 连不上", "access")       # agent 不匹配
-    assert shipped.prompt_for("今天天气怎么样", "network_software") == ""                     # 无关键词命中
+def test_skills_are_selected_by_agent_not_by_message(shipped):
+    network = shipped.prompt_for("network_software")
+    assert "network-software-support" in network and "access-support" not in network      # 只取标给自己的
+    everything = shipped.prompt_for(None)                                                  # 通用 Agent
+    assert all(name in everything for name in ("network-software-support", "access-support", "endpoint-support", "ticket-service"))
 
 
 def test_prompt_respects_total_budget(tmp_path):
@@ -33,9 +34,8 @@ def test_prompt_respects_total_budget(tmp_path):
         (tmp_path / f"s{i}" / "SKILL.md").write_text(f"---\nname: skill-{i}\nkeywords: [VPN]\n---\n" + "规则。" * 2000, encoding="utf-8")
     manager = SkillManager(str(tmp_path), max_prompt_chars=1000)
     manager.load()
-    prompt = manager.prompt_for("VPN", "triage")
-    body = prompt.split("\n\n", 1)[1]
-    assert len(body) <= 1000 + 10 and "skill-0" in prompt and "skill-2" not in prompt
+    prompt = manager.prompt_for("triage")
+    assert len(prompt) <= 1000 + 10 and "skill-0" in prompt and "skill-2" not in prompt
 
 
 def test_malformed_skill_is_reported_not_fatal(tmp_path):
@@ -53,13 +53,21 @@ def test_disabled_skill_is_never_injected(tmp_path):
     (tmp_path / "off" / "SKILL.md").write_text("---\nname: off\nenabled: false\n---\n内容", encoding="utf-8")
     manager = SkillManager(str(tmp_path))
     manager.load()
-    assert manager.prompt_for("任何问题", "triage") == ""
+    assert manager.prompt_for("triage") == "" and manager.prompt_for(None) == ""
 
 
-def test_matching_skill_reaches_agent_system_prompt(shipped):
-    from agents.agent_orchestrator import AgentOrchestrator, AgentType, Request
+def test_agent_skills_live_in_fixed_system_prompt_not_in_user_turn(shipped):
+    from agents.agent_orchestrator import AgentOrchestrator
+    from agents.prompting import AGENT_RULES, turn_prompt
+    from agents.types import AgentType, Request
     orchestrator = AgentOrchestrator("sk-local", skill_manager=shipped)
     network = orchestrator._pool[AgentType.NETWORK_SOFTWARE][0]
     access = orchestrator._pool[AgentType.ACCESS][0]
-    assert "network-software-support" in network._build_system_prompt(Request("VPN 连不上，DNS 解析失败"))
-    assert "network-software-support" not in access._build_system_prompt(Request("VPN 连不上，DNS 解析失败"))
+    req = Request("VPN 连不上，DNS 解析失败")
+    system = network._build_system_prompt(req)
+    assert "network-software-support" in system and "network-software-support" not in access._build_system_prompt(req)
+    # 规则在前、skill 在后，且声明冲突时以规则为准；用户消息里不再出现 skill。
+    assert system.index(AGENT_RULES) < system.index("以规则为准") < system.index("network-software-support")
+    assert "network-software-support" not in turn_prompt(req)
+    assert system == network._build_system_prompt(Request("打印机卡纸"))
+    assert "access-support" in orchestrator._generalist._build_system_prompt(req)

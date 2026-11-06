@@ -84,10 +84,12 @@ async def trace_request(request_id: str, principal: Principal = Depends(current_
     return {"request_id": request_id, "found": trace is not None, "trace": trace or {}, "schema_version": 1}
 
 
+# 不调用模型的 v1 离线门禁（evaluate_all.py）；其余是真实模型评测。
+SMOKE_SUITES = {"intent", "rag", "memory", "planner", "safety"}
 # 离线评测套件 → 前端展示的关键指标（label, 报告中的取值路径, 展示格式）。
 EVAL_SUITES = (
     ("application_v2", "应用留出集 · 真实模型 / 本地业务", "application_holdout_live.json", (("单 Agent 成功率", "summary.single.success_rate", "percent"), ("多 Agent 成功率", "summary.bounded.success_rate", "percent"), ("每策略运行数", "summary.single.trials", "number"))),
-    ("intent_v2", "意图留出集 · 真实模型", "intent_ablation_live.json", (("LLM 准确率", "strategies.llm.accuracy", "percent"), ("融合准确率", "strategies.fusion.accuracy", "percent"), ("留出样本", "test_n", "number"))),
+    ("intent_v3", "意图难例集 · 真实模型", "intent_v3_llm.json", (("准确率（含可接受）", "accuracy", "percent"), ("严格准确率", "strict_accuracy", "percent"), ("用例数", "total", "number"))),
     ("rag_v2", "检索消融 · 60 文档 / 40 查询", "rag_ablation_v2.json", (("BM25 Recall@3", "strategies.bm25.recall_at_3", "percent"), ("Vector Recall@3", "strategies.vector.recall_at_3", "percent"), ("Hybrid Recall@3", "strategies.hybrid.recall_at_3", "percent"))),
     ("intent", "意图识别", "intent_latest.json", (("准确率", "accuracy", "percent"), ("Macro-F1", "macro_f1", "percent"), ("用例数", "total", "number"))),
     ("rag", "混合检索 RAG", "rag_latest.json", (("Hybrid Recall@5", "hybrid.recall_at_5", "percent"), ("Hybrid MRR", "hybrid.mrr", "number"), ("Vector Recall@5", "vector.recall_at_5", "percent"))),
@@ -118,7 +120,7 @@ async def eval_reports():
     for suite_id, title, filename, fields in EVAL_SUITES:
         report = await asyncio.to_thread(load, filename)
         suites.append({
-            "id": suite_id, "title": title if suite_id.endswith("_v2") else "历史 smoke · " + title, "status": (report or {}).get("status", "missing"),
+            "id": suite_id, "title": "历史 smoke · " + title if suite_id in SMOKE_SUITES else title, "status": (report or {}).get("status", "missing"),
             "metrics": [{"label": label, "value": _dig(report, path), "format": fmt} for label, path, fmt in fields] if report else [],
         })
     gate = await asyncio.to_thread(load, "all_latest.json") or {}

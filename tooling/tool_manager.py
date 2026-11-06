@@ -28,6 +28,8 @@ from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
+from core.env import env_float
+from core.jev import JevClient
 from core.llm import build_model
 from monitor import metrics
 
@@ -133,7 +135,6 @@ class Tool:
     schema:      Dict[str, Any]              # JSON Schema
     cache_ttl:   float = 0.0                 # 0 = 不缓存
     timeout_s:   float = 30.0
-    supports_rerank: bool = False            # 是否支持结果重排
     fallback:    Optional[Callable] = None    # sync/async (params, context, error) -> Any
 
     # 运行时状态（不参与构造）
@@ -151,11 +152,14 @@ class MCPToolManager:
       用户查询 → 查询改写（多角度子查询）→ 并行召回 → 结果重排 → 返回 Top-K
     """
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = ""):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None):
         self._llm   = build_model(api_key, base_url, model)
+        # IT_COPILOT_RERANK_BACKEND：llm / jev（需 TYPESAFE_API_KEY，失败时退回 LLM 重排）。
+        backend = os.getenv("IT_COPILOT_RERANK_BACKEND", "llm").lower()
+        self._jev = jev or (JevClient.from_env(timeout_s=env_float("IT_COPILOT_RERANK_JEV_TIMEOUT_S", 3)) if backend == "jev" else None)
         self._tools: Dict[str, Tool] = {}
         self._cache_versions: Dict[str, int] = {}
-        self._cache: Dict[str, tuple] = {}   # key → (result, expire_at, reranked)
+        self._cache: Dict[str, tuple] = {}   # key → (result, expire_at)
 
     # ── 注册 / 注销 ───────────────────────────────────────────────────────────
 
@@ -177,14 +181,12 @@ class MCPToolManager:
         context: Optional[Dict[str, Any]] = None,
         *,
         use_cache: bool = True,
-        rerank_top_k: int = 0,          # >0 时对结果重排，取 Top-K
     ) -> ToolResult:
         """
-        调用工具，完整执行链：
-          缓存检查 → 熔断检查 → 参数校验 → 执行（含超时）→ 可选重排 → 缓存写入
-        每次调用都记录结果分类、执行耗时与熔断状态指标。
+        调用工具，完整执行链：参数校验 → 缓存检查 → 熔断检查 → 执行（含超时）→ 缓存写入。
+        每次调用都记录结果分类、执行耗时与熔断状态指标。重排只在 search_with_rewrite 里对合并结果做。
         """
-        result = await self._call(name, params, context, use_cache=use_cache, rerank_top_k=rerank_top_k)
+        result = await self._call(name, params, context, use_cache=use_cache)
         metrics.TOOL_CALLS.labels(tool=name, outcome=result.outcome).inc()
         if result.outcome == "success":
             metrics.TOOL_LATENCY.labels(tool=name).observe(result.latency_ms / 1000)
@@ -193,7 +195,7 @@ class MCPToolManager:
             metrics.TOOL_CIRCUIT_STATE.labels(tool=name).set(metrics.CIRCUIT_STATE_VALUES[tool.breaker.state.value])
         return result
 
-    async def _call(self, name, params, context, *, use_cache, rerank_top_k) -> ToolResult:
+    async def _call(self, name, params, context, *, use_cache) -> ToolResult:
         tool = self._tools.get(name)
         if not tool:
             return ToolResult(success=False, data=None, tool_name=name, error=f"工具不存在: {name}", outcome="unknown")
@@ -204,23 +206,15 @@ class MCPToolManager:
             # 用户参数错误不应使健康的外部服务被熔断。
             return ToolResult(success=False, data=None, tool_name=name, error=str(ex), outcome="invalid")
         cache_version = self._cache_versions.get(name, 0)
-        cache_rerank_top_k = rerank_top_k if rerank_top_k > 0 and tool.supports_rerank else 0
 
         # 缓存命中
         if use_cache and tool.cache_ttl > 0:
-            cached = self._get_cache(name, params, cache_rerank_top_k, context)
+            cached = self._get_cache(name, params, context)
+            metrics.CACHE_LOOKUPS.labels(cache=f"tool:{name}", result="hit" if cached is not None else "miss").inc()
             if cached is not None:
-                cached_data, cached_reranked = cached
                 tool.stats.total += 1
                 tool.stats.success += 1
-                return ToolResult(
-                    success=True,
-                    data=cached_data,
-                    tool_name=name,
-                    cached=True,
-                    reranked=cached_reranked,
-                    outcome="cached",
-                )
+                return ToolResult(success=True, data=cached, tool_name=name, cached=True, outcome="cached")
 
         # 熔断检查
         if not tool.breaker.allow():
@@ -233,25 +227,15 @@ class MCPToolManager:
         try:
             data = await asyncio.wait_for(self._run_handler(tool, params, context), timeout=tool.timeout_s)
             latency = (time.monotonic() - t0) * 1000
-
-            # 重排（针对返回列表的检索工具）
-            reranked = False
-            if rerank_top_k > 0 and tool.supports_rerank and isinstance(data, list):
-                query = params.get("query", "")
-                data, reranked = await self._rerank_with_status(query, data, rerank_top_k)
-
-            latency = (time.monotonic() - t0) * 1000
             tool.stats.success += 1
             tool.stats.consecutive_fails = 0
             tool.stats.total_latency_ms += latency
             tool.breaker.record_success(generation)
 
-            # 写缓存：缓存最终返回结果，避免下次命中未重排的原始结果。
             if use_cache and tool.cache_ttl > 0 and cache_version == self._cache_versions.get(name, 0):
-                self._set_cache(name, params, data, tool.cache_ttl, cache_rerank_top_k, reranked, context)
+                self._set_cache(name, params, data, tool.cache_ttl, context)
 
-            return ToolResult(success=True, data=data, tool_name=name,
-                              latency_ms=latency, reranked=reranked)
+            return ToolResult(success=True, data=data, tool_name=name, latency_ms=latency)
 
         except asyncio.CancelledError:
             if tool.breaker.state == CircuitState.HALF_OPEN:
@@ -435,10 +419,14 @@ class MCPToolManager:
         """
         if len(items) <= top_k:
             return items, False
+        if self._jev:
+            try:
+                return await self._rerank_jev(query, items, top_k), True
+            except Exception as ex:
+                logger.warning("Jev 重排失败，改用 LLM 重排: %s", type(ex).__name__)
 
         # 将结果序列化为文本供 LLM 评分
-        items_text = "\n".join(f"{i}. {json.dumps(item, ensure_ascii=False)[:200]}"
-                               for i, item in enumerate(items))
+        items_text = "\n".join(f"{i}. {self._rerank_text(item)}" for i, item in enumerate(items))
         prompt = f"""根据用户查询，对以下检索结果按相关性打分（0-10），返回 JSON 数组。
 用户查询: "{query}"
 检索结果:
@@ -464,37 +452,40 @@ class MCPToolManager:
             logger.warning("重排失败，返回原始顺序: %s", type(ex).__name__)
             return items[:top_k], False
 
+    @staticmethod
+    def _rerank_text(item: Any) -> str:
+        return json.dumps(item, ensure_ascii=False)[: int(os.getenv("IT_COPILOT_RERANK_CHARS", "200"))]
+
+    async def _rerank_jev(self, query: str, items: List[Any], top_k: int) -> List[Any]:
+        """每个候选一道 noul 题（是否有助于回答），同一请求内并行判断，按概率降序；同分保持召回顺序。"""
+        questions = {f"c{i}": {"type": "noul", "instructions": f"这段知识库内容能直接帮助回答用户的问题。内容：{self._rerank_text(item)}"}
+                     for i, item in enumerate(items)}
+        answers = (await self._jev.ask(f"用户问题：{query}", questions)).answers
+        scores = [float(answers[f"c{i}"]["noul"]) for i in range(len(items))]
+        order = sorted(range(len(items)), key=lambda i: -scores[i])
+        return [items[i] for i in order[:top_k]]
+
     # ── 缓存 ──────────────────────────────────────────────────────────────────
 
-    def _cache_key(self, name: str, params: Dict, rerank_top_k: int = 0, context: Optional[Dict] = None) -> str:
-        payload = {"params": params, "rerank_top_k": rerank_top_k, "context": context or {},
-                   "version": self._cache_versions.get(name, 0)}
+    def _cache_key(self, name: str, params: Dict, context: Optional[Dict] = None) -> str:
+        payload = {"params": params, "context": context or {}, "version": self._cache_versions.get(name, 0)}
         return f"{name}:{hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()}"
 
-    def _get_cache(self, name: str, params: Dict, rerank_top_k: int = 0, context: Optional[Dict] = None) -> Optional[Tuple[Any, bool]]:
-        key = self._cache_key(name, params, rerank_top_k, context)
+    def _get_cache(self, name: str, params: Dict, context: Optional[Dict] = None) -> Optional[Any]:
+        key = self._cache_key(name, params, context)
         if key in self._cache:
-            data, expire_at, reranked = self._cache[key]
+            data, expire_at = self._cache[key]
             if time.monotonic() < expire_at:
-                return copy.deepcopy(data), reranked
+                return copy.deepcopy(data)
             del self._cache[key]
         return None
 
-    def _set_cache(
-        self,
-        name: str,
-        params: Dict,
-        data: Any,
-        ttl: float,
-        rerank_top_k: int = 0,
-        reranked: bool = False,
-        context: Optional[Dict] = None,
-    ) -> None:
+    def _set_cache(self, name: str, params: Dict, data: Any, ttl: float, context: Optional[Dict] = None) -> None:
         if len(self._cache) >= 5000:
             # 清掉最旧的 1/4
             for k in list(self._cache)[:1250]:
                 del self._cache[k]
-        self._cache[self._cache_key(name, params, rerank_top_k, context)] = (copy.deepcopy(data), time.monotonic() + ttl, reranked)
+        self._cache[self._cache_key(name, params, context)] = (copy.deepcopy(data), time.monotonic() + ttl)
 
     def invalidate_cache(self, name: str) -> None:
         """失效工具缓存；版本号阻止更新前的在途请求重新写入旧结果。"""
@@ -509,7 +500,7 @@ class MCPToolManager:
 
     def _validate_params(self, tool: Tool, params: Dict[str, Any]) -> None:
         """按完整 JSON Schema 校验参数，不合法时抛出 ValueError。"""
-        from jsonschema import validators, ValidationError
+        from jsonschema import ValidationError, validators
         validator = validators.validator_for(tool.schema)(tool.schema)
         try:
             validator.validate(params)

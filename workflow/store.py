@@ -28,9 +28,18 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
+from core import db as schema
+from core.db import (
+    access_grants,
+    actions,
+    approval_decisions,
+    approvals,
+    audit,
+    directory_employees,
+    directory_grants,
+    directory_tickets,
+)
 from core.identity import Principal
-from workflow import db as schema
-from workflow.db import access_grants, actions, approval_decisions, approvals, audit, directory_employees, directory_grants, directory_tickets
 from workflow.policy import AccessPolicy, load_policy
 
 TERMINAL = {"succeeded", "failed", "cancelled", "manual_review"}

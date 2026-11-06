@@ -17,8 +17,22 @@ import weakref
 
 import numpy as np
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import (JSON, Column, Float, Index, Integer, LargeBinary, MetaData, PrimaryKeyConstraint, String, Table,
-                        Text, UniqueConstraint, create_engine, event)
+from sqlalchemy import (
+    JSON,
+    Column,
+    Float,
+    Index,
+    Integer,
+    LargeBinary,
+    MetaData,
+    PrimaryKeyConstraint,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    event,
+)
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import TypeDecorator
 

@@ -1,6 +1,7 @@
-"""Alembic environment: schema source of truth is workflow.db.metadata."""
+"""Alembic environment: schema source of truth is core.db.metadata."""
 from alembic import context
-from workflow.db import make_engine, metadata
+
+from core.db import make_engine, metadata
 
 config = context.config
 
