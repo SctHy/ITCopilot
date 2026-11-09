@@ -1,5 +1,6 @@
 """Declared transition tables and the places that enforce them."""
 import asyncio
+from enum import StrEnum
 
 import pytest
 
@@ -17,14 +18,19 @@ from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, Ap
 from workflow.store import WorkflowStore
 
 
+class Light(StrEnum):
+    A = "a"
+    B = "b"
+
+
 def test_machine_rejects_undeclared_edges_and_allows_staying():
-    m = Machine("m", {"a": {"b"}, "b": set()})
+    m = Machine(Light, "a -> b  # comment")
     assert m.check("a", "b") == "b" and m.allows("b", "b") and m.terminal == {"b"}
     assert m.sources("b") == ("a", "b")
     with pytest.raises(IllegalTransition):
         m.check("b", "a")
     with pytest.raises(ValueError):
-        Machine("broken", {"a": {"missing"}})
+        Machine(Light, "a -> missing")
 
 
 @pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, INBOX, OUTBOX, STEP, CONNECTION, ALERT, FACT])

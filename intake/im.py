@@ -78,17 +78,15 @@ class OutboxStatus(StrEnum):
 
 
 I, O = InboxStatus, OutboxStatus
-# A lease that runs out puts a busy row back up for claiming (processing -> processing).
-INBOX = Machine("channel_inbox.status", {
-    I.RECEIVED: {I.PROCESSING},
-    I.PROCESSING: {I.DONE, I.IGNORED, I.FAILED, I.RECEIVED},
-    I.DONE: set(), I.IGNORED: set(), I.FAILED: set(),
-})
-OUTBOX = Machine("channel_outbox.status", {
-    O.QUEUED: {O.SENDING},
-    O.SENDING: {O.SENT, O.DROPPED, O.FAILED, O.QUEUED},
-    O.SENT: set(), O.DROPPED: set(), O.FAILED: set(),
-})
+# busy -> idle is a retry; a lease that runs out leaves the row busy for the next claim.
+INBOX = Machine(InboxStatus, """
+    received   -> processing
+    processing -> done | ignored | failed | received
+""")
+OUTBOX = Machine(OutboxStatus, """
+    queued  -> sending
+    sending -> sent | dropped | failed | queued
+""")
 
 
 def short_id(approval_id: str) -> str:

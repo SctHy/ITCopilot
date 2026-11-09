@@ -1,15 +1,7 @@
 """Durable approval workflow: frozen requests, quorum decisions, outbox actions, grant ledger.
 
-State machines (transition tables in ``workflow.states``; every status write is checked)
---------------
-approval.status     pending -> approved | rejected | expired | superseded | invalidated (policy changed)
-approval.execution  not_executed -> queued -> executing -> succeeded | failed | manual_review
-                    queued -> failed (policy cancelled everything); manual_review -> executing (requeue)
-action.status       queued -> executing | cancelled (policy change, saga compensation)
-                    executing -> succeeded | queued (transient) | unknown (ambiguous; reconcile before retry)
-                              | failed | manual_review
-                    unknown -> executing;  manual_review -> unknown (operator requeue)
-grant.status        active -> revoked | revoke_failed | drifted; preexisting has nothing to revoke
+The lifecycles (approval, execution, action, grant) are declared in ``workflow.states``;
+every status write here is checked against them.
 
 Guarantees (and their limits)
 -----------------------------
@@ -44,7 +36,7 @@ from core.db import (
 )
 from core.identity import Principal
 from workflow.policy import AccessPolicy, load_policy
-from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
+from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
 
 
 # Sandbox directory. Usernames double as Gitea accounts in the compose deployment.
@@ -574,7 +566,7 @@ class WorkflowStore:
             state = Execution.FAILED
         EXECUTION.check(previous, state)
         db.execute(update(approvals).where(approvals.c.id == approval_id).values(execution=state))
-        if state != previous and state in EXECUTION.terminal | {Execution.MANUAL_REVIEW}:
+        if state != previous and state in NOTIFIED:
             done = db.execute(select(actions.c.result, actions.c.error).where(actions.c.approval_id == approval_id, actions.c.kind == "apply")
                               .order_by(actions.c.seq)).all()
             self._notify(db, approval_id, "execution_" + state, {"error": next((a.error for a in done if a.error), None),

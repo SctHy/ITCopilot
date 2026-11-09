@@ -54,8 +54,10 @@ class FactStatus(StrEnum):
     SUPERSEDED = "superseded"   # replaced by a newer value of a single-valued key
 
 
-# A superseded value that is extracted again comes back (superseded -> active).
-FACT = Machine("profile_fact.status", {FactStatus.ACTIVE: {FactStatus.SUPERSEDED}, FactStatus.SUPERSEDED: {FactStatus.ACTIVE}})
+FACT = Machine(FactStatus, """
+    active     -> superseded
+    superseded -> active       # the value was extracted again
+""")
 SINGLE_VALUED_FACTS = frozenset({"department"})
 MAX_ACTIVE_FACTS, MAX_SUPERSEDED_FACTS = 50, 20
 

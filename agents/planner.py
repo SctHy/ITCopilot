@@ -53,11 +53,10 @@ class StepStatus(StrEnum):
     BLOCKED = "blocked"     # a dependency did not succeed; the step never ran
 
 
-STEP = Machine("plan_step.status", {
-    StepStatus.PENDING: {StepStatus.RUNNING, StepStatus.BLOCKED},
-    StepStatus.RUNNING: {StepStatus.SUCCESS, StepStatus.FAILED},
-    StepStatus.SUCCESS: set(), StepStatus.FAILED: set(), StepStatus.BLOCKED: set(),
-})
+STEP = Machine(StepStatus, """
+    pending -> running | blocked
+    running -> success | failed
+""")
 
 
 @dataclass(frozen=True)

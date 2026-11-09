@@ -102,7 +102,7 @@ class AlertState(StrEnum):
     RESOLVED = "resolved"
 
 
-ALERT = Machine("alert.state", {AlertState.FIRING: {AlertState.RESOLVED}, AlertState.RESOLVED: set()})
+ALERT = Machine(AlertState, "firing -> resolved")
 
 
 @dataclass

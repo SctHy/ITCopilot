@@ -101,12 +101,11 @@ class ConnState(StrEnum):
     CLOSED = "closed"
 
 
-CONNECTION = Machine("mcp_connection.state", {
-    ConnState.CONNECTING: {ConnState.CONNECTED, ConnState.DISCONNECTED, ConnState.CLOSED},
-    ConnState.CONNECTED: {ConnState.DISCONNECTED, ConnState.CLOSED},
-    ConnState.DISCONNECTED: {ConnState.CONNECTED, ConnState.CLOSED},
-    ConnState.CLOSED: set(),
-})
+CONNECTION = Machine(ConnState, """
+    connecting   -> connected | disconnected | closed
+    connected    -> disconnected | closed
+    disconnected -> connected | closed
+""")
 
 
 class _Connection:

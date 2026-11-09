@@ -1,4 +1,4 @@
-"""Approval workflow lifecycles. ``WorkflowStore`` checks every status write against these tables."""
+"""Approval workflow lifecycles. ``WorkflowStore`` checks every status write against these machines."""
 from __future__ import annotations
 
 from enum import StrEnum
@@ -43,36 +43,30 @@ class GrantStatus(StrEnum):
     DRIFTED = "drifted"            # changed by someone else; automatic revocation stopped
 
 
-A, E, S, G = ApprovalStatus, Execution, ActionStatus, GrantStatus
+APPROVAL = Machine(ApprovalStatus, """
+    pending -> approved | rejected | expired | superseded | invalidated
+""")
 
-APPROVAL = Machine("approval.status", {
-    A.PENDING: {A.APPROVED, A.REJECTED, A.EXPIRED, A.SUPERSEDED, A.INVALIDATED},
-    A.APPROVED: set(), A.REJECTED: set(), A.EXPIRED: set(), A.SUPERSEDED: set(), A.INVALIDATED: set(),
-})
+EXECUTION = Machine(Execution, """
+    not_executed  -> queued
+    queued        -> executing | failed           # failed: the policy cancelled every action before it started
+    executing     -> succeeded | failed | manual_review
+    manual_review -> executing                    # operator requeue
+""")
 
-EXECUTION = Machine("approval.execution", {
-    E.NOT_EXECUTED: {E.QUEUED},
-    E.QUEUED: {E.EXECUTING, E.FAILED},                         # failed: policy cancelled every action before it started
-    E.EXECUTING: {E.SUCCEEDED, E.FAILED, E.MANUAL_REVIEW},
-    E.MANUAL_REVIEW: {E.EXECUTING},                            # operator requeue
-    E.SUCCEEDED: set(), E.FAILED: set(),
-})
+ACTION = Machine(ActionStatus, """
+    queued        -> executing | cancelled        # cancelled: policy change or saga compensation
+    unknown       -> executing
+    executing     -> succeeded | queued | unknown | failed | manual_review
+    manual_review -> unknown                      # operator requeue: observe before applying again
+""")
 
-ACTION = Machine("action.status", {
-    S.QUEUED: {S.EXECUTING, S.CANCELLED},
-    S.UNKNOWN: {S.EXECUTING},
-    S.EXECUTING: {S.SUCCEEDED, S.QUEUED, S.UNKNOWN, S.FAILED, S.MANUAL_REVIEW},
-    S.MANUAL_REVIEW: {S.UNKNOWN},                              # operator requeue
-    S.SUCCEEDED: set(), S.FAILED: set(), S.CANCELLED: set(),
-})
+GRANT = Machine(GrantStatus, """
+    active        -> revoked | revoke_failed | drifted
+    drifted       -> revoked | revoke_failed      # the revoke action was requeued by an operator
+    revoke_failed -> revoked | drifted
+""")
 
-GRANT = Machine("access_grants.status", {
-    G.ACTIVE: {G.REVOKED, G.REVOKE_FAILED, G.DRIFTED},
-    # The revoke action ended in manual_review; an operator requeue may still finish it.
-    G.DRIFTED: {G.REVOKED, G.REVOKE_FAILED},
-    G.REVOKE_FAILED: {G.REVOKED, G.DRIFTED},
-    G.PREEXISTING: set(), G.REVOKED: set(),
-})
-
-# Actions nobody is working on any more without an operator.
-SETTLED = frozenset({S.SUCCEEDED, S.FAILED, S.CANCELLED, S.MANUAL_REVIEW})
+# Actions nobody works on any more without an operator; the approval's execution then needs a notice.
+SETTLED = frozenset({ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.CANCELLED, ActionStatus.MANUAL_REVIEW})
+NOTIFIED = frozenset({Execution.SUCCEEDED, Execution.FAILED, Execution.MANUAL_REVIEW})

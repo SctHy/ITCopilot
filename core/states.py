@@ -1,14 +1,14 @@
-"""Declared state machines: one transition table per persisted status column.
+"""Declared state machines: a status enum plus its transition diagram, checked on every write.
 
-Status values stay plain strings in the database and API (``StrEnum`` members compare
-equal to them); the table is what writers check before they move a row, so an edge
-that is not declared here fails loudly instead of silently corrupting a lifecycle.
-Staying in the same state is always allowed (a vote that does not reach quorum, a
-lease reclaimed by another worker).
+Status values stay plain strings in the database and API (``StrEnum`` members compare equal
+to them). The diagram is one line per source state, ``a -> b | c``; states with no line are
+terminal. Staying in the same state is always allowed (a vote short of quorum, a lease
+reclaimed by another worker).
 """
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Tuple
+from enum import StrEnum
+from typing import Dict, FrozenSet, Tuple, Type
 
 
 class IllegalTransition(RuntimeError):
@@ -16,16 +16,16 @@ class IllegalTransition(RuntimeError):
 
 
 class Machine:
-    def __init__(self, name: str, edges: Mapping[str, Iterable[str]]):
-        self.name = name
-        self.edges = {str(state): frozenset(map(str, targets)) for state, targets in edges.items()}
-        unknown = {t for targets in self.edges.values() for t in targets} - set(self.edges)
-        if unknown:
-            raise ValueError(f"{name}: targets without a row in the table: {sorted(unknown)}")
-        self.terminal = frozenset(state for state, targets in self.edges.items() if not targets)
+    def __init__(self, states: Type[StrEnum], diagram: str):
+        self.name = states.__name__
+        self.edges: Dict[str, FrozenSet[str]] = {s: frozenset() for s in states}
+        for line in filter(None, (line.split("#")[0].strip() for line in diagram.splitlines())):
+            source, _, targets = (part.strip() for part in line.partition("->"))
+            self.edges[states(source)] = frozenset(states(t.strip()) for t in targets.split("|"))
+        self.terminal = frozenset(s for s, targets in self.edges.items() if not targets)
 
     def allows(self, old: str, new: str) -> bool:
-        return old == new or new in self.edges.get(old, ())
+        return old == new or new in self.edges[old]
 
     def check(self, old: str, new: str) -> str:
         if not self.allows(old, new):
@@ -33,5 +33,5 @@ class Machine:
         return new
 
     def sources(self, target: str) -> Tuple[str, ...]:
-        """States that may move to ``target``; use as a WHERE guard on bulk updates."""
-        return tuple(sorted(state for state, targets in self.edges.items() if state == target or target in targets))
+        """States that may move to ``target``; a WHERE guard for bulk updates."""
+        return tuple(sorted(s for s, targets in self.edges.items() if s == target or target in targets))
