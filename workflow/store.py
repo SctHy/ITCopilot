@@ -1,12 +1,15 @@
 """Durable approval workflow: frozen requests, quorum decisions, outbox actions, grant ledger.
 
-State machines
+State machines (transition tables in ``workflow.states``; every status write is checked)
 --------------
 approval.status     pending -> approved | rejected | expired | superseded | invalidated (policy changed)
 approval.execution  not_executed -> queued -> executing -> succeeded | failed | manual_review
-action.status       queued -> executing -> succeeded
-                                     \\-> unknown (ambiguous outcome; reconcile before retry)
-                                     \\-> failed | manual_review | cancelled
+                    queued -> failed (policy cancelled everything); manual_review -> executing (requeue)
+action.status       queued -> executing | cancelled (policy change, saga compensation)
+                    executing -> succeeded | queued (transient) | unknown (ambiguous; reconcile before retry)
+                              | failed | manual_review
+                    unknown -> executing;  manual_review -> unknown (operator requeue)
+grant.status        active -> revoked | revoke_failed | drifted; preexisting has nothing to revoke
 
 Guarantees (and their limits)
 -----------------------------
@@ -41,8 +44,8 @@ from core.db import (
 )
 from core.identity import Principal
 from workflow.policy import AccessPolicy, load_policy
+from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
 
-TERMINAL = {"succeeded", "failed", "cancelled", "manual_review"}
 
 # Sandbox directory. Usernames double as Gitea accounts in the compose deployment.
 SEED_EMPLOYEES = (
@@ -156,7 +159,7 @@ class WorkflowStore:
                     db.execute(insert(approvals).values(
                         id=approval_id, request_id=request_id, conv_id=conv_id, requester=principal.subject, requester_name=principal.username,
                         requester_employee_id=principal.employee_id, department=principal.department, tenant=principal.tenant,
-                        status="pending", execution="not_executed", payload_hash=digest, policy_version=self.policy.version,
+                        status=ApprovalStatus.PENDING, execution=Execution.NOT_EXECUTED, payload_hash=digest, policy_version=self.policy.version,
                         approvals_required=required, payload=payload, version=0, created_at=now,
                         expires_at=now + self.policy.approval_ttl_hours * 3600,
                     ))
@@ -177,14 +180,14 @@ class WorkflowStore:
             return []
         keys = {_action_key(a) for a in frozen_actions}
         rows = db.execute(select(approvals).where(approvals.c.conv_id == conv_id, approvals.c.requester == requester,
-                                                  approvals.c.status == "pending", approvals.c.id != approval_id)).mappings().all()
+                                                  approvals.c.status == ApprovalStatus.PENDING, approvals.c.id != approval_id)).mappings().all()
         replaced = []
         for row in rows:
             if {_action_key(a) for a in row["payload"]["action_requests"]} <= keys:
                 # Version-guarded: an approver deciding concurrently wins and the row is left as decided.
                 done = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"],
-                                                          approvals.c.status == "pending")
-                                  .values(status="superseded", decided_at=now, version=row["version"] + 1)).rowcount
+                                                          approvals.c.status == ApprovalStatus.PENDING)
+                                  .values(status=ApprovalStatus.SUPERSEDED, decided_at=now, version=row["version"] + 1)).rowcount
                 if not done:
                     continue
                 self._audit(db, row["id"], "superseded", requester, detail={"by": approval_id})
@@ -256,10 +259,10 @@ class WorkflowStore:
                 return False
             if payload_hash != row["payload_hash"]:
                 raise ApprovalConflict("审批内容哈希不匹配")
-            if row["status"] != "pending":
+            if row["status"] != ApprovalStatus.PENDING:
                 return True  # idempotent: the decision already happened
             if now > row["expires_at"]:
-                self._cas(db, row, status="expired", decided_at=now)
+                self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
                 self._audit(db, approval_id, "expired", "system")
                 self._notify(db, approval_id, "expired")
                 return True
@@ -283,17 +286,17 @@ class WorkflowStore:
                 approval_decisions.c.approval_id == approval_id, approval_decisions.c.decision == "approved")).scalar()
             values: Dict[str, Any] = {}
             if decision == "rejected":
-                values = {"status": "rejected", "decided_at": now}
+                values = {"status": ApprovalStatus.REJECTED, "decided_at": now}
             elif approved >= row["approvals_required"]:
-                values = {"status": "approved", "execution": "queued", "decided_at": now}
+                values = {"status": ApprovalStatus.APPROVED, "execution": Execution.QUEUED, "decided_at": now}
             # Always bump the version: two approvers deciding concurrently must serialize,
             # otherwise each could count only its own vote and the quorum is never reached.
             self._cas(db, row, **values)
             self._audit(db, approval_id, decision, principal.subject, detail={"approved_votes": approved, "required": row["approvals_required"]})
-            if values.get("status") == "approved":
+            if values.get("status") == ApprovalStatus.APPROVED:
                 self._enqueue(db, row, now)
                 self._audit(db, approval_id, "execution_queued", "system")
-            elif values.get("status") == "rejected":
+            elif values.get("status") == ApprovalStatus.REJECTED:
                 self._notify(db, approval_id, "rejected", {"by": principal.username})
         return True
 
@@ -312,16 +315,16 @@ class WorkflowStore:
         report: Dict[str, Any] = {"policy_version": policy.version, "invalidated": [], "quorum_raised": [], "cancelled": [],
                                   "grants_revoked": [], "grants_shortened": []}
         with schema.read(self.engine) as db:
-            pending = db.execute(select(approvals.c.id).where(approvals.c.status == "pending", approvals.c.policy_version != policy.version)).scalars().all()
-            queued = db.execute(select(approvals.c.id).where(approvals.c.status == "approved", approvals.c.policy_version != policy.version,
-                                                             approvals.c.execution.in_(("queued", "executing")))).scalars().all()
+            pending = db.execute(select(approvals.c.id).where(approvals.c.status == ApprovalStatus.PENDING, approvals.c.policy_version != policy.version)).scalars().all()
+            queued = db.execute(select(approvals.c.id).where(approvals.c.status == ApprovalStatus.APPROVED, approvals.c.policy_version != policy.version,
+                                                             approvals.c.execution.in_((Execution.QUEUED, Execution.EXECUTING)))).scalars().all()
             grants = db.execute(select(access_grants.c.action_id).join(approvals, approvals.c.id == access_grants.c.approval_id)
-                                .where(access_grants.c.status == "active", approvals.c.policy_version != policy.version)).scalars().all()
+                                .where(access_grants.c.status == GrantStatus.ACTIVE, approvals.c.policy_version != policy.version)).scalars().all()
         for approval_id in pending:
             try:
                 with self.engine.begin() as db:
                     row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-                    if row["status"] != "pending":
+                    if row["status"] != ApprovalStatus.PENDING:
                         continue
                     before = row["approvals_required"]
                     after = self._revalidate_pending(db, row, now)
@@ -348,7 +351,7 @@ class WorkflowStore:
         frozen = row["payload"]["action_requests"]
         reason = policy.still_allows(frozen)
         if reason:
-            self._cas(db, row, status="invalidated", decided_at=now)
+            self._cas(db, row, status=ApprovalStatus.INVALIDATED, decided_at=now)
             self._audit(db, row["id"], "policy_invalidated", "system", detail={"from": row["policy_version"], "to": policy.version, "reason": reason})
             self._notify(db, row["id"], "invalidated", {"reason": reason})
             return None
@@ -366,8 +369,8 @@ class WorkflowStore:
             return False
         # Only actions nobody started; one already running is stopped by the worker's own check.
         cancelled = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.kind == "apply",
-                                                     actions.c.status == "queued", actions.c.attempts == 0)
-                               .values(status="cancelled", error=reason[:500], version=actions.c.version + 1, updated_at=now)).rowcount
+                                                     actions.c.status == ActionStatus.QUEUED, actions.c.attempts == 0)
+                               .values(status=ActionStatus.CANCELLED, error=reason[:500], version=actions.c.version + 1, updated_at=now)).rowcount
         if not cancelled:
             return False
         self._audit(db, approval_id, "policy_cancelled", "system", detail={"to": self.policy.version, "reason": reason, "actions": cancelled})
@@ -376,7 +379,7 @@ class WorkflowStore:
 
     def _recheck_grant(self, db, grant_id: str, now: float) -> Optional[str]:
         grant = db.execute(select(access_grants).where(access_grants.c.action_id == grant_id)).mappings().first()
-        if grant["status"] != "active" or not grant["revoke_action_id"]:
+        if grant["status"] != GrantStatus.ACTIVE or not grant["revoke_action_id"]:
             return None
         max_hours = self.policy.max_hours(grant["system"], grant["role"])
         if max_hours is None:
@@ -388,7 +391,7 @@ class WorkflowStore:
         if expires_at >= grant["expires_at"]:
             return None
         expires_at = max(expires_at, now)
-        moved = db.execute(update(actions).where(actions.c.id == grant["revoke_action_id"], actions.c.status == "queued")
+        moved = db.execute(update(actions).where(actions.c.id == grant["revoke_action_id"], actions.c.status == ActionStatus.QUEUED)
                            .values(not_before=expires_at, version=actions.c.version + 1, updated_at=now)).rowcount
         if not moved:
             return None  # revocation already running or done
@@ -408,6 +411,10 @@ class WorkflowStore:
 
     @staticmethod
     def _cas(db, row, **values) -> None:
+        if "status" in values:
+            APPROVAL.check(row["status"], values["status"])
+        if "execution" in values:
+            EXECUTION.check(row["execution"], values["execution"])
         result = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"])
                             .values(version=row["version"] + 1, **values))
         if result.rowcount != 1:
@@ -419,7 +426,7 @@ class WorkflowStore:
             rows.append({
                 "id": action_id(row["id"], row["payload_hash"], seq), "approval_id": row["id"], "seq": seq, "kind": "apply",
                 "tool_name": action["tool_name"], "arguments": action["arguments"], "adapter": self.route(action),
-                "status": "queued", "attempts": 0, "not_before": now, "version": 0, "created_at": now, "updated_at": now,
+                "status": ActionStatus.QUEUED, "attempts": 0, "not_before": now, "version": 0, "created_at": now, "updated_at": now,
             })
         db.execute(insert(actions), rows)
 
@@ -430,8 +437,8 @@ class WorkflowStore:
         with self.engine.begin() as db:
             if not db.execute(select(approvals.c.id).where(approvals.c.id == approval_id)).first():
                 return None
-            result = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.status.in_(("manual_review", "unknown")))
-                                .values(status="unknown", attempts=0, not_before=now, lease_owner=None, lease_until=None,
+            result = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.status.in_((ActionStatus.MANUAL_REVIEW, ActionStatus.UNKNOWN)))
+                                .values(status=ActionStatus.UNKNOWN, attempts=0, not_before=now, lease_owner=None, lease_until=None,
                                         version=actions.c.version + 1, updated_at=now))
             self._audit(db, approval_id, "reconcile_requested", principal.subject, detail={"actions": result.rowcount})
             self._refresh_execution(db, approval_id)
@@ -441,8 +448,8 @@ class WorkflowStore:
 
     def claim(self, worker_id: str, lease_s: float, limit: int = 10) -> List[Dict[str, Any]]:
         now = self.clock()
-        due = or_(and_(actions.c.status.in_(("queued", "unknown")), actions.c.not_before <= now),
-                  and_(actions.c.status == "executing", actions.c.lease_until < now))
+        due = or_(and_(actions.c.status.in_((ActionStatus.QUEUED, ActionStatus.UNKNOWN)), actions.c.not_before <= now),
+                  and_(actions.c.status == ActionStatus.EXECUTING, actions.c.lease_until < now))
         with schema.read(self.engine) as db:
             candidates = db.execute(select(actions).where(due).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
         claimed = []
@@ -452,27 +459,31 @@ class WorkflowStore:
             with self.engine.begin() as db:
                 if row["kind"] == "apply" and db.execute(select(actions.c.id).where(
                         actions.c.approval_id == row["approval_id"], actions.c.kind == "apply",
-                        actions.c.seq < row["seq"], actions.c.status != "succeeded")).first():
+                        actions.c.seq < row["seq"], actions.c.status != ActionStatus.SUCCEEDED)).first():
                     continue  # apply actions of one approval run strictly in order
+                ACTION.check(row["status"], ActionStatus.EXECUTING)
                 result = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"]).values(
-                    status="executing", lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
+                    status=ActionStatus.EXECUTING, lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
                     version=row["version"] + 1, updated_at=now))
                 if result.rowcount != 1:
                     continue  # another worker won the CAS
                 if row["kind"] == "apply" and row["seq"] == 0 and row["attempts"] == 0:
-                    db.execute(update(approvals).where(approvals.c.id == row["approval_id"], approvals.c.execution == "queued").values(execution="executing"))
+                    db.execute(update(approvals).where(approvals.c.id == row["approval_id"], approvals.c.execution == Execution.QUEUED).values(execution=Execution.EXECUTING))
                 self._audit(db, row["approval_id"], f"{row['kind']}_started", worker_id, action_id=row["id"], detail={"attempt": row["attempts"] + 1, "previous": row["status"]})
-            claimed.append({**row, "prev_status": row["status"], "status": "executing", "attempts": row["attempts"] + 1,
+            claimed.append({**row, "prev_status": row["status"], "status": ActionStatus.EXECUTING, "attempts": row["attempts"] + 1,
                             "version": row["version"] + 1, "lease_owner": worker_id})
         return claimed
 
     def _action_cas(self, db, action, **values) -> None:
+        if "status" in values:
+            ACTION.check(action["status"], values["status"])
         result = db.execute(update(actions).where(actions.c.id == action["id"], actions.c.version == action["version"],
                                                   actions.c.lease_owner == action["lease_owner"])
                             .values(version=action["version"] + 1, updated_at=self.clock(), **values))
         if result.rowcount != 1:
             raise LeaseLost(action["id"])
         action["version"] += 1
+        action["status"] = values.get("status", action["status"])
 
     def save_result(self, action: Dict[str, Any], result: Dict[str, Any]) -> None:
         """Persist intermediate facts (e.g. the pre-change baseline) before touching the target,
@@ -488,7 +499,7 @@ class WorkflowStore:
     def succeed(self, action: Dict[str, Any], result: Dict[str, Any], *, preexisting: bool = False) -> None:
         now = self.clock()
         with self.engine.begin() as db:
-            self._action_cas(db, action, status="succeeded", result=result, error=None, lease_owner=None, lease_until=None)
+            self._action_cas(db, action, status=ActionStatus.SUCCEEDED, result=result, error=None, lease_owner=None, lease_until=None)
             args = action["arguments"]
             if action["kind"] == "apply" and action["tool_name"] == "request_access":
                 baseline = (action.get("result") or {}).get("baseline_level")
@@ -499,14 +510,14 @@ class WorkflowStore:
                     db.execute(insert(actions).values(
                         id=revoke_id, approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
                         tool_name="revoke_access", arguments={"employee_id": args["employee_id"], "system": args["system"],
-                        "role": args["role"], "baseline_level": baseline}, adapter=action["adapter"], status="queued", attempts=0,
+                        "role": args["role"], "baseline_level": baseline}, adapter=action["adapter"], status=ActionStatus.QUEUED, attempts=0,
                         not_before=expires_at, version=0, parent_action_id=action["id"], created_at=now, updated_at=now))
                 db.execute(insert(access_grants).values(
                     action_id=action["id"], approval_id=action["approval_id"], employee_id=args["employee_id"], system=args["system"],
-                    role=args["role"], adapter=action["adapter"], baseline_role=baseline, status="preexisting" if preexisting else "active",
+                    role=args["role"], adapter=action["adapter"], baseline_role=baseline, status=GrantStatus.PREEXISTING if preexisting else GrantStatus.ACTIVE,
                     expires_at=expires_at, revoke_action_id=revoke_id, updated_at=now))
             elif action["kind"] == "revoke":
-                db.execute(update(access_grants).where(access_grants.c.revoke_action_id == action["id"]).values(status="revoked", updated_at=now))
+                self._settle_grant(db, action["id"], GrantStatus.REVOKED, now)
             event = f"{action['kind']}_succeeded" + ("_preexisting" if preexisting else "")
             self._audit(db, action["approval_id"], event, action["lease_owner"], action_id=action["id"], detail=result)
             self._refresh_execution(db, action["approval_id"])
@@ -517,27 +528,31 @@ class WorkflowStore:
             self._action_cas(db, action, status=status, error=error[:500], not_before=self.clock() + delay_s, lease_owner=None, lease_until=None)
             self._audit(db, action["approval_id"], f"{action['kind']}_{status}", action["lease_owner"], action_id=action["id"], detail={"error": error[:500]})
 
-    def fail(self, action: Dict[str, Any], error: str, *, status: str = "failed", ledger_status: Optional[str] = None) -> None:
+    def fail(self, action: Dict[str, Any], error: str, *, status: str = ActionStatus.FAILED, ledger_status: Optional[str] = None) -> None:
         now = self.clock()
         with self.engine.begin() as db:
             self._action_cas(db, action, status=status, error=error[:500], lease_owner=None, lease_until=None)
             self._audit(db, action["approval_id"], f"{action['kind']}_{status}", action["lease_owner"], action_id=action["id"], detail={"error": error[:500]})
             if action["kind"] == "revoke":
-                db.execute(update(access_grants).where(access_grants.c.revoke_action_id == action["id"])
-                           .values(status=ledger_status or "revoke_failed", updated_at=now))
+                self._settle_grant(db, action["id"], ledger_status or GrantStatus.REVOKE_FAILED, now)
             else:
                 self._compensate(db, action, now)
             self._refresh_execution(db, action["approval_id"])
 
+    @staticmethod
+    def _settle_grant(db, revoke_action_id: str, status: str, now: float) -> None:
+        db.execute(update(access_grants).where(access_grants.c.revoke_action_id == revoke_action_id,
+                                               access_grants.c.status.in_(GRANT.sources(status))).values(status=status, updated_at=now))
+
     def _compensate(self, db, failed: Dict[str, Any], now: float) -> None:
         """Saga step: cancel the rest of the batch and revoke grants it already made."""
         db.execute(update(actions).where(actions.c.approval_id == failed["approval_id"], actions.c.kind == "apply",
-                                         actions.c.seq > failed["seq"], actions.c.status == "queued")
-                   .values(status="cancelled", version=actions.c.version + 1, updated_at=now))
+                                         actions.c.seq > failed["seq"], actions.c.status == ActionStatus.QUEUED)
+                   .values(status=ActionStatus.CANCELLED, version=actions.c.version + 1, updated_at=now))
         done = db.execute(select(actions).where(actions.c.approval_id == failed["approval_id"], actions.c.kind == "apply",
-                                                actions.c.seq < failed["seq"], actions.c.status == "succeeded")).mappings().all()
+                                                actions.c.seq < failed["seq"], actions.c.status == ActionStatus.SUCCEEDED)).mappings().all()
         for row in done:
-            revoke = db.execute(update(actions).where(actions.c.parent_action_id == row["id"], actions.c.status == "queued")
+            revoke = db.execute(update(actions).where(actions.c.parent_action_id == row["id"], actions.c.status == ActionStatus.QUEUED)
                                 .values(not_before=now, version=actions.c.version + 1, updated_at=now))
             event = "compensation_scheduled" if revoke.rowcount else "compensation_unavailable"
             self._audit(db, failed["approval_id"], event, "system", action_id=row["id"], detail={"tool": row["tool_name"]})
@@ -548,24 +563,25 @@ class WorkflowStore:
         statuses = [r.status for r in rows]
         if not statuses:
             return
-        if all(s == "succeeded" for s in statuses):
-            state = "succeeded"
-        elif any(s not in TERMINAL for s in statuses):
-            state = "queued" if all(s == "queued" for s in statuses) else "executing"
-        elif "manual_review" in statuses or any(r.status == "succeeded" and r.tool_name != "request_access" for r in rows):
+        if all(s == ActionStatus.SUCCEEDED for s in statuses):
+            state = Execution.SUCCEEDED
+        elif any(s not in SETTLED for s in statuses):
+            state = Execution.QUEUED if all(s == ActionStatus.QUEUED for s in statuses) else Execution.EXECUTING
+        elif ActionStatus.MANUAL_REVIEW in statuses or any(r.status == ActionStatus.SUCCEEDED and r.tool_name != "request_access" for r in rows):
             # A failure after a non-reversible effect (password reset, ticket) needs a human.
-            state = "manual_review"
+            state = Execution.MANUAL_REVIEW
         else:
-            state = "failed"
+            state = Execution.FAILED
+        EXECUTION.check(previous, state)
         db.execute(update(approvals).where(approvals.c.id == approval_id).values(execution=state))
-        if state != previous and state in TERMINAL:
+        if state != previous and state in EXECUTION.terminal | {Execution.MANUAL_REVIEW}:
             done = db.execute(select(actions.c.result, actions.c.error).where(actions.c.approval_id == approval_id, actions.c.kind == "apply")
                               .order_by(actions.c.seq)).all()
             self._notify(db, approval_id, "execution_" + state, {"error": next((a.error for a in done if a.error), None),
                                                                  "results": [a.result for a in done if a.result]})
 
     def pending_work(self, approval_id: Optional[str] = None) -> int:
-        query = select(func.count()).select_from(actions).where(actions.c.status.in_(("queued", "executing", "unknown")), actions.c.not_before <= self.clock())
+        query = select(func.count()).select_from(actions).where(actions.c.status.in_((ActionStatus.QUEUED, ActionStatus.EXECUTING, ActionStatus.UNKNOWN)), actions.c.not_before <= self.clock())
         if approval_id:
             query = query.where(actions.c.approval_id == approval_id)
         with schema.read(self.engine) as db:

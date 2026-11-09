@@ -115,6 +115,8 @@ export async function requestChat(type, settings, message) {
 }
 
 // 实时事件流：每个 SSE 事件带 id；连接中断时用 Last-Event-ID 续读同一请求，服务端不会重复执行。
+// 生命周期：连接 → 读事件 →（断线且已拿到 request_id：续读，最多 maxResumes 次）→ completed | error。
+// 服务端判定执行已中断（stream_abandoned）时丢弃 client_request_id，重新发送会开始一次新的执行。
 export async function requestChatStream(type, settings, message, onEvent = () => {}, { maxResumes = 3 } = {}) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
@@ -144,6 +146,7 @@ export async function requestChatStream(type, settings, message, onEvent = () =>
     })
   }
   chatAttempts.delete(attemptKey)
+  if (state.failed?.detail === 'stream_abandoned') throw new Error('服务端处理中断，请重新发送')
   if (state.failed) throw new Error(`${state.failed.status_code || ''} ${state.failed.detail || '请求失败'}`.trim())
   if (!state.completed) throw new Error('流式响应未完成')
   return normalizeChatResponse(type, state.completed)

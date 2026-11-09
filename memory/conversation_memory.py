@@ -20,7 +20,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
@@ -32,6 +32,7 @@ from redis.exceptions import WatchError
 
 from core.concurrency import KeyedLocks, redis_lease
 from core.llm import build_model, close_model, complete_text
+from core.states import Machine
 from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,16 @@ class ProfileExtraction(BaseModel):
     recurring_issues: List[str] = []
     entities:         Dict[str, List[str]] = {}
 
+
+class FactStatus(StrEnum):
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"   # replaced by a newer value of a single-valued key
+
+
+# A superseded value that is extracted again comes back (superseded -> active).
+FACT = Machine("profile_fact.status", {FactStatus.ACTIVE: {FactStatus.SUPERSEDED}, FactStatus.SUPERSEDED: {FactStatus.ACTIVE}})
+SINGLE_VALUED_FACTS = frozenset({"department"})
+MAX_ACTIVE_FACTS, MAX_SUPERSEDED_FACTS = 50, 20
 
 _PROFILE_AGENT = Agent(output_type=ToolOutput(ProfileExtraction, name="save_profile", description="保存提炼后的员工 IT 画像"), retries=0, name="profile_extractor")
 
@@ -111,7 +122,10 @@ class MemoryContext:
         if self.relevant_history:
             parts.append("[相关历史]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
         if self.user_profile:
-            parts.append(f"[用户画像]\n{json.dumps(self.user_profile, ensure_ascii=False)}")
+            # 被取代的旧事实只留作历史，不给模型看。
+            profile = {**self.user_profile, "facts": [f for f in self.user_profile.get("facts") or []
+                                                      if not isinstance(f, dict) or f.get("status") != FactStatus.SUPERSEDED]}
+            parts.append(f"[用户画像]\n{json.dumps(profile, ensure_ascii=False)}")
         if include_recent and self.recent_messages:
             parts.append("[最近对话]")
             for m in self.recent_messages[-8:]:
@@ -306,7 +320,7 @@ class MemoryManager:
         for key, values in output["stable_attributes"].items():
             values = values if isinstance(values, list) else ([values] if values else [])
             for item in values:
-                output["facts"].append({"key": key, "value": item, "status": "active", "updated_at": now, "importance": 0.7, "source": "profile_extraction"})
+                output["facts"].append({"key": key, "value": item, "status": FactStatus.ACTIVE, "updated_at": now, "importance": 0.7, "source": "profile_extraction"})
         return output
 
     @staticmethod
@@ -322,14 +336,33 @@ class MemoryManager:
         for key, values in (incoming.get("entities") or {}).items():
             merged["entities"][key] = list(dict.fromkeys((merged["entities"].get(key) or []) + values))[:8]
         merged["stable_attributes"] = {"department": merged["department"], "systems": merged["systems"], "devices": merged["devices"], "entities": merged["entities"]}
-        old_facts = [dict(f) for f in (previous.get("facts") or []) if isinstance(f, dict)]
-        new_facts = [f for f in (incoming.get("facts") or []) if isinstance(f, dict)]
-        for old in old_facts:
-            if any(old.get("key") == new.get("key") and old.get("value") != new.get("value") for new in new_facts):
-                old["status"] = "superseded"
-        merged["facts"] = old_facts + new_facts[-50:]
+        merged["facts"] = MemoryManager._merge_facts(previous.get("facts") or [], incoming.get("facts") or [])
         merged["schema_version"] = 3
         return merged
+
+    @staticmethod
+    def _merge_facts(previous: List[Any], incoming: List[Any]) -> List[Dict[str, Any]]:
+        """One record per (key, value). Fact lifecycle: active -> superseded, and only for
+        single-valued keys (a new department replaces the old one); list attributes such as
+        systems accumulate, so a value missing from this extraction stays active. A value that
+        comes back is active again. Bounded: MAX_ACTIVE_FACTS active, MAX_SUPERSEDED_FACTS history."""
+        def ident(fact):  # values can be dicts (entities)
+            return fact.get("key"), json.dumps(fact.get("value"), ensure_ascii=False, sort_keys=True, default=str)
+
+        facts: Dict[tuple, Dict[str, Any]] = {}
+        for fact in [*previous, *incoming]:
+            if isinstance(fact, dict):
+                facts.pop(ident(fact), None)  # re-insert: newest last
+                facts[ident(fact)] = {**fact, "status": fact.get("status") or FactStatus.ACTIVE}
+        for new in incoming:
+            if isinstance(new, dict) and new.get("key") in SINGLE_VALUED_FACTS:
+                for (key, value), old in facts.items():
+                    if key == new["key"] and (key, value) != ident(new) and old["status"] == FactStatus.ACTIVE:
+                        old["status"] = FACT.check(old["status"], FactStatus.SUPERSEDED)
+                facts[ident(new)]["status"] = FactStatus.ACTIVE
+        active = [f for f in facts.values() if f["status"] == FactStatus.ACTIVE][-MAX_ACTIVE_FACTS:]
+        history = [f for f in facts.values() if f["status"] != FactStatus.ACTIVE][-MAX_SUPERSEDED_FACTS:]
+        return history + active
 
     # ── 读取 ──────────────────────────────────────────────────────────────────
 
@@ -486,7 +519,7 @@ class MemoryManager:
             safe_response = self._safe_text(response)[:3000]
             doc = f"员工问题：{safe_message}\n服务台回答：{safe_response}"
             doc_id = hashlib.sha256(f"turn:{request_id}".encode()).hexdigest()
-            meta = {"user_id": self._safe_text(user_id), "conv_id": self._safe_text(conv_id), "request_id": self._safe_text(request_id), "ts": datetime.now().isoformat(), "memory_type": "episodic_turn", "importance": 0.5, "superseded": False}
+            meta = {"user_id": self._safe_text(user_id), "conv_id": self._safe_text(conv_id), "request_id": self._safe_text(request_id), "ts": datetime.now().isoformat(), "memory_type": "episodic_turn", "importance": 0.5}
             for key, value in (metadata or {}).items():
                 if key in {"intent", "intent_group", "agent_type"}:
                     meta[key] = self._safe_text(value)[:64]
@@ -579,8 +612,6 @@ class MemoryManager:
             if not isinstance(doc, str) or not doc.strip():
                 continue
             meta = metas[idx] if idx < len(metas) and isinstance(metas[idx], dict) else {}
-            if str(meta.get("superseded", "False")).lower() == "true":
-                continue
             requested_keys = {str(key) for key, value in (entities or {}).items() if value}
             indexed_keys = {key for key in str(meta.get("entity_keys", "")).split(",") if key}
             if requested_keys and indexed_keys and not requested_keys.intersection(indexed_keys):

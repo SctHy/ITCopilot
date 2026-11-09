@@ -32,7 +32,8 @@ from typing import Any, Callable, Dict, Optional
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
 from monitor import metrics
-from workflow.store import TERMINAL, LeaseLost, WorkflowStore
+from workflow.states import SETTLED, ActionStatus, ApprovalStatus, GrantStatus
+from workflow.store import LeaseLost, WorkflowStore
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class ExecutionWorker:
         deadline = asyncio.get_running_loop().time() + timeout_s
         while True:
             body = await asyncio.to_thread(self.store.get, approval_id)
-            if body is None or body["status"] != "approved" or all(r["status"] in TERMINAL for r in body["results"]):
+            if body is None or body["status"] != ApprovalStatus.APPROVED or all(r["status"] in SETTLED for r in body["results"]):
                 return body
             if asyncio.get_running_loop().time() >= deadline:
                 return body
@@ -142,7 +143,7 @@ class ExecutionWorker:
         spec = {"tool_name": action["tool_name"], "arguments": action["arguments"]}
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
-            if action["kind"] == "apply" and action["seq"] == 0 and action["prev_status"] == "queued" and action["attempts"] == 1:
+            if action["kind"] == "apply" and action["seq"] == 0 and action["prev_status"] == ActionStatus.QUEUED and action["attempts"] == 1:
                 # The policy may have changed since approval; nothing has been applied yet.
                 reason = await asyncio.to_thread(self.store.policy_block, action["approval_id"])
                 if reason:
@@ -151,7 +152,7 @@ class ExecutionWorker:
                 # (unknown user, missing repo) are caught with zero changes applied.
                 for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
                     await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
-            if action["prev_status"] in {"unknown", "executing"} and await adapter.observe(action["id"], spec):
+            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} and await adapter.observe(action["id"], spec):
                 result = {**(action.get("result") or {}), "reconciled": True}
                 await asyncio.to_thread(self.store.succeed, action, result)
                 await self._emit(action, "action_reconciled")
@@ -168,7 +169,7 @@ class ExecutionWorker:
             elif action["tool_name"] == "revoke_access":
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 if current != adapter.level(spec["arguments"]["role"]):
-                    await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status="manual_review", ledger_status="drifted")
+                    await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
                     await self._emit(action, "action_drifted", current=current)
                     return
             result.update(await adapter.apply(action["id"], spec))
@@ -186,16 +187,16 @@ class ExecutionWorker:
                 await self._settle(self.store.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
                 await self._emit(action, "action_failed", error=str(exc))
             else:
-                await self._settle(self.store.retry_later, action, "queued", str(exc), self._delay(action["attempts"]))
+                await self._settle(self.store.retry_later, action, ActionStatus.QUEUED, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_retry", error=str(exc))
         except Exception as exc:  # AmbiguousError and anything unexpected: outcome unknown
             if not isinstance(exc, AmbiguousError):
                 logger.exception("unexpected adapter failure for action %s", action["id"])
             if action["attempts"] >= self.max_attempts:
-                await self._settle(self.store.fail, action, f"结果持续未知，需人工核对：{exc}", status="manual_review")
+                await self._settle(self.store.fail, action, f"结果持续未知，需人工核对：{exc}", status=ActionStatus.MANUAL_REVIEW)
                 await self._emit(action, "action_manual_review", error=str(exc))
             else:
-                await self._settle(self.store.retry_later, action, "unknown", str(exc), self._delay(action["attempts"]))
+                await self._settle(self.store.retry_later, action, ActionStatus.UNKNOWN, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_unknown", error=str(exc))
 
     @staticmethod

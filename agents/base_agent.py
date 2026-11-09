@@ -104,8 +104,7 @@ class BaseAgent:
         try:
             result = await self._call_llm(req)
         except asyncio.CancelledError:
-            if self.stats.probe_owner == req.request_id:
-                self.stats.probe_running, self.stats.probe_owner = False, None
+            self.stats.abandon_probe(req.request_id)
             raise
         except Exception as ex:
             ms = self._record(False, t0, req)

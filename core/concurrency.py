@@ -73,7 +73,11 @@ async def redis_lease(client, key, wait_s=30, lease_s=120):
 
 
 class ProfileUpdater:
-    """固定 worker 数量；同一用户的待处理更新合并为最新会话。"""
+    """固定 worker 数量；同一用户的待处理更新合并为最新会话。
+
+    每个用户的状态由两个集合表示：idle（都不在）→ scheduled（在 _scheduled，排队中）→ running
+    （worker 已取出；运行期间再 submit 只更新 _pending，跑完后同一 worker 接着处理最新会话）→ idle。
+    """
     def __init__(self, memory, workers=4, max_pending=256):
         self._memory = memory
         self._worker_count = max(1, workers)

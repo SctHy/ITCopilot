@@ -21,7 +21,7 @@ from agents.base_agent import (
 from agents.injection_guard import InjectionGuard
 from agents.intent.recognizer import IntentRecognizer
 from agents.intent.taxonomy import INTENT_GROUPS, IntentCategory
-from agents.planner import LLMPlanner, build_plan
+from agents.planner import STEP, LLMPlanner, StepStatus, build_plan
 from agents.tools import (
     access_tools,
     build_shared_rag_tools,
@@ -211,12 +211,22 @@ class AgentOrchestrator:
         """Execute bounded dependency waves; independent steps run concurrently."""
         started = time.monotonic()
         completed, step_rows, findings, responses = set(), [], [], []
-        outputs, unsuccessful = {}, set()
+        outputs, unsuccessful, statuses = {}, set(), {}
+
+        def mark(step, status: StepStatus, **detail) -> Dict[str, Any]:
+            statuses[step.step_id] = STEP.check(statuses.get(step.step_id, StepStatus.PENDING), status)
+            event = "step_started" if status == StepStatus.RUNNING else "step_finished"
+            step_rows.append({"event": event, "step_id": step.step_id, "status": str(status), **detail})
+            if status != StepStatus.RUNNING:
+                completed.add(step.step_id)
+                if status != StepStatus.SUCCESS:
+                    unsuccessful.add(step.step_id)
+            return step_rows[-1]
 
         def failed(message: str, error_code: str) -> OrchestratorResult:
             return OrchestratorResult(
                 request_id=req.request_id, response=message, agent_type=AgentType.TRIAGE, intent=req.intent, escalated=True,
-                latency_ms=(time.monotonic() - started) * 1000, status="failed", error_code=error_code, plan=plan.to_dict(),
+                latency_ms=(time.monotonic() - started) * 1000, status="failed", error_code=error_code, plan=plan.to_dict(statuses),
                 findings=findings, trace_events=step_rows,
                 tools_used=list(dict.fromkeys(t for r in responses for t in r.tools_used)),
                 tool_traces=[t for r in responses for t in r.tool_traces], token_usage=_sum_usage(responses),
@@ -228,9 +238,7 @@ class AgentOrchestrator:
                 return failed("计划依赖无法满足，已停止执行并转人工。", "plan_dependency_cycle")
             blocked = [s for s in ready if any(d in unsuccessful for d in s.depends_on)]
             for step in blocked:
-                completed.add(step.step_id)
-                unsuccessful.add(step.step_id)
-                step_rows.append({"event": "step_finished", "step_id": step.step_id, "status": "blocked", "error_code": "dependency_failed"})
+                mark(step, StepStatus.BLOCKED, error_code="dependency_failed")
             ready = [s for s in ready if s not in blocked]
             if not ready:
                 continue
@@ -239,8 +247,8 @@ class AgentOrchestrator:
             if used["input_tokens"] + used["output_tokens"] >= plan.token_budget:
                 return failed("计划已用完轮次间 token 预算，停止后续步骤。", "plan_budget_exceeded")
             wave = ready[:MAX_PLAN_WAVE]
-            step_rows.extend({"event": "step_started", "step_id": s.step_id, "agent_type": s.agent_type, "status": "running"} for s in wave)
             for s in wave:
+                mark(s, StepStatus.RUNNING, agent_type=s.agent_type)
                 await req.publish("step_started", {"step_id": s.step_id, "agent_type": s.agent_type, "title": s.title})
             # 计划含工单步骤时由它汇总建单；诊断步骤不提供 create_ticket，避免一次请求生成多张工单。
             ticket_owned = frozenset({"create_ticket"}) if any(p.agent_type == "ticket" for p in plan.steps) else frozenset()
@@ -248,18 +256,15 @@ class AgentOrchestrator:
                 step_outputs={d: outputs[d] for d in s.depends_on},
                 hidden_tools=req.hidden_tools | (ticket_owned if s.agent_type != "ticket" else frozenset())), AgentType(s.agent_type)) for s in wave], return_exceptions=True)
             for step, response in zip(wave, raw):
-                completed.add(step.step_id)
                 if isinstance(response, Exception):
-                    unsuccessful.add(step.step_id)
-                    step_rows.append({"event": "step_finished", "step_id": step.step_id, "status": "failed", "error_code": "step_exception"})
+                    mark(step, StepStatus.FAILED, error_code="step_exception")
                     continue
                 responses.append(response)
-                if not response.success:
-                    unsuccessful.add(step.step_id)
                 outputs[step.step_id] = {"summary": response.content, "success": response.success, "evidence": response.tool_traces}
                 findings.append({"step_id": step.step_id, "agent_type": response.agent_type.value, "content": response.content, "success": response.success, "evidence": response.tool_traces})
-                step_rows.append({"event": "step_finished", "step_id": step.step_id, "status": "success" if response.success else "failed", "tools_used": response.tools_used, "latency_ms": round(response.latency_ms, 1)})
-                await req.publish("step_finished", step_rows[-1])
+                finished = mark(step, StepStatus.SUCCESS if response.success else StepStatus.FAILED,
+                                tools_used=response.tools_used, latency_ms=round(response.latency_ms, 1))
+                await req.publish("step_finished", finished)
 
         if not responses:
             return failed("所有计划步骤均未成功，请转人工处理。", "plan_failed")
@@ -276,7 +281,7 @@ class AgentOrchestrator:
             tools_used=list(dict.fromkeys(t for r in responses for t in r.tools_used)),
             tool_traces=[t for r in responses for t in r.tool_traces],
             routing_reason="bounded planner; parallel independent steps", routing_confidence=req.intent_confidence,
-            status=status, retryable=status == "partial", plan=plan.to_dict(), findings=findings, trace_events=step_rows,
+            status=status, retryable=status == "partial", plan=plan.to_dict(statuses), findings=findings, trace_events=step_rows,
             token_usage=_sum_usage(responses),
         )
 

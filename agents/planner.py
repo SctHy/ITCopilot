@@ -16,11 +16,13 @@ import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Literal
+from enum import StrEnum
+from typing import Any, Dict, List, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
 from core.env import env_float
+from core.states import Machine
 
 logger = logging.getLogger(__name__)
 AGENT_TYPES = ("triage", "endpoint", "access", "network_software", "ticket")
@@ -43,6 +45,21 @@ def default_token_budget(steps: int = 3) -> int:
         return 10000 * max(1, steps)
 
 
+class StepStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    BLOCKED = "blocked"     # a dependency did not succeed; the step never ran
+
+
+STEP = Machine("plan_step.status", {
+    StepStatus.PENDING: {StepStatus.RUNNING, StepStatus.BLOCKED},
+    StepStatus.RUNNING: {StepStatus.SUCCESS, StepStatus.FAILED},
+    StepStatus.SUCCESS: set(), StepStatus.FAILED: set(), StepStatus.BLOCKED: set(),
+})
+
+
 @dataclass(frozen=True)
 class PlanStep:
     step_id: str
@@ -51,10 +68,9 @@ class PlanStep:
     depends_on: List[str]
     parallelizable: bool = True
     risk: str = "low"
-    status: str = "pending"
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+    def to_dict(self, status: str = StepStatus.PENDING) -> Dict[str, Any]:
+        return {**asdict(self), "status": str(status)}
 
 
 @dataclass(frozen=True)
@@ -65,9 +81,11 @@ class ExecutionPlan:
     max_steps: int = 6
     token_budget: int = field(default_factory=default_token_budget)
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {"plan_id": self.plan_id, "goal": self.goal, "max_steps": self.max_steps,
-                "token_budget": self.token_budget, "steps": [s.to_dict() for s in self.steps]}
+    def to_dict(self, statuses: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+        """``statuses``: step_id -> StepStatus as executed; steps not in it are still pending."""
+        statuses = statuses or {}
+        return {"plan_id": self.plan_id, "goal": self.goal, "max_steps": self.max_steps, "token_budget": self.token_budget,
+                "steps": [s.to_dict(statuses.get(s.step_id, StepStatus.PENDING)) for s in self.steps]}
 
 
 def _normalize_text(message: str) -> str:

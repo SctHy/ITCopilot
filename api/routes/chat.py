@@ -229,12 +229,23 @@ async def _run_streamed(payload: ChatRequest, principal: Principal, rid: str, em
 
 
 async def _subscribe(stream: str, after: Optional[str]):
+    """Relay a stream until its terminal event. A run that dies before writing one (process
+    crash, deploy) would otherwise keep subscribers on heartbeats until the stream expires,
+    so a stream quiet for longer than any single step can take is reported as abandoned.
+    That verdict is the subscriber's only; it is not written to the stream, so a later
+    resume still sees whatever the run publishes."""
     heartbeat_s = env_float("IT_COPILOT_SSE_HEARTBEAT_S", 15)
+    idle_s = env_float("IT_COPILOT_SSE_IDLE_TIMEOUT_S", 300)
+    last_event = time.monotonic()
     while True:
         events = await state.events.read(stream, after, block_s=heartbeat_s)
         if not events:
+            if time.monotonic() - last_event >= idle_s:
+                yield _sse("error", {"status_code": 504, "detail": "stream_abandoned"})
+                return
             yield ": heartbeat\n\n"
             continue
+        last_event = time.monotonic()
         for event_id, event, data in events:
             after = event_id
             yield _sse(event, data, event_id)

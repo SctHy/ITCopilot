@@ -12,6 +12,7 @@ import pathlib
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Dict, List
 from urllib.parse import urlsplit
 
@@ -21,6 +22,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, Implementation, PaginatedRequestParams
 
+from core.states import Machine
 from monitor import metrics
 from tooling.tool_manager import MCPToolManager, Tool
 from tooling.tool_spec import AgentToolSpec
@@ -92,7 +94,23 @@ class MCPRemoteError(RuntimeError):
     pass
 
 
+class ConnState(StrEnum):
+    CONNECTING = "connecting"      # first attempt only
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"  # lost or never reached; reconnecting with backoff, last cause in `error`
+    CLOSED = "closed"
+
+
+CONNECTION = Machine("mcp_connection.state", {
+    ConnState.CONNECTING: {ConnState.CONNECTED, ConnState.DISCONNECTED, ConnState.CLOSED},
+    ConnState.CONNECTED: {ConnState.DISCONNECTED, ConnState.CLOSED},
+    ConnState.DISCONNECTED: {ConnState.CONNECTED, ConnState.CLOSED},
+    ConnState.CLOSED: set(),
+})
+
+
 class _Connection:
+    """`ready` is set after the first attempt settles (either way) and stays set: it only gates start(wait=True)."""
     def __init__(self, config):
         self.config = config
         self.session = None
@@ -102,8 +120,11 @@ class _Connection:
         self.refresh = asyncio.Event()
         self.ready = asyncio.Event()
         self.protocol_version = None
-        self.state = "connecting"
+        self.state = ConnState.CONNECTING
         self.error = None
+
+    def move(self, state: ConnState) -> None:
+        self.state = CONNECTION.check(self.state, state)
 
 
 class StandardMCPClient:
@@ -172,7 +193,8 @@ class StandardMCPClient:
                     catalog = await self._discover(session, config.timeout_s)
                     connection.session = session
                     connection.protocol_version = initialized.protocol_version
-                    connection.state, connection.error = "connected", None
+                    connection.move(ConnState.CONNECTED)
+                    connection.error = None
                     connection.reconnect.clear()
                     self._register_catalog(connection, catalog)
                     connection.ready.set()
@@ -198,13 +220,13 @@ class StandardMCPClient:
             except asyncio.CancelledError:
                 raise
             except Exception as ex:
-                connection.state = "disconnected"
+                connection.move(ConnState.DISCONNECTED)
                 connection.error = type(ex).__name__
                 logger.warning("MCP 服务 %s 连接失败: %s", config.name, connection.error)
             finally:
                 connection.session = None
                 if not connection.stop.is_set():
-                    connection.state = "disconnected"
+                    connection.move(ConnState.DISCONNECTED)
                 self._remove_server(config.name)
                 connection.ready.set()
             if not connection.stop.is_set():
@@ -213,7 +235,7 @@ class StandardMCPClient:
                 except TimeoutError:
                     pass
                 delay = min(delay * 2, 30)
-        connection.state = "closed"
+        connection.move(ConnState.CLOSED)
 
     @staticmethod
     async def _discover(session, timeout):
@@ -274,7 +296,7 @@ class StandardMCPClient:
 
     def _update_metrics(self, name):
         connection = self.connections.get(name)
-        metrics.MCP_SERVER_UP.labels(server=name).set(int(connection is not None and connection.state == "connected"))
+        metrics.MCP_SERVER_UP.labels(server=name).set(int(connection is not None and connection.state == ConnState.CONNECTED))
         metrics.MCP_TOOLS.labels(server=name).set(sum(origin[0] == name for origin in self._origins.values()))
 
     async def _call_remote(self, server, name, arguments):
@@ -335,7 +357,7 @@ class StandardMCPClient:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
         for connection in self.connections.values():
-            connection.state = "closed"
+            connection.move(ConnState.CLOSED)
 
 
 

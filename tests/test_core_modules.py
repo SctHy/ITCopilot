@@ -84,7 +84,7 @@ def test_phase5_planner_is_bounded_and_parallel_ready():
     plan = build_plan(message, "req-1")
     assert len(plan.steps) <= plan.max_steps
     assert {step.agent_type for step in plan.steps} >= {"access", "endpoint"}
-    assert all(step.status == "pending" for step in plan.steps)
+    assert all(step["status"] == "pending" for step in plan.to_dict()["steps"])
 
 
 def test_planner_keywords_are_case_insensitive():

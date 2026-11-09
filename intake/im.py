@@ -27,6 +27,7 @@ import logging
 import socket
 import time
 import uuid
+from enum import StrEnum
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, func, insert, or_, select, update
@@ -35,6 +36,7 @@ from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
 from core.db import channel_inbox, channel_outbox
+from core.states import Machine
 from core.identity import Principal
 from intake.base import ChannelError, InboundMessage, Sender
 from monitor import metrics
@@ -57,6 +59,36 @@ NOTICES = {
     "execution_manual_review": "审批单 {short} 的执行结果需要 IT 人工核对，核对完成后会再通知你。",
 }
 BLOCKING_ATTEMPTS = 3   # an undelivered message stops holding back later ones after this many failures
+
+
+class InboxStatus(StrEnum):
+    RECEIVED = "received"
+    PROCESSING = "processing"
+    DONE = "done"
+    IGNORED = "ignored"       # unbound sender or no text; the person still gets one reply
+    FAILED = "failed"
+
+
+class OutboxStatus(StrEnum):
+    QUEUED = "queued"
+    SENDING = "sending"
+    SENT = "sent"
+    DROPPED = "dropped"       # permanent channel error (message recalled, bot removed)
+    FAILED = "failed"
+
+
+I, O = InboxStatus, OutboxStatus
+# A lease that runs out puts a busy row back up for claiming (processing -> processing).
+INBOX = Machine("channel_inbox.status", {
+    I.RECEIVED: {I.PROCESSING},
+    I.PROCESSING: {I.DONE, I.IGNORED, I.FAILED, I.RECEIVED},
+    I.DONE: set(), I.IGNORED: set(), I.FAILED: set(),
+})
+OUTBOX = Machine("channel_outbox.status", {
+    O.QUEUED: {O.SENDING},
+    O.SENDING: {O.SENT, O.DROPPED, O.FAILED, O.QUEUED},
+    O.SENT: set(), O.DROPPED: set(), O.FAILED: set(),
+})
 
 
 def short_id(approval_id: str) -> str:
@@ -90,7 +122,7 @@ def enqueue(db, *, now: float, channel: str, conv_key: str, address: Dict[str, A
     try:
         with db.begin_nested():
             db.execute(insert(channel_outbox).values(
-                id=key[:64], channel=channel, conv_key=conv_key, seq=seq, address=address, text=text, ref=ref, status="queued",
+                id=key[:64], channel=channel, conv_key=conv_key, seq=seq, address=address, text=text, ref=ref, status=OutboxStatus.QUEUED,
                 attempts=0, not_before=now, version=0, created_at=now))
     except IntegrityError:
         return
@@ -200,7 +232,7 @@ class ChannelService:
                     with db.begin_nested():
                         db.execute(insert(channel_inbox).values(
                             id=msg.id, channel=msg.channel, conv_id=msg.conv_id, sender=msg.sender, text=msg.text[:8000], address=msg.address,
-                            status="received", attempts=0, not_before=now, version=0, created_at=now, updated_at=now))
+                            status=InboxStatus.RECEIVED, attempts=0, not_before=now, version=0, created_at=now, updated_at=now))
                     outcome = "queued"
                 except IntegrityError:
                     outcome = "duplicate"
@@ -219,8 +251,8 @@ class ChannelService:
 
     def _claim(self, table, limit: int) -> List[Dict[str, Any]]:
         now = self.clock()
-        idle = "received" if table is channel_inbox else "queued"
-        busy = "processing" if table is channel_inbox else "sending"
+        machine = INBOX if table is channel_inbox else OUTBOX
+        idle, busy = (I.RECEIVED, I.PROCESSING) if table is channel_inbox else (O.QUEUED, O.SENDING)
         due = or_(and_(table.c.status == idle, table.c.not_before <= now), and_(table.c.status == busy, table.c.lease_until < now))
         with schema.read(self.engine) as db:
             candidates = db.execute(select(table).where(due).order_by(table.c.created_at).limit(limit * 4)).mappings().all()
@@ -233,14 +265,15 @@ class ChannelService:
                 continue  # one message per conversation at a time
             with self.engine.begin() as db:
                 if table is channel_inbox and db.execute(select(channel_inbox.c.id).where(
-                        channel_inbox.c.conv_id == conv, channel_inbox.c.status.in_(("received", "processing")), channel_inbox.c.id != row["id"],
+                        channel_inbox.c.conv_id == conv, channel_inbox.c.status.in_((I.RECEIVED, I.PROCESSING)), channel_inbox.c.id != row["id"],
                         or_(channel_inbox.c.created_at < row["created_at"],
                             and_(channel_inbox.c.created_at == row["created_at"], channel_inbox.c.id < row["id"])))).first():
                     continue  # an earlier message of this conversation is not answered yet
                 if table is channel_outbox and db.execute(select(channel_outbox.c.id).where(
                         channel_outbox.c.conv_key == conv, channel_outbox.c.seq < row["seq"],
-                        channel_outbox.c.status.in_(("queued", "sending")), channel_outbox.c.attempts < BLOCKING_ATTEMPTS)).first():
+                        channel_outbox.c.status.in_((O.QUEUED, O.SENDING)), channel_outbox.c.attempts < BLOCKING_ATTEMPTS)).first():
                     continue  # an earlier message to this conversation has not gone out yet
+                machine.check(row["status"], busy)
                 done = db.execute(update(table).where(table.c.id == row["id"], table.c.version == row["version"]).values(
                     status=busy, lease_until=now + self.lease_s, attempts=row["attempts"] + 1, version=row["version"] + 1)).rowcount
             if done:
@@ -250,6 +283,7 @@ class ChannelService:
 
     def _finish(self, row, status: str, *, reply: Optional[str] = None, request_id: Optional[str] = None, error: Optional[str] = None) -> None:
         now = self.clock()
+        INBOX.check(row["status"], status)
         with self.engine.begin() as db:
             done = db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"]).values(
                 status=status, request_id=request_id, error=error, lease_until=None, version=row["version"] + 1, updated_at=now)).rowcount
@@ -260,19 +294,20 @@ class ChannelService:
 
     def _retry_turn(self, row, error: str) -> None:
         delay = min(5 * 2 ** (row["attempts"] - 1), 300)
+        INBOX.check(row["status"], I.RECEIVED)
         with self.engine.begin() as db:
             db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"]).values(
-                status="received", error=error[:500], not_before=self.clock() + delay, lease_until=None, version=row["version"] + 1,
+                status=I.RECEIVED, error=error[:500], not_before=self.clock() + delay, lease_until=None, version=row["version"] + 1,
                 updated_at=self.clock()))
 
     async def _process(self, row: Dict[str, Any]) -> None:
         sender = self.senders.get(row["channel"])
         principal = self.resolvers[row["channel"]](row["sender"]) if row["channel"] in self.resolvers else None
         if principal is None:
-            await asyncio.to_thread(self._finish, row, "ignored", reply=UNBOUND, error="unbound_sender")
+            await asyncio.to_thread(self._finish, row, I.IGNORED, reply=UNBOUND, error="unbound_sender")
             return
         if not row["text"]:
-            await asyncio.to_thread(self._finish, row, "ignored", reply=TEXT_ONLY, error="no_text")
+            await asyncio.to_thread(self._finish, row, I.IGNORED, reply=TEXT_ONLY, error="no_text")
             return
         if sender and row["attempts"] == 1:
             try:
@@ -285,11 +320,11 @@ class ChannelService:
             logger.warning("channel turn %s failed (attempt %s): %s", row["id"], row["attempts"], exc, exc_info=True)
             detail = getattr(exc, "detail", None) or type(exc).__name__
             if row["attempts"] >= self.max_turn_attempts or getattr(exc, "status_code", 500) < 500:
-                await asyncio.to_thread(self._finish, row, "failed", reply=TURN_FAILED, error=str(detail)[:500])
+                await asyncio.to_thread(self._finish, row, I.FAILED, reply=TURN_FAILED, error=str(detail)[:500])
             else:
                 await asyncio.to_thread(self._retry_turn, row, str(detail))
             return
-        await asyncio.to_thread(self._finish, row, "done", reply=format_reply(response), request_id=response.get("request_id"))
+        await asyncio.to_thread(self._finish, row, I.DONE, reply=format_reply(response), request_id=response.get("request_id"))
 
     # ── outbound ────────────────────────────────────────────────────────────
 
@@ -297,6 +332,7 @@ class ChannelService:
         enqueue(db, now=self.clock(), channel=channel, conv_key=conv_key, address=address, text=text, ref=ref, key=key)
 
     def _settle(self, row, **values) -> None:
+        OUTBOX.check(row["status"], values["status"])
         with self.engine.begin() as db:
             db.execute(update(channel_outbox).where(channel_outbox.c.id == row["id"], channel_outbox.c.version == row["version"])
                        .values(lease_until=None, version=row["version"] + 1, **values))
@@ -310,16 +346,16 @@ class ChannelService:
         except Exception as exc:
             permanent = isinstance(exc, ChannelError) and exc.permanent
             if permanent:
-                outcome, values = "dropped", {"status": "dropped"}
+                outcome, values = "dropped", {"status": O.DROPPED}
             elif row["attempts"] >= self.max_send_attempts:
-                outcome, values = "failed", {"status": "failed"}
+                outcome, values = "failed", {"status": O.FAILED}
             else:
-                outcome, values = "retry", {"status": "queued", "not_before": self.clock() + min(5 * 2 ** (row["attempts"] - 1), 300)}
+                outcome, values = "retry", {"status": O.QUEUED, "not_before": self.clock() + min(5 * 2 ** (row["attempts"] - 1), 300)}
             logger.warning("delivery %s %s: %s", row["id"], outcome, exc)
             await asyncio.to_thread(self._settle, row, error=str(exc)[:500], **values)
         else:
             outcome = "sent"
-            await asyncio.to_thread(self._settle, row, status="sent", error=None, sent_at=self.clock())
+            await asyncio.to_thread(self._settle, row, status=O.SENT, error=None, sent_at=self.clock())
         metrics.CHANNEL_DELIVERIES.labels(channel=row["channel"], outcome=outcome).inc()
 
     # ── read model ──────────────────────────────────────────────────────────
@@ -327,11 +363,11 @@ class ChannelService:
     def problems(self) -> Dict[str, Any]:
         """What needs a person: messages that failed or keep failing. Healthy is empty."""
         with schema.read(self.engine) as db:
-            failed_in = db.execute(select(channel_inbox.c.id, channel_inbox.c.error).where(channel_inbox.c.status == "failed")
+            failed_in = db.execute(select(channel_inbox.c.id, channel_inbox.c.error).where(channel_inbox.c.status == I.FAILED)
                                    .order_by(channel_inbox.c.updated_at.desc()).limit(20)).mappings().all()
             stuck_out = db.execute(select(channel_outbox.c.id, channel_outbox.c.ref, channel_outbox.c.status, channel_outbox.c.attempts,
                                           channel_outbox.c.error)
-                                   .where(or_(channel_outbox.c.status == "failed",
-                                              and_(channel_outbox.c.status.in_(("queued", "sending")), channel_outbox.c.attempts >= BLOCKING_ATTEMPTS)))
+                                   .where(or_(channel_outbox.c.status == O.FAILED,
+                                              and_(channel_outbox.c.status.in_((O.QUEUED, O.SENDING)), channel_outbox.c.attempts >= BLOCKING_ATTEMPTS)))
                                    .order_by(channel_outbox.c.created_at.desc()).limit(20)).mappings().all()
         return {"failed_messages": [dict(r) for r in failed_in], "undelivered": [dict(r) for r in stuck_out]}

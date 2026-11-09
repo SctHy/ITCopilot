@@ -21,11 +21,13 @@ import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 import httpx2
 
 from core.env import env_float
+from core.states import Machine
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,14 @@ class Condition:
     action: str = ""
 
 
+class AlertState(StrEnum):
+    FIRING = "firing"      # still firing while clear_ticks counts clean evaluations towards RESOLVE_TICKS
+    RESOLVED = "resolved"
+
+
+ALERT = Machine("alert.state", {AlertState.FIRING: {AlertState.RESOLVED}, AlertState.RESOLVED: set()})
+
+
 @dataclass
 class Alert:
     key: str
@@ -104,10 +114,15 @@ class Alert:
     value: float
     threshold: float
     action: str = ""
-    state: str = "firing"
+    state: str = AlertState.FIRING
     started_at: str = field(default_factory=_now_iso)
     resolved_at: Optional[str] = None
     clear_ticks: int = 0
+
+    @property
+    def clearing(self) -> bool:
+        """Condition gone, not yet for long enough to resolve (flap protection)."""
+        return self.state == AlertState.FIRING and self.clear_ticks > 0
 
 
 class AlertManager:
@@ -137,7 +152,7 @@ class AlertManager:
                 continue
             alert.clear_ticks += 1
             if alert.clear_ticks >= self.RESOLVE_TICKS:
-                alert.state, alert.resolved_at = "resolved", _now_iso()
+                alert.state, alert.resolved_at = ALERT.check(alert.state, AlertState.RESOLVED), _now_iso()
                 del self.firing[key]
                 self.history.append(alert)
                 self._set_gauge(alert)
@@ -146,7 +161,7 @@ class AlertManager:
     @staticmethod
     def _set_gauge(alert: Alert) -> None:
         for severity in SEVERITY_ORDER:
-            metrics.ALERTS_FIRING.labels(alert=alert.key, severity=severity).set(int(alert.state == "firing" and severity == alert.severity))
+            metrics.ALERTS_FIRING.labels(alert=alert.key, severity=severity).set(int(alert.state == AlertState.FIRING and severity == alert.severity))
 
     def _emit(self, event: str, alert: Alert) -> None:
         if event == "firing":
