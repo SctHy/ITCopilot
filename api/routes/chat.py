@@ -9,11 +9,12 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
+from agents.states import TURN
 from api import state
 from api.deps import current_principal, forbid, request_id, spawn
 from api.schemas import ChatRequest, ChatResponse
 from core.env import env_float
-from core.events import TERMINAL_EVENTS, EventPublisher
+from core.events import TERMINAL_EVENTS, EventPublisher, StreamConflict, request_fingerprint
 from core.identity import Principal
 from monitor import metrics
 from workflow.policy import PolicyViolation
@@ -60,7 +61,7 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
 
     user_id = principal.subject
     with stages("memory_context"):
-        mem_ctx = await state.memory.get_context(user_id, conv_id, query=payload.message) if state.memory else None
+        mem_ctx = await state.memory.get_context(principal.scope_key, conv_id, query=payload.message) if state.memory else None
     history = mem_ctx.history_turns() if mem_ctx and mem_ctx.recent_messages else None
     conv_state = (getattr(mem_ctx, "state", {}) or {}) if mem_ctx else {}
     with stages("intent"):
@@ -81,6 +82,12 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
         knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge and prefetched and prefetched.success else [],
     )
     req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
+    if state.task_recall:
+        try:
+            req.task_references = await asyncio.wait_for(state.task_recall.recall(principal, payload.message), 3)
+            req.context += state.task_recall.prompt(req.task_references)
+        except Exception:
+            logger.warning('task recall unavailable; continuing without task references')
     # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
     entities = with_login_employee(intent_result.entities, conv_state, principal.employee_id, intent_result.intent.value)
     req.conversation_state = merge_state(conv_state, intent_result.intent_group, entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
@@ -103,6 +110,7 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
     trace["observability"] = {
         "schema_version": 3,
         "owner": principal.subject,
+        "tenant": principal.tenant,
         "department": principal.department,
         "memory": {
             "working_hit": bool(mem_ctx and mem_ctx.recent_messages),
@@ -138,11 +146,13 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None)
     request_started = time.monotonic()
     conv_id = payload.conv_id
     if state.memory:
-        async with state.memory.conversation(principal.subject, conv_id):
-            receipt = await state.memory.get_turn_receipt(principal.subject, conv_id, rid)
+        async with state.memory.conversation(principal.scope_key, conv_id):
+            receipt = await state.memory.get_turn_receipt(principal.scope_key, conv_id, rid)
             if receipt:
                 if receipt.get("message") != payload.message:
                     raise HTTPException(409, "同一 client_request_id 不能用于不同消息")
+                flow = TURN.start()
+                flow.send("replay")
                 return receipt.get("response")
             return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
     return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
@@ -150,6 +160,19 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None)
 
 async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None):
     # The caller holds the conversation lease through approval creation AND commit.
+    flow = TURN.start()
+    flow.send("run")
+    try:
+        return await _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow)
+    except asyncio.CancelledError:
+        flow.send("cancel")
+        raise
+    except Exception:
+        flow.send("fail")
+        raise
+
+
+async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow):
     stages = _Stages()
     result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, stages, emit)
 
@@ -158,6 +181,7 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
     approval_id = rid + ":approval" if approval else None
     reply = result.response
     if approval and state.workflow:
+        flow.send("propose")
         summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
         try:
             with stages("approval"):
@@ -177,7 +201,9 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
                 await emit("approval_required", {"approval_id": approval_id, "approvals_required": created["approvals_required"],
                                                  "policy_version": created["policy_version"], "actions": approval["actions"]})
 
+    flow.send("respond")
     response = ChatResponse(
+        task_references=req.task_references,
         request_id=rid, response=reply, status=result.status, agent_type=result.agent_type.value,
         intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
@@ -191,16 +217,18 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
         # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)
         with stages("commit"):
-            await state.memory.commit_turn(principal.subject, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
+            await state.memory.commit_turn(principal.scope_key, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
+        flow.send("commit")
         if state.profile_updater:
-            state.profile_updater.submit(principal.subject, conv_id)
+            state.profile_updater.submit(principal.scope_key, conv_id)
         if result.intent and result.intent.value not in {"greeting", "chitchat"}:
             metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "agent_type": result.agent_type.value, "entities": intent_result.entities}
-            spawn(state.memory.store_episodic_turn(principal.subject, conv_id, rid, payload.message, response.response, metadata))
+            spawn(state.memory.store_episodic_turn(principal.scope_key, conv_id, rid, payload.message, response.response, metadata))
     metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
     if state.monitor:
         state.monitor.record_chat(response.status, time.monotonic() - request_started)
+    flow.send("finish")
     return response
 
 
@@ -241,7 +269,7 @@ async def _subscribe(stream: str, after: Optional[str]):
         events = await state.events.read(stream, after, block_s=heartbeat_s)
         if not events:
             if time.monotonic() - last_event >= idle_s:
-                yield _sse("error", {"status_code": 504, "detail": "stream_abandoned"})
+                yield _sse("error", {"status_code": 504, "detail": "stream_abandoned", "retry_same_request": True})
                 return
             yield ": heartbeat\n\n"
             continue
@@ -267,11 +295,15 @@ async def chat_stream(payload: ChatRequest, principal: Principal = Depends(curre
         raise HTTPException(503, "service not ready")
     rid = request_id(principal, payload.client_request_id)
     stream = "chat:" + rid
-    if await state.events.claim(stream, principal.subject):
+    try:
+        claimed = await state.events.claim(stream, principal.scope_key, request_fingerprint(payload.message, payload.conv_id))
+    except StreamConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    if claimed:
         emit = EventPublisher(state.events, stream, time.monotonic())
         await emit("status", {"stage": "started", "request_id": rid})
         spawn(_run_streamed(payload, principal, rid, emit))
-    elif await state.events.owner(stream) != principal.subject:
+    elif await state.events.owner(stream) != principal.scope_key:
         raise forbid()
     return _stream_response(stream, None)
 
@@ -283,7 +315,7 @@ async def chat_stream_resume(request_id: str, principal: Principal = Depends(cur
     owner = await state.events.owner(stream)
     if owner is None:
         raise HTTPException(404, "stream not found or expired")
-    if owner != principal.subject:
+    if owner != principal.scope_key:
         raise forbid()
     return _stream_response(stream, last_event_id)
 

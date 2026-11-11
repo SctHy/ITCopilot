@@ -36,6 +36,7 @@ from agents.intent.taxonomy import (
     jev_state,
 )
 from core.env import env_float
+from core.protocols import CacheState, cache_state
 from core.jev import JevClient, top_choice
 from core.llm import build_model
 from monitor import metrics
@@ -130,7 +131,7 @@ class IntentRecognizer:
     async def recognize(self, message: str, history: Optional[List[Dict[str, str]]] = None, previous_intent_group: Optional[str] = None) -> IntentResult:
         key = self._cache_key(message, history, previous_intent_group)
         metrics.CACHE_LOOKUPS.labels(cache="intent", result="hit" if key in self._cache else "miss").inc()
-        if key in self._cache:
+        if cache_state(key in self._cache) == CacheState.FRESH:
             return self._cache[key]
 
         pattern = self._pattern(message)

@@ -105,3 +105,20 @@ def test_eval_reports_summarize_committed_offline_reports(client):
     assert suites["intent_v3"]["title"] == "意图难例集 · 真实模型"
     rag = {m["label"]: m["value"] for m in suites["rag"]["metrics"]}
     assert rag["Hybrid Recall@5"] == 1.0 and rag["Vector Recall@5"] == 1.0
+
+
+def test_stats_reports_the_chunk_count_expected_by_the_frontend(client):
+    http, kb = client
+    kb.documents = [{"title": "a"}, {"title": "b"}]
+    assert http.get("/knowledge/stats").json()["total_chunks"] == 2
+
+
+@pytest.mark.parametrize("top_k", [9, 10, 20])
+def test_search_accepts_the_full_advertised_range(client, top_k):
+    from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
+    from tooling.tool_manager import Tool
+    http, _ = client
+    state.tool_manager.register(Tool("knowledge_search", "search", lambda p, c: [{"title": "hit"}], KNOWLEDGE_SEARCH_SCHEMA))
+    response = http.post("/search", params={"query": "VPN", "top_k": top_k})
+    assert response.status_code == 200
+    assert response.json() == [{"title": "hit"}]

@@ -70,9 +70,14 @@ class ToolExecutor:
         attempts = 1 + (self.read_retries if spec.retry_safe else 0)
         try:
             for attempt in range(1, attempts + 1):
+                if attempt > 1 and not breaker.allow():
+                    raise ToolUnavailable(f"工具 {spec.name} 已熔断，停止重试")
                 generation = breaker.generation
                 try:
                     result = await asyncio.wait_for(self._call(spec, req, args), timeout=timeout)
+                except asyncio.CancelledError:
+                    breaker.abandon_probe(generation)
+                    raise
                 except ValueError:
                     breaker.record_success(generation)  # the tool works; the input was wrong
                     raise

@@ -21,7 +21,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from pydantic_ai import Agent
@@ -29,6 +29,8 @@ from pydantic_ai.output import ToolOutput
 from pydantic_ai.settings import ModelSettings
 
 from core.env import env_float
+from core.states import Machine
+from core.protocols import CacheState, cache_state
 from core.jev import JevClient
 from core.llm import build_model
 from monitor import metrics
@@ -42,10 +44,17 @@ _RERANK_AGENT = Agent(output_type=ToolOutput(List[int], name="return_ranking", d
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────────
 
-class CircuitState(Enum):
+class CircuitState(StrEnum):
     CLOSED    = "closed"     # 正常
     OPEN      = "open"       # 熔断，拒绝请求
     HALF_OPEN = "half_open"  # 探测恢复
+
+
+CIRCUIT = Machine(CircuitState, """
+    closed -> open
+    open -> half_open
+    half_open -> closed | open
+""")
 
 
 @dataclass
@@ -103,7 +112,7 @@ class CircuitBreaker:
         if self.state == CircuitState.OPEN:
             if time.monotonic() - self.opened_at >= self.recovery_s:  # type: ignore
                 self.generation += 1
-                self.state = CircuitState.HALF_OPEN
+                self.state = CIRCUIT.check(self.state, CircuitState.HALF_OPEN)
                 return True
             return False
         return False  # 唯一探测尚未结束，其他请求走降级
@@ -112,7 +121,7 @@ class CircuitBreaker:
         if generation is not None and generation != self.generation:
             return
         self.fail_count = 0
-        self.state = CircuitState.CLOSED
+        self.state = CIRCUIT.check(self.state, CircuitState.CLOSED)
 
     def record_failure(self, generation=None) -> None:
         if generation is not None and generation != self.generation:
@@ -120,9 +129,14 @@ class CircuitBreaker:
         self.fail_count += 1
         if self.state == CircuitState.HALF_OPEN or self.fail_count >= self.threshold:
             self.generation += 1
-            self.state     = CircuitState.OPEN
+            self.state = CIRCUIT.check(self.state, CircuitState.OPEN)
             self.opened_at = time.monotonic()
             logger.warning(f"熔断器打开（连续失败 {self.fail_count} 次）")
+
+    def abandon_probe(self, generation):
+        """Cancellation releases only this generation's probe, with a fresh cooldown."""
+        if self.state == CircuitState.HALF_OPEN and generation == self.generation:
+            self.record_failure(generation)
 
 
 # ── 工具定义 ──────────────────────────────────────────────────────────────────
@@ -232,14 +246,13 @@ class MCPToolManager:
             tool.stats.total_latency_ms += latency
             tool.breaker.record_success(generation)
 
-            if use_cache and tool.cache_ttl > 0 and cache_version == self._cache_versions.get(name, 0):
+            if use_cache and tool.cache_ttl > 0 and cache_state(True, version_matches=cache_version == self._cache_versions.get(name, 0)) == CacheState.FRESH:
                 self._set_cache(name, params, data, tool.cache_ttl, context)
 
             return ToolResult(success=True, data=data, tool_name=name, latency_ms=latency)
 
         except asyncio.CancelledError:
-            if tool.breaker.state == CircuitState.HALF_OPEN:
-                tool.breaker.record_failure(generation)
+            tool.breaker.abandon_probe(generation)
             raise
         except TimeoutError:
             tool.stats.failed += 1
@@ -475,7 +488,7 @@ class MCPToolManager:
         key = self._cache_key(name, params, context)
         if key in self._cache:
             data, expire_at = self._cache[key]
-            if time.monotonic() < expire_at:
+            if cache_state(True, expired=time.monotonic() >= expire_at) == CacheState.FRESH:
                 return copy.deepcopy(data)
             del self._cache[key]
         return None

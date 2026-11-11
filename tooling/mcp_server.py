@@ -1,7 +1,8 @@
 """将本地 IT 知识库以标准 MCP Tools / Resources 暴露给其他客户端（Claude Desktop、Cursor、其他 Agent）。
 
 API 在 /mcp 挂载 Streamable HTTP 端点；检索经过 MCPToolManager 的 Schema 校验、缓存、超时与熔断，
-与 Agent 内部检索共用同一条治理链路。只读工具，带 readOnlyHint 注解。
+与 Agent 内部检索共用同一条治理链路。此端点没有员工身份，只允许检索公共（*）文档。
+只读工具，带 readOnlyHint 注解。
 """
 import json
 import os
@@ -36,11 +37,11 @@ def create_server(knowledge_base, tool_manager=None) -> MCPServer:
         if not query:
             raise ToolError("query 不能为空")
         if tool_manager is not None:
-            result = await tool_manager.call("knowledge_search", {"query": query, "top_k": top_k})
+            result = await tool_manager.call("knowledge_search", {"query": query, "top_k": top_k, "department": "*"})
             if not result.success:
                 raise ToolError("知识库检索失败，请稍后重试")
             return KnowledgeSearchResult(results=result.data)
-        return KnowledgeSearchResult(results=await knowledge_base.search_async(query, top_k))
+        return KnowledgeSearchResult(results=await knowledge_base.search_async(query, top_k, department="*"))
 
     @server.resource("it-copilot://knowledge/stats")
     async def knowledge_stats() -> str:

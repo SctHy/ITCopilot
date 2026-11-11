@@ -1,7 +1,7 @@
 """HTTP 请求与响应模型。"""
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -10,8 +10,16 @@ class ChatRequest(BaseModel):
     conv_id: str = Field("demo", min_length=1, max_length=200)
     client_request_id: Optional[str] = Field(None, min_length=1, max_length=200)
 
+    @field_validator("conv_id")
+    @classmethod
+    def private_conversation(cls, value):
+        if value.startswith("task:"):
+            raise ValueError("共享事项请使用 /tasks 接口；私人对话不能使用 task: 会话标识")
+        return value
+
 
 class ChatResponse(BaseModel):
+    task_references: list[Dict[str, Any]] = Field(default_factory=list)
     request_id: str
     response: str
     status: str

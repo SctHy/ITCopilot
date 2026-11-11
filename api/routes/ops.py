@@ -21,7 +21,7 @@ router = APIRouter()
 @router.get("/health")
 async def health():
     agents = state.orchestrator.agent_types() if state.orchestrator else []
-    return {"status": "ok", "service": "IT-Copilot", "port": int(os.getenv("IT_COPILOT_PORT", "8001")), "agents": agents}
+    return {"status": "ok", "lifecycle": state.lifecycle.state if state.lifecycle else "uninitialized", "service": "IT-Copilot", "port": int(os.getenv("IT_COPILOT_PORT", "8001")), "agents": agents}
 
 
 @router.get("/skills")
@@ -54,14 +54,15 @@ async def prometheus_metrics():  # 不能命名为 metrics：会遮蔽上方导�
 
 
 def _owns_trace(trace: Optional[Dict[str, Any]], principal: Principal) -> bool:
-    owner = ((trace or {}).get("observability") or {}).get("owner")
-    return principal.can_read_all or (owner is not None and owner == principal.subject)
+    scope = (trace or {}).get("observability") or {}
+    return scope.get('tenant') == principal.tenant and (principal.can_read_all or scope.get('owner') == principal.subject)
 
 
 # 静态路径必须在 /trace/{request_id} 之前注册，否则会被当作 request_id 匹配。
 @router.get("/trace/tools")
 async def trace_tools(limit: int = 20, principal: Principal = Depends(require_roles(ROLE_IT_ADMIN, ROLE_AUDITOR))):
-    return {"items": await state.memory.recent_traces(limit) if state.memory else []}
+    rows = await state.memory.recent_traces(200) if state.memory else []
+    return {"items": [r for r in rows if _owns_trace(r, principal)][:max(1, min(limit, 200))]}
 
 
 async def _readable_trace(request_id: str, principal: Principal):

@@ -28,6 +28,7 @@ import httpx2
 
 from core.env import env_float
 from core.states import Machine
+from core.protocols import SERVICE
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,18 @@ class AlertState(StrEnum):
 ALERT = Machine(AlertState, "firing -> resolved")
 
 
+class AlertPhase(StrEnum):
+    FIRING = "firing"
+    CLEARING = "clearing"
+    RESOLVED = "resolved"
+
+
+ALERT_PHASE = Machine(AlertPhase, """
+    firing -> clearing
+    clearing -> firing | resolved
+""")
+
+
 @dataclass
 class Alert:
     key: str
@@ -122,7 +135,13 @@ class Alert:
     @property
     def clearing(self) -> bool:
         """Condition gone, not yet for long enough to resolve (flap protection)."""
-        return self.state == AlertState.FIRING and self.clear_ticks > 0
+        return self.phase == AlertPhase.CLEARING
+
+    @property
+    def phase(self):
+        if self.state == AlertState.RESOLVED:
+            return AlertPhase.RESOLVED
+        return AlertPhase.CLEARING if self.clear_ticks else AlertPhase.FIRING
 
 
 class AlertManager:
@@ -143,6 +162,7 @@ class AlertManager:
                 continue
             escalated = SEVERITY_ORDER[cond.severity] > SEVERITY_ORDER[alert.severity]
             alert.severity, alert.message, alert.value, alert.threshold, alert.action = cond.severity, cond.message, cond.value, cond.threshold, cond.action
+            ALERT_PHASE.check(alert.phase, AlertPhase.FIRING)
             alert.clear_ticks = 0
             self._set_gauge(alert)
             if escalated:
@@ -150,8 +170,10 @@ class AlertManager:
         for key, alert in list(self.firing.items()):
             if key in active:
                 continue
+            ALERT_PHASE.check(alert.phase, AlertPhase.CLEARING)
             alert.clear_ticks += 1
             if alert.clear_ticks >= self.RESOLVE_TICKS:
+                ALERT_PHASE.check(alert.phase, AlertPhase.RESOLVED)
                 alert.state, alert.resolved_at = ALERT.check(alert.state, AlertState.RESOLVED), _now_iso()
                 del self.firing[key]
                 self.history.append(alert)
@@ -211,20 +233,24 @@ class PerformanceMonitor:
         self._tool_snapshots: Deque[Tuple[float, Dict[str, Tuple[int, int]]]] = deque(maxlen=512)
         self._tasks: set = set()
         self._loop_task: Optional[asyncio.Task] = None
+        self.lifecycle = SERVICE.start()
         self.last_tick: Optional[str] = None
 
     # ── 生命周期 ──────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
         if self._loop_task is None:
+            self.lifecycle.send("start")
             self._loop_task = asyncio.create_task(self._loop())
             logger.info("Monitor 已启动，采集间隔 %ss", self._interval)
 
     async def stop(self) -> None:
         if self._loop_task is not None:
+            self.lifecycle.send("stop")
             self._loop_task.cancel()
             await asyncio.gather(self._loop_task, return_exceptions=True)
             self._loop_task = None
+            self.lifecycle.send("stopped")
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
@@ -388,4 +414,4 @@ class PerformanceMonitor:
 
     @staticmethod
     def _alert_view(alert: Alert) -> Dict[str, Any]:
-        return {k: v for k, v in asdict(alert).items() if k != "clear_ticks"}
+        return {**{k: v for k, v in asdict(alert).items() if k != "clear_ticks"}, "phase": alert.phase}

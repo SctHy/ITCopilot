@@ -5,8 +5,7 @@ import asyncio
 import logging
 import os
 import time
-from collections import deque
-from dataclasses import replace
+from dataclasses import replace, asdict
 from typing import Any, Dict, List, Optional
 
 from agents.base_agent import (
@@ -21,7 +20,9 @@ from agents.base_agent import (
 from agents.injection_guard import InjectionGuard
 from agents.intent.recognizer import IntentRecognizer
 from agents.intent.taxonomy import INTENT_GROUPS, IntentCategory
-from agents.planner import STEP, LLMPlanner, StepStatus, build_plan
+from agents.states import PLAN_RUN
+from agents.planner import STEP, LLMPlanner, StepStatus, build_plan, ExecutionPlan, PlanStep
+from agents.checkpointing import execute_step
 from agents.tools import (
     access_tools,
     build_shared_rag_tools,
@@ -74,7 +75,6 @@ class AgentOrchestrator:
         self._planning_mode = None
         self._planner = LLMPlanner(self._llm) if os.getenv("IT_COPILOT_LLM_PLANNER", "true").lower() in {"1", "true", "yes"} else None
         self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model)
-        self._recent_tool_traces = deque(maxlen=200)
         self.tool_executor = ToolExecutor(timeout_s=env_float("IT_COPILOT_TOOL_TIMEOUT_S", 10))
         # 工具分三层，每次变更都从这三层重新组装，保证下线的外部工具会真正从 Agent 移除。
         self._shared_tools = build_shared_rag_tools(rag_tool_manager) if rag_tool_manager else {}
@@ -165,13 +165,14 @@ class AgentOrchestrator:
 
     async def run(self, req: Request) -> OrchestratorResult:
         started = time.monotonic()
+        mode = req.planning_mode or self.planning_mode
         if req.intent is None:
             ir = await self._intent_recognizer.recognize(req.message, history=req.history)
             req.intent, req.intent_group, req.urgency, req.intent_confidence, req.entities = ir.intent, ir.intent_group, ir.urgency, ir.confidence, ir.entities
-        if self.planning_mode == "generalist":
+        if mode == "generalist":
             await req.publish("routed", {"agent_types": ["generalist"], "reason": "one agent, all tools"})
             req.stream_answer = True
-            response = await self._execute(req, AgentType.GENERALIST)
+            response = await execute_step(self._execute, req, AgentType.GENERALIST, 'generalist')
             result = OrchestratorResult(
                 request_id=req.request_id, response=response.content, agent_type=response.agent_type, intent=req.intent,
                 escalated=response.escalate or req.intent == IntentCategory.HUMAN_HANDOFF, latency_ms=(time.monotonic() - started) * 1000,
@@ -179,11 +180,17 @@ class AgentOrchestrator:
                 tool_traces=response.tool_traces, routing_reason="generalist: one agent, all tools",
                 routing_confidence=req.intent_confidence, status=response.status, error_code=response.error_code, token_usage=response.token_usage,
             )
-            self._recent_tool_traces.append(result.tool_traces)
             return result
-        if self.planning_mode in {"bounded", "bounded_all"}:
+        if mode in {"bounded", "bounded_all"}:
             # 按内容规划，不只依赖意图类别；LLM 规划失败时退回关键词规则。
-            plan = await self._planner.plan(req.message, req.request_id, req.history) if self._planner else build_plan(req.message, req.request_id)
+            inputs = {'message': req.message, 'history': req.history, 'mode': mode}
+            saved = await req.checkpoints.read('plan', inputs) if req.checkpoints else None
+            if saved:
+                plan = ExecutionPlan(**{**saved, 'steps': [PlanStep(**s) for s in saved['steps']]})
+            else:
+                plan = await self._planner.plan(req.message, req.request_id, req.history) if self._planner else build_plan(req.message, req.request_id)
+                if req.checkpoints:
+                    await req.checkpoints.save('plan', inputs, asdict(plan))
             await req.publish("plan", plan.to_dict())
             return await self._run_plan(req, plan)
 
@@ -196,7 +203,7 @@ class AgentOrchestrator:
             return await self.run_parallel(req, decision)
 
         req.stream_answer = True
-        response = await self._execute(req, main)
+        response = await execute_step(self._execute, req, main, 'single')
         result = OrchestratorResult(
             request_id=req.request_id, response=response.content, agent_type=response.agent_type, intent=req.intent,
             escalated=response.escalate or req.intent == IntentCategory.HUMAN_HANDOFF, latency_ms=(time.monotonic() - started) * 1000,
@@ -204,12 +211,12 @@ class AgentOrchestrator:
             routing_reason=decision.reason, routing_confidence=decision.confidence, status=response.status,
             error_code=response.error_code, token_usage=response.token_usage,
         )
-        self._recent_tool_traces.append(result.tool_traces)
         return result
 
     async def _run_plan(self, req: Request, plan) -> OrchestratorResult:
         """Execute bounded dependency waves; independent steps run concurrently."""
         started = time.monotonic()
+        flow = PLAN_RUN.start()
         completed, step_rows, findings, responses = set(), [], [], []
         outputs, unsuccessful, statuses = {}, set(), {}
 
@@ -224,9 +231,13 @@ class AgentOrchestrator:
             return step_rows[-1]
 
         def failed(message: str, error_code: str) -> OrchestratorResult:
+            flow.send("fail")
+            for step in plan.steps:
+                if step.step_id not in completed:
+                    mark(step, StepStatus.BLOCKED, error_code=error_code)
             return OrchestratorResult(
                 request_id=req.request_id, response=message, agent_type=AgentType.TRIAGE, intent=req.intent, escalated=True,
-                latency_ms=(time.monotonic() - started) * 1000, status="failed", error_code=error_code, plan=plan.to_dict(statuses),
+                latency_ms=(time.monotonic() - started) * 1000, status="failed", error_code=error_code, plan={**plan.to_dict(statuses), "phase": flow.state},
                 findings=findings, trace_events=step_rows,
                 tools_used=list(dict.fromkeys(t for r in responses for t in r.tools_used)),
                 tool_traces=[t for r in responses for t in r.tool_traces], token_usage=_sum_usage(responses),
@@ -238,7 +249,8 @@ class AgentOrchestrator:
                 return failed("计划依赖无法满足，已停止执行并转人工。", "plan_dependency_cycle")
             blocked = [s for s in ready if any(d in unsuccessful for d in s.depends_on)]
             for step in blocked:
-                mark(step, StepStatus.BLOCKED, error_code="dependency_failed")
+                finished = mark(step, StepStatus.BLOCKED, error_code="dependency_failed")
+                await req.publish("step_finished", finished)
             ready = [s for s in ready if s not in blocked]
             if not ready:
                 continue
@@ -246,18 +258,30 @@ class AgentOrchestrator:
             # cache_read_tokens 是 input_tokens 的一部分，不能再加一遍。
             if used["input_tokens"] + used["output_tokens"] >= plan.token_budget:
                 return failed("计划已用完轮次间 token 预算，停止后续步骤。", "plan_budget_exceeded")
+            flow.send("wave")
             wave = ready[:MAX_PLAN_WAVE]
             for s in wave:
                 mark(s, StepStatus.RUNNING, agent_type=s.agent_type)
                 await req.publish("step_started", {"step_id": s.step_id, "agent_type": s.agent_type, "title": s.title})
             # 计划含工单步骤时由它汇总建单；诊断步骤不提供 create_ticket，避免一次请求生成多张工单。
             ticket_owned = frozenset({"create_ticket"}) if any(p.agent_type == "ticket" for p in plan.steps) else frozenset()
-            raw = await asyncio.gather(*[self._execute(replace(req, message=f"[计划步骤: {s.title}]\n{req.message}",
-                step_outputs={d: outputs[d] for d in s.depends_on},
-                hidden_tools=req.hidden_tools | (ticket_owned if s.agent_type != "ticket" else frozenset())), AgentType(s.agent_type)) for s in wave], return_exceptions=True)
+            try:
+                raw = await asyncio.gather(*[execute_step(self._execute, replace(req, message=f"[计划步骤: {s.title}]\n{req.message}",
+                    step_outputs={d: outputs[d] for d in s.depends_on},
+                    hidden_tools=req.hidden_tools | (ticket_owned if s.agent_type != "ticket" else frozenset())), AgentType(s.agent_type), 'step/' + s.step_id) for s in wave], return_exceptions=True)
+            except asyncio.CancelledError:
+                flow.send("cancel")
+                for step in plan.steps:
+                    if step.step_id not in completed:
+                        mark(step, StepStatus.FAILED if statuses.get(step.step_id) == StepStatus.RUNNING else StepStatus.BLOCKED,
+                             error_code="plan_cancelled")
+                raise
             for step, response in zip(wave, raw):
-                if isinstance(response, Exception):
-                    mark(step, StepStatus.FAILED, error_code="step_exception")
+                if isinstance(response, BaseException):
+                    if req.checkpoints:
+                        raise response
+                    finished = mark(step, StepStatus.FAILED, error_code="step_exception")
+                    await req.publish("step_finished", finished)
                     continue
                 responses.append(response)
                 outputs[step.step_id] = {"summary": response.content, "success": response.success, "evidence": response.tool_traces}
@@ -265,9 +289,13 @@ class AgentOrchestrator:
                 finished = mark(step, StepStatus.SUCCESS if response.success else StepStatus.FAILED,
                                 tools_used=response.tools_used, latency_ms=round(response.latency_ms, 1))
                 await req.publish("step_finished", finished)
+            flow.send("join")
 
+        if len(completed) < len(plan.steps):
+            return failed("计划超过步骤预算，已停止后续步骤。", "plan_step_limit")
         if not responses:
             return failed("所有计划步骤均未成功，请转人工处理。", "plan_failed")
+        flow.send("finish")
         primary = next((r for r in responses if r.agent_type == AgentType.TICKET), responses[0])
         content = findings[0]["content"] if len(findings) == 1 else "\n\n".join(f"【{f['agent_type']}】\n{f['content']}" for f in findings)
         status = "success" if not unsuccessful else "partial" if any(r.success for r in responses) else "failed"
@@ -281,13 +309,17 @@ class AgentOrchestrator:
             tools_used=list(dict.fromkeys(t for r in responses for t in r.tools_used)),
             tool_traces=[t for r in responses for t in r.tool_traces],
             routing_reason="bounded planner; parallel independent steps", routing_confidence=req.intent_confidence,
-            status=status, retryable=status == "partial", plan=plan.to_dict(statuses), findings=findings, trace_events=step_rows,
+            status=status, retryable=status == "partial", plan={**plan.to_dict(statuses), "phase": flow.state}, findings=findings, trace_events=step_rows,
             token_usage=_sum_usage(responses),
         )
 
     async def run_parallel(self, req: Request, decision: RoutingDecision) -> OrchestratorResult:
         started = time.monotonic()
-        responses = await asyncio.gather(*[self._execute(req, t) for t in decision.agent_types], return_exceptions=True)
+        responses = await asyncio.gather(*[execute_step(self._execute, req, t, 'parallel/' + t.value) for t in decision.agent_types], return_exceptions=True)
+        if req.checkpoints:
+            for response in responses:
+                if isinstance(response, BaseException):
+                    raise response
         valid = [r for r in responses if isinstance(r, AgentResponse)]
         if valid:
             content, error_code = "\n\n".join(r.content for r in valid), None
@@ -302,7 +334,6 @@ class AgentOrchestrator:
             routing_reason=decision.reason, routing_confidence=decision.confidence, status=status, error_code=error_code,
             token_usage=_sum_usage(valid),
         )
-        self._recent_tool_traces.append(result.tool_traces)
         return result
 
     def get_stats(self) -> Dict[str, Dict[str, Any]]:

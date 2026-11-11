@@ -22,7 +22,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, Implementation, PaginatedRequestParams
 
-from core.states import Machine
+from core.states import Machine, Protocol
 from monitor import metrics
 from tooling.tool_manager import MCPToolManager, Tool
 from tooling.tool_spec import AgentToolSpec
@@ -107,6 +107,16 @@ CONNECTION = Machine(ConnState, """
     disconnected -> connected | closed
 """)
 
+CATALOG = Protocol("mcp_catalog", "empty", {
+    "empty": {"discover": "refreshing", "clear": "empty", "close": "closed"},
+    "refreshing": {"loaded": "ready", "clear": "empty"},
+    "ready": {"refresh": "refreshing", "clear": "empty"},
+})
+
+STARTUP = Protocol("mcp_first_attempt", "pending", {
+    "pending": {"connected": "available", "failed": "unavailable"},
+})
+
 
 class _Connection:
     """`ready` is set after the first attempt settles (either way) and stays set: it only gates start(wait=True)."""
@@ -121,6 +131,13 @@ class _Connection:
         self.protocol_version = None
         self.state = ConnState.CONNECTING
         self.error = None
+        self.catalog = CATALOG.start()
+        self.startup = STARTUP.start()
+
+    def settle_startup(self, connected):
+        if self.startup.state == "pending":
+            self.startup.send("connected" if connected else "failed")
+        self.ready.set()
 
     def move(self, state: ConnState) -> None:
         self.state = CONNECTION.check(self.state, state)
@@ -137,6 +154,10 @@ class StandardMCPClient:
     async def start(self, wait: bool = True):
         """启动各服务的连接任务；wait=False 时后台连接，工具在连上后经 on_change 动态加入 Agent。"""
         for connection in self.connections.values():
+            if connection.task and not connection.task.done():
+                continue
+            if connection.state == ConnState.CLOSED:
+                raise RuntimeError("closed MCP clients cannot be restarted")
             connection.task = asyncio.create_task(self._serve(connection))
         if self.connections and wait:
             async def wait_ready(c):
@@ -144,6 +165,7 @@ class StandardMCPClient:
                     await asyncio.wait_for(c.ready.wait(), c.config.timeout_s + 5)
                 except TimeoutError:
                     c.error = "startup_timeout"
+                    c.settle_startup(False)
             await asyncio.gather(*(wait_ready(c) for c in self.connections.values()))
 
     def agent_tools(self):
@@ -153,6 +175,7 @@ class StandardMCPClient:
         return {"servers": [{
             "name": c.config.name, "transport": c.config.transport, "state": c.state,
             "protocol_version": c.protocol_version, "error": c.error,
+            "startup": c.startup.state, "catalog": c.catalog.state,
             "agents": c.config.agents,
             "tools": [{"name": alias, "remote_name": origin[1]} for alias, origin in self._origins.items() if origin[0] == c.config.name],
         } for c in self.connections.values()]}
@@ -196,7 +219,7 @@ class StandardMCPClient:
                     connection.error = None
                     connection.reconnect.clear()
                     self._register_catalog(connection, catalog)
-                    connection.ready.set()
+                    connection.settle_startup(True)
                     delay = 1
                     while not connection.stop.is_set():
                         stop = asyncio.create_task(connection.stop.wait())
@@ -227,7 +250,8 @@ class StandardMCPClient:
                 if not connection.stop.is_set():
                     connection.move(ConnState.DISCONNECTED)
                 self._remove_server(config.name)
-                connection.ready.set()
+                connection.catalog.send("clear")
+                connection.settle_startup(False)
             if not connection.stop.is_set():
                 try:
                     await asyncio.wait_for(connection.stop.wait(), delay)
@@ -235,6 +259,7 @@ class StandardMCPClient:
                     pass
                 delay = min(delay * 2, 30)
         connection.move(ConnState.CLOSED)
+        connection.catalog.send("close")
 
     @staticmethod
     async def _discover(session, timeout):
@@ -249,6 +274,7 @@ class StandardMCPClient:
         raise ValueError("MCP tools/list 分页超过上限")
 
     def _register_catalog(self, connection, catalog):
+        connection.catalog.send("refresh" if connection.catalog.state == "ready" else "discover")
         config = connection.config
         for remote in catalog:
             if remote.name not in config.allowed_tools:
@@ -279,6 +305,7 @@ class StandardMCPClient:
                 input_schema=remote.input_schema, handler=agent_handler, allowed_agents=tuple(config.agents),
                 retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True),
                 untrusted_output=True)
+        connection.catalog.send("loaded")
         self._update_metrics(config.name)
         if self._on_change:
             self._on_change()
@@ -357,6 +384,10 @@ class StandardMCPClient:
                 await asyncio.gather(*tasks, return_exceptions=True)
         for connection in self.connections.values():
             connection.move(ConnState.CLOSED)
+            if connection.catalog.state != "closed":
+                connection.catalog.send("clear")
+                connection.catalog.send("close")
+            connection.settle_startup(False)
 
 
 

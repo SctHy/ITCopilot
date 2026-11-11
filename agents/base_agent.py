@@ -21,6 +21,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from agents.agent_stats import AgentStats
+from agents.states import OnceState, once_state, MODEL_RUN, TOOL_CALL, SlotState, slot_state
 from agents.injection_guard import WARNING_PREFIX, InjectionGuard
 from agents.intent.taxonomy import WRITE_ACTIONS
 from agents.prompting import (
@@ -41,6 +42,7 @@ from agents.types import (
     Request,
 )
 from core.env import env_float
+from core.protocols import CacheState, cache_state
 from core.llm import is_model_unavailable
 from core.redaction import redact
 from monitor import metrics
@@ -76,7 +78,7 @@ class BaseAgent:
 
     def _runtime(self) -> Agent:
         """按当前工具白名单懒构建 PydanticAI Agent；白名单变化时重建。"""
-        if self._agent is None:
+        if cache_state(self._agent is not None) == CacheState.MISSING:
             tools = [self._as_tool(spec) for spec in self.get_tools().values()]
             self._agent = Agent(deps_type=AgentRunDeps, output_type=str, instructions=self._instructions, tools=tools, name=self.agent_type.value)
         return self._agent
@@ -145,6 +147,8 @@ class BaseAgent:
         return ms
 
     async def _call_llm(self, req: Request) -> AgentCallResult:
+        flow = MODEL_RUN.start()
+        flow.send("run")
         deps = AgentRunDeps(req)
         settings = ModelSettings(max_tokens=self.profile.max_tokens, temperature=self.profile.temperature, request_timeout=max(1, env_float("IT_COPILOT_LLM_TIMEOUT_S", 90)))
         rounds = max(1, int(env_float("IT_COPILOT_MAX_MODEL_ROUNDS", MAX_MODEL_ROUNDS)))
@@ -159,26 +163,33 @@ class BaseAgent:
             result = await run(turn_prompt(req))
             usages = [result.usage]
             if unbacked_write_claim(result.output or "", deps, req):
+                flow.send("correct")
                 # 回答声称已提交/已创建，但本轮没有任何写操作成功：让模型补调工具或改口，只纠正一次。
                 logger.warning("%s claimed a write without a successful write tool; asking once to correct", self.agent_type.value)
                 await req.publish("answer_reset", {"agent_type": self.agent_type.value})
                 result = await run(UNBACKED_WRITE_CORRECTION, message_history=result.all_messages())
                 usages.append(result.usage)
         except asyncio.CancelledError:
+            flow.send("cancel")
             raise
         except UsageLimitExceeded:
+            flow.send("fail")
             raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit") from None
         except UnexpectedModelBehavior as exc:
+            flow.send("fail")
             raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output") from exc
         except Exception as exc:
+            flow.send("fail")
             if is_model_unavailable(exc):
                 base_url = os.getenv("OPENAI_BASE_URL", "")
                 raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url) from exc
             raise
         content = (result.output or "").strip()
         if not content:
+            flow.send("fail")
             raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output")
         status = "partial" if result.response.finish_reason == "length" else "success"
+        flow.send("truncate" if status == "partial" else "complete")
         return AgentCallResult(content, deps.used, deps.traces, status, {key: sum(int(getattr(u, key) or 0) for u in usages)
                                                                           for key in ("input_tokens", "output_tokens", "cache_read_tokens")})
 
@@ -215,6 +226,8 @@ class BaseAgent:
     async def _invoke_tool(self, deps: AgentRunDeps, spec, args: Dict[str, Any], tool_id: Optional[str]):
         """单次工具调用：Schema 校验、写操作守卫，经 ToolExecutor（超时/熔断/只读重试）执行并记录 trace；失败以错误结果回传模型。"""
         req = deps.req
+        flow = TOOL_CALL.start()
+        flow.send("validate")
         started = time.monotonic()
         success, error, outcome = True, "", "success"
         injection_score = None
@@ -226,6 +239,7 @@ class BaseAgent:
             self._validate_tool_input(spec, args)
             if not spec.retry_safe:
                 await self._guard_unsafe_tool(req, spec.name, args)
+            flow.send("execute")
             result = await self.executor.run(spec, req, args)
             deps.used.append(spec.name)
             # 只扫描来自外部数据的返回（知识库、外部 MCP 等）；本地工具自己生成的结果不可能含注入。
@@ -233,7 +247,12 @@ class BaseAgent:
                 flagged, injection_score = await self.injection_guard.check(result)
                 if flagged:
                     result = {"security_warning": WARNING_PREFIX.strip(), "untrusted_content": result}
+            flow.send("complete")
+        except asyncio.CancelledError:
+            flow.send("cancel")
+            raise
         except Exception as ex:
+            flow.send("fail")
             success, error = False, str(ex)
             outcome = {"ToolUnavailable": "circuit_open", "ToolTimeout": "timeout"}.get(type(ex).__name__, "error")
             result = {"success": False, "error": error}
@@ -246,6 +265,7 @@ class BaseAgent:
             "agent_type": self.agent_type.value, "tool_name": spec.name, "tool_use_id": tool_id, "input": args, "success": success,
             "latency_ms": latency_ms, "error": error, "retry_safe": spec.retry_safe, "outcome": outcome,
             "idempotency_key": idempotency_key, "output": redact(result), "injection_score": injection_score,
+            "phase": flow.state,
         })
         await req.publish("tool_finished", {"agent_type": self.agent_type.value, "tool": spec.name, "tool_use_id": tool_id,
                                             "success": success, "outcome": outcome, "latency_ms": latency_ms,
@@ -259,10 +279,10 @@ class BaseAgent:
             # 意图识别判断用户这一轮没有要求这项操作：挡住主动提交，而不是从工具列表里拿掉（保持前缀缓存）。
             raise ValueError("用户这一轮没有要求办理这项操作；需要的话先向用户确认")
         missing_slots = (req.conversation_state or {}).get("missing_fields") or []
-        if missing_slots:
+        if slot_state(req.conversation_state) == SlotState.CLARIFYING:
             raise ValueError("缺少必要信息，暂不执行写操作：" + ", ".join(missing_slots))
         key = json.dumps([name, args], sort_keys=True, ensure_ascii=True)
-        if key in req.unsafe_tool_calls:
+        if once_state(key, req.unsafe_tool_calls) == OnceState.CONSUMED:
             raise ValueError("副作用工具不得在同一请求重复执行")
         req.unsafe_tool_calls.add(key)
         req.tool_attempts.append({"tool_name": name, "retry_safe": False})

@@ -60,6 +60,9 @@ class Request:
     stream_answer: bool = False                        # push live answer_delta events (single-agent paths only)
     allowed_writes: Optional[frozenset] = None         # write tools the user asked for this turn; None = not gated
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
+    checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
+    planning_mode: Optional[str] = None  # per-run override, without mutating the shared orchestrator
+    task_references: List[Dict[str, Any]] = field(default_factory=list)  # private-chat recall; not shared-room context
 
     async def publish(self, event: str, data: Dict[str, Any]) -> None:
         if self.emit is not None:

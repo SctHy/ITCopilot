@@ -116,3 +116,26 @@ def test_unreachable_server_degrades_without_blocking():
         await client.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("governed", [False, True])
+def test_anonymous_mcp_can_only_retrieve_public_documents(tmp_path, monkeypatch, governed):
+    from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
+    from tooling.tool_manager import Tool
+    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
+    kb = KnowledgeBase(f"sqlite:///{tmp_path / 'mcp.sqlite3'}")
+    kb.add_documents([
+        {"title": "public", "content": "VPN public guide", "department": "*"},
+        {"title": "private", "content": "VPN financial records", "department": "finance"},
+    ])
+
+    async def run():
+        manager = MCPToolManager("sk-local") if governed else None
+        if manager:
+            manager.register(Tool("knowledge_search", "search", kb.search_handler, KNOWLEDGE_SEARCH_SCHEMA))
+        server = create_server(kb, manager)
+        result = await server.call_tool("search_local_knowledge", {"query": "VPN", "top_k": 8})
+        assert not result.is_error
+        assert [row["title"] for row in result.structured_content["results"]] == ["public"]
+
+    asyncio.run(run())

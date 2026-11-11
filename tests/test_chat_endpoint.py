@@ -69,6 +69,18 @@ def test_chat_stream_end_to_end(chat_client):
     assert text.index("event: answer_reset") < text.index("event: answer_delta") < text.index("event: completed")
 
 
+def test_stream_request_key_binds_message_and_conversation(chat_client, monkeypatch):
+    from core.events import InMemoryEventBus
+    monkeypatch.setattr(state, "events", InMemoryEventBus())
+    http, _ = chat_client
+    payload = {"message": "VPN 报错 VPN-691", "conv_id": "binding", "client_request_id": "bound-key"}
+    first = http.post("/chat/stream", json=payload)
+    assert first.status_code == 200 and "event: completed" in first.text
+    assert http.post("/chat/stream", json=payload).text == first.text
+    assert http.post("/chat/stream", json={**payload, "message": "changed"}).status_code == 409
+    assert http.post("/chat/stream", json={**payload, "conv_id": "changed"}).status_code == 409
+
+
 def test_monitor_endpoint_reports_live_state(chat_client):
     http, monitor = chat_client
     http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-3"})

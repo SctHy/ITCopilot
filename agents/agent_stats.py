@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any, Optional
 
 from core.env import env_float
+from core.states import Machine
 
 
 class AgentHealth(StrEnum):
@@ -15,6 +16,14 @@ class AgentHealth(StrEnum):
     COOLING = "cooling"      # degraded, rejecting requests until retry_at
     HALF_OPEN = "half_open"  # cooldown over; the next request becomes the single probe
     PROBING = "probing"
+
+
+HEALTH = Machine(AgentHealth, """
+    healthy -> cooling
+    cooling -> half_open
+    half_open -> probing
+    probing -> healthy | cooling | half_open
+""")
 
 
 def _cooldown_s() -> float:
@@ -68,21 +77,25 @@ class AgentStats:
             return True
         if state != AgentHealth.HALF_OPEN:
             return False
-        self.probe_running, self.probe_owner = True, request_id   # half_open -> probing
+        HEALTH.check(state, AgentHealth.PROBING)
+        self.probe_running, self.probe_owner = True, request_id
         return True
 
     def abandon_probe(self, request_id: Optional[str]) -> None:
         """The probe was cancelled without an outcome: probing -> half_open, the next request probes."""
         if self.probe_running and request_id == self.probe_owner:
+            HEALTH.check(self.state(), AgentHealth.HALF_OPEN)
             self.probe_running, self.probe_owner = False, None
 
     def set_penalty(self, penalty: float) -> None:
         self.monitor_penalty = max(0., min(.9, float(penalty)))
         if self.monitor_penalty >= env_float("IT_COPILOT_MONITOR_FALLBACK_PENALTY", .5) and self.state() == AgentHealth.HEALTHY:
+            HEALTH.check(self.state(), AgentHealth.COOLING)
             self.retry_at = time.monotonic() + _cooldown_s()   # healthy -> cooling
 
     def record(self, success: bool, ms: float, request_id: Optional[str] = None) -> None:
         if self.probe_running and request_id == self.probe_owner:
+            HEALTH.check(self.state(), AgentHealth.HEALTHY if success else AgentHealth.COOLING)
             self.probe_running = False
             self.probe_owner = None
             if success:   # probing -> healthy

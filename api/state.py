@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from core.events import InMemoryEventBus
 
+lifecycle: Any = None
 orchestrator: Any = None
 memory: Any = None              # MemoryManager；Redis 不可用且显式允许降级时为 None
 tool_manager: Any = None
@@ -17,6 +18,10 @@ monitor: Any = None
 mcp_client: Any = None
 workflow: Any = None            # WorkflowStore：审批与执行状态的唯一来源
 worker: Any = None
+tasks: Any = None               # shared service rooms, distinct from private conversations
+task_worker: Any = None
+task_event_pump: Any = None
+task_capabilities: Any = None
 registry: Any = None
 channels: Optional[Any] = None  # IM 渠道服务（配置 FEISHU_APP_ID 时启用）
 feishu: Optional[Any] = None    # FeishuClient
@@ -24,3 +29,6 @@ feishu: Optional[Any] = None    # FeishuClient
 events: Any = InMemoryEventBus()
 # 保存后台任务引用：事件循环只持有弱引用，未被引用的任务可能在执行中途被回收。
 background_tasks: set = set()
+
+# Read-only cross-conversation workflow recall, injected independently from private memory.
+task_recall = None

@@ -31,10 +31,17 @@ def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     try:
         if scheme.lower() != "bearer":
             raise AuthError("missing bearer token")
-        return principal_from_token(token.strip())
+        principal = principal_from_token(token.strip())
     except AuthError as exc:
         metrics.AUTH_FAILURES.labels(reason="unauthenticated").inc()
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+    access = getattr(state.task_capabilities, "access", None) if state.task_capabilities else None
+    if access:
+        try:
+            access.observe(principal)  # directory upkeep for task invites; must not gate unrelated endpoints
+        except Exception:
+            logger.warning("task identity observe failed; retried on next request", exc_info=True)
+    return principal
 
 
 def require_roles(*roles: str):
@@ -59,7 +66,7 @@ def request_id(principal: Principal, client_request_id: Optional[str]) -> str:
     """客户端幂等键按调用者隔离：不同用户使用相同 client_request_id 不会共享回执、trace 或审批。"""
     if not client_request_id:
         return str(uuid.uuid4())
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"it-copilot:{principal.tenant}:{principal.subject}:{client_request_id}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"it-copilot:v2:{principal.scope_key}:{client_request_id}"))
 
 
 def env_flag(name: str, default: str = "false") -> bool:
