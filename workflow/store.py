@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -36,6 +37,7 @@ from core.db import (
 )
 from core.identity import Principal
 from workflow.policy import AccessPolicy, load_policy
+from workflow.lifecycle import approval_phase, work_phase, WorkPhase
 from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
 
 
@@ -93,6 +95,8 @@ class WorkflowStore:
         # Called inside the transaction that settles an approval (rejected, expired, invalidated,
         # execution finished), so a channel can queue its notice atomically with the state change.
         self.notify = notify
+        self.shared_access = None
+        self.shared_filter = None
         self._seed()
 
     @property
@@ -130,22 +134,48 @@ class WorkflowStore:
 
     # ── Approval lifecycle ──────────────────────────────────────────────────
 
+    def expire_pending(self, limit: int = 200) -> int:
+        """Time is an event: expire due approvals even if no approver opens them.
+
+        CAS and the notice share one transaction. A concurrent decision or another
+        sweeper can win, but cannot generate a second terminal notice.
+        """
+        now = self.clock()
+        with schema.read(self.engine) as db:
+            ids = db.execute(select(approvals.c.id).where(
+                approvals.c.status == ApprovalStatus.PENDING, approvals.c.expires_at <= now
+            ).order_by(approvals.c.expires_at).limit(limit)).scalars().all()
+        expired = 0
+        for approval_id in ids:
+            try:
+                with self.engine.begin() as db:
+                    row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+                    if row is None or row["status"] != ApprovalStatus.PENDING or row["expires_at"] > now:
+                        continue
+                    self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
+                    self._audit(db, approval_id, "expired", "system")
+                    self._notify(db, approval_id, "expired")
+                expired += 1
+            except _Retry:
+                continue
+        return expired
+
     def create(self, approval_id: str, *, request_id: str, conv_id: str, principal: Principal,
-               action_requests: List[Dict[str, Any]], summary: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+               action_requests: List[Dict[str, Any]], summary: Optional[Dict[str, Any]] = None, connection=None) -> Dict[str, Any]:
         if not action_requests:
             raise ValueError("审批必须包含冻结的工具名称和参数")
         frozen_actions = [self.policy.normalise(a) for a in action_requests]
         for action in frozen_actions:
             self.policy.check_requester(action, principal.employee_id, principal.roles)
         required = max(self.policy.requirement(a).approvals for a in frozen_actions)
-        frozen = {"request_id": request_id, "requester": principal.subject, "conv_id": conv_id,
+        frozen = {"request_id": request_id, "requester": principal.subject, "tenant": principal.tenant, "conv_id": conv_id,
                   "action_requests": frozen_actions, "policy_version": self.policy.version}
         digest = hashlib.sha256(canonical(frozen).encode()).hexdigest()
         now = self.clock()
         payload = {**(summary or {}), "action_requests": frozen_actions}
         superseded: List[str] = []
         try:
-            with self.engine.begin() as db:
+            with (nullcontext(connection) if connection is not None else self.engine.begin()) as db:
                 existing = db.execute(select(approvals.c.payload_hash).where(approvals.c.id == approval_id)).scalar()
                 if existing is None:
                     db.execute(insert(approvals).values(
@@ -156,14 +186,21 @@ class WorkflowStore:
                         expires_at=now + self.policy.approval_ttl_hours * 3600,
                     ))
                     self._audit(db, approval_id, "created", principal.subject, detail={"policy_version": self.policy.version, "approvals_required": required})
-                    superseded = self._supersede(db, approval_id, conv_id, principal.subject, frozen_actions, now)
+                    superseded = self._supersede(db, approval_id, conv_id, principal.subject, principal.tenant, frozen_actions, now)
+                row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
+                decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
+                rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
+                body = self._body(row, decisions, rows)
         except IntegrityError:
-            existing = self.get(approval_id)["payload_hash"]
+            if connection is not None:
+                raise
+            body = self.get(approval_id)
+            existing = body["payload_hash"]
         if existing is not None and existing != digest:
             raise ApprovalConflict("同一审批 ID 的参数不可修改；请创建新申请")
-        return {**self.get(approval_id), "superseded": superseded}
+        return {**body, "superseded": superseded}
 
-    def _supersede(self, db, approval_id, conv_id, requester, frozen_actions, now) -> List[str]:
+    def _supersede(self, db, approval_id, conv_id, requester, tenant, frozen_actions, now) -> List[str]:
         """A requester who amends a request in the same conversation (adds details, says
         "confirm" again) replaces the still-pending one instead of queueing a duplicate.
         Only approvals whose every action is covered by the new one are replaced, so
@@ -171,7 +208,7 @@ class WorkflowStore:
         if not conv_id:
             return []
         keys = {_action_key(a) for a in frozen_actions}
-        rows = db.execute(select(approvals).where(approvals.c.conv_id == conv_id, approvals.c.requester == requester,
+        rows = db.execute(select(approvals).where(approvals.c.conv_id == conv_id, approvals.c.requester == requester, approvals.c.tenant == tenant,
                                                   approvals.c.status == ApprovalStatus.PENDING, approvals.c.id != approval_id)).mappings().all()
         replaced = []
         for row in rows:
@@ -199,16 +236,20 @@ class WorkflowStore:
 
     def _body(self, row, decisions, rows) -> Dict[str, Any]:
         payload = dict(row["payload"])
+        now = self.clock()
 
         def view(a):
+            blocked = a["kind"] == "apply" and any(
+                prior["kind"] == "apply" and prior["seq"] < a["seq"] and prior["status"] != ActionStatus.SUCCEEDED for prior in rows)
             return {"operation_id": a["id"], "seq": a["seq"], "kind": a["kind"], "action": a["tool_name"], "adapter": a["adapter"],
-                    "status": a["status"], "attempts": a["attempts"], "not_before": _iso(a["not_before"]), "error": a["error"],
+                    "status": a["status"], "phase": work_phase(a, now, blocked=blocked), "attempts": a["attempts"], "not_before": _iso(a["not_before"]), "error": a["error"],
                     **{k: v for k, v in (a["result"] or {}).items() if k != "baseline_level"}}
 
         return {
             **payload, "approval_id": row["id"], "request_id": row["request_id"], "conv_id": row["conv_id"],
             "user_id": row["requester"], "requester": row["requester"], "requester_employee_id": row["requester_employee_id"],
-            "department": row["department"], "status": row["status"], "execution": row["execution"],
+            "department": row["department"], "tenant": row["tenant"], "status": row["status"], "execution": row["execution"],
+            "lifecycle": approval_phase(row, decisions, rows, now),
             "payload_hash": row["payload_hash"], "policy_version": row["policy_version"],
             "approvals_required": row["approvals_required"],
             "requester_name": row["requester_name"] or row["requester"],
@@ -219,18 +260,42 @@ class WorkflowStore:
         }
 
     def list(self, principal: Principal, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        query = select(approvals.c.id).order_by(approvals.c.created_at.desc()).limit(limit)
+        private_scope = or_(approvals.c.requester == principal.subject, principal.can_read_all,
+            bool(self.policy.approver_roles.intersection(principal.roles)))
+        shared_scope = and_(approvals.c.tenant == principal.tenant,
+            or_(approvals.c.requester == principal.subject, principal.is_admin))
+        if self.shared_filter:
+            shared_scope = self.shared_filter(principal)
+        shared = approvals.c.conv_id.startswith('task:')
+        query = select(approvals.c.id).where(approvals.c.tenant == principal.tenant,
+            or_(and_(shared, shared_scope), and_(or_(approvals.c.conv_id.is_(None), ~shared), private_scope)))
         if status:
             query = query.where(approvals.c.status == status)
-        if not (principal.can_read_all or self.policy.approver_roles.intersection(principal.roles)):
-            query = query.where(approvals.c.requester == principal.subject)
+        query = query.order_by(approvals.c.created_at.desc()).limit(limit)
         with schema.read(self.engine) as db:
             ids = db.execute(query).scalars().all()
         return [self.get(i) for i in ids]
 
     def can_read(self, body: Dict[str, Any], principal: Principal) -> bool:
-        return (body["requester"] == principal.subject or principal.can_read_all
+        if self.shared_access and (body.get('conv_id') or '').startswith('task:'):
+            return self._shared_scope(body, principal)
+        return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all
                 or bool(self.policy.approver_roles.intersection(principal.roles)))
+
+    def _shared_scope(self, row, principal, db=None, decision=False):
+        if row.get('tenant') != principal.tenant:
+            return False
+        if not (row.get("conv_id") or "").startswith("task:"):
+            return True
+        if self.shared_access:
+            try:
+                if db is not None:
+                    return self.shared_access(db, row, principal, decision)
+                with schema.read(self.engine) as connection:
+                    return self.shared_access(connection, row, principal, decision)
+            except ValueError:
+                return False
+        return principal.is_admin or row["requester"] == principal.subject
 
     def decide(self, approval_id: str, decision: str, principal: Principal, payload_hash: str) -> Optional[Dict[str, Any]]:
         if decision not in {"approved", "rejected"}:
@@ -249,11 +314,15 @@ class WorkflowStore:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return False
+            if not self.policy.approver_roles.intersection(principal.roles):
+                raise ApprovalForbidden("当前身份没有审批权限")
+            if not self._shared_scope(row, principal, db, decision=True):
+                raise ApprovalForbidden("无权处理该审批")
             if payload_hash != row["payload_hash"]:
                 raise ApprovalConflict("审批内容哈希不匹配")
             if row["status"] != ApprovalStatus.PENDING:
                 return True  # idempotent: the decision already happened
-            if now > row["expires_at"]:
+            if now >= row["expires_at"]:
                 self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
                 self._audit(db, approval_id, "expired", "system")
                 self._notify(db, approval_id, "expired")
@@ -263,8 +332,6 @@ class WorkflowStore:
                 row = self._revalidate_pending(db, row, now)
                 if row is None:
                     return True
-            if not self.policy.approver_roles.intersection(principal.roles):
-                raise ApprovalForbidden("当前身份没有审批权限")
             if principal.subject == row["requester"]:
                 raise ApprovalForbidden("职责分离：不能审批自己发起的申请")
             targets = {a["arguments"]["employee_id"] for a in row["payload"]["action_requests"]}
@@ -427,8 +494,11 @@ class WorkflowStore:
         so the worker observes the target before deciding to apply again."""
         now = self.clock()
         with self.engine.begin() as db:
-            if not db.execute(select(approvals.c.id).where(approvals.c.id == approval_id)).first():
+            approval = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+            if not approval:
                 return None
+            if not self._shared_scope(approval, principal):
+                raise ApprovalForbidden("无权处理该审批")
             result = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.status.in_((ActionStatus.MANUAL_REVIEW, ActionStatus.UNKNOWN)))
                                 .values(status=ActionStatus.UNKNOWN, attempts=0, not_before=now, lease_owner=None, lease_until=None,
                                         version=actions.c.version + 1, updated_at=now))
@@ -438,14 +508,22 @@ class WorkflowStore:
 
     # ── Worker side ─────────────────────────────────────────────────────────
 
-    def claim(self, worker_id: str, lease_s: float, limit: int = 10) -> List[Dict[str, Any]]:
+    def claim(self, worker_id: str, lease_s: float, limit: int = 10, *, exclude_ids=()) -> List[Dict[str, Any]]:
         now = self.clock()
         due = or_(and_(actions.c.status.in_((ActionStatus.QUEUED, ActionStatus.UNKNOWN)), actions.c.not_before <= now),
                   and_(actions.c.status == ActionStatus.EXECUTING, actions.c.lease_until < now))
+        earlier = actions.alias("earlier_action")
+        blocked = select(earlier.c.id).where(
+            earlier.c.approval_id == actions.c.approval_id, earlier.c.kind == "apply",
+            earlier.c.seq < actions.c.seq, earlier.c.status != ActionStatus.SUCCEEDED,
+        ).exists()
+        due = and_(due, or_(actions.c.kind != "apply", ~blocked))
         with schema.read(self.engine) as db:
-            candidates = db.execute(select(actions).where(due).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
+            candidates = db.execute(select(actions).where(due, actions.c.id.not_in(exclude_ids)).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
         claimed = []
         for row in candidates:
+            if work_phase(row, now) not in {WorkPhase.READY, WorkPhase.RECLAIMABLE}:
+                continue
             if len(claimed) >= limit:
                 break
             with self.engine.begin() as db:
@@ -466,11 +544,21 @@ class WorkflowStore:
                             "version": row["version"] + 1, "lease_owner": worker_id})
         return claimed
 
+    def renew(self, action, lease_s):
+        """Attempts is the claim epoch; intermediate result writes may change version."""
+        now = self.clock()
+        with self.engine.begin() as db:
+            return db.execute(update(actions).where(
+                actions.c.id == action["id"], actions.c.lease_owner == action["lease_owner"],
+                actions.c.attempts == action["attempts"], actions.c.status == ActionStatus.EXECUTING,
+                actions.c.lease_until >= now,
+            ).values(lease_until=now + lease_s)).rowcount == 1
+
     def _action_cas(self, db, action, **values) -> None:
         if "status" in values:
             ACTION.check(action["status"], values["status"])
         result = db.execute(update(actions).where(actions.c.id == action["id"], actions.c.version == action["version"],
-                                                  actions.c.lease_owner == action["lease_owner"])
+                                                  actions.c.lease_owner == action["lease_owner"], actions.c.lease_until >= self.clock())
                             .values(version=action["version"] + 1, updated_at=self.clock(), **values))
         if result.rowcount != 1:
             raise LeaseLost(action["id"])

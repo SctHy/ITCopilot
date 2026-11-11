@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Protocol
 
 # Ordered permission levels; a grant is redundant when the holder already has >= level.
-LEVEL_RANK = {"readonly": 1, "reporter": 2, "developer": 3}
+LEVEL_RANK = {"readonly": 1, "reporter": 2, "developer": 3, "admin": 4, "owner": 5}
 
 
 class AdapterError(Exception):
@@ -57,4 +57,8 @@ class Adapter(Protocol):
 
 
 def rank(level: Optional[str]) -> int:
-    return LEVEL_RANK.get(level or "", 0)
+    if level is None:
+        return 0
+    if level not in LEVEL_RANK:
+        raise AmbiguousError(f"无法判断现有权限等级：{level}")
+    return LEVEL_RANK[level]

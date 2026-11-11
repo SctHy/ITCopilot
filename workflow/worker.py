@@ -31,9 +31,12 @@ from typing import Any, Callable, Dict, Optional
 
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
+from core.protocols import SERVICE
+from core.concurrency import LeaseLostError, run_leased
 from monitor import metrics
 from workflow.states import SETTLED, ActionStatus, ApprovalStatus, GrantStatus
 from workflow.store import LeaseLost, WorkflowStore
+from workflow.lifecycle import EFFECT
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +57,30 @@ class ExecutionWorker:
         self.events = events
         self._wake = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
-        self._stopping = False
+        self.lifecycle = SERVICE.start()
         self._policy_version: Optional[str] = None  # version the last revalidation sweep ran against
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
+    @property
+    def _stopping(self):
+        return self.lifecycle.state != "running"
+
     def start(self) -> None:
-        self._stopping = False
+        if self.lifecycle.state == "running":
+            return
+        self.lifecycle.send("start")
         self._task = asyncio.create_task(self._loop(), name="execution-worker")
 
     async def stop(self) -> None:
-        self._stopping = True
+        if self.lifecycle.state == "stopped":
+            return
+        self.lifecycle.send("stop")
         self._wake.set()
         if self._task:
             await asyncio.gather(self._task, return_exceptions=True)
+        self._task = None
+        self.lifecycle.send("stopped")
 
     def kick(self) -> None:
         self._wake.set()
@@ -88,11 +101,18 @@ class ExecutionWorker:
                 pass
 
     async def run_once(self, limit: int = 10) -> int:
+        await asyncio.to_thread(self.store.expire_pending)
         await self._revalidate_on_policy_change()
-        claimed = await asyncio.to_thread(self.store.claim, self.worker_id, self.lease_s, limit)
-        for action in claimed:
-            await self._process(action)
-        return len(claimed)
+        processed = 0
+        seen = set()
+        for _ in range(limit):
+            claimed = await asyncio.to_thread(self.store.claim, self.worker_id, self.lease_s, 1, exclude_ids=seen)
+            if not claimed:
+                break
+            seen.add(claimed[0]["id"])
+            await self._process_owned(claimed[0])
+            processed += 1
+        return processed
 
     async def _revalidate_on_policy_change(self) -> None:
         """Startup and every policy edit: re-check open approvals and grants (idempotent; several workers may race)."""
@@ -138,12 +158,21 @@ class ExecutionWorker:
             except Exception:
                 logger.warning("workflow event publish failed", exc_info=True)
 
+    async def _process_owned(self, action):
+        try:
+            await run_leased(lambda: self._process(action),
+                             lambda: asyncio.to_thread(self.store.renew, action, self.lease_s), self.lease_s / 3)
+        except LeaseLostError:
+            logger.warning("action lease lost for %s", action["id"])
+
     async def _process(self, action: Dict[str, Any]) -> None:
+        flow = EFFECT.start()
         adapter = self.registry.by_name(action["adapter"])
         spec = {"tool_name": action["tool_name"], "arguments": action["arguments"]}
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
             if action["kind"] == "apply" and action["seq"] == 0 and action["prev_status"] == ActionStatus.QUEUED and action["attempts"] == 1:
+                flow.send("preflight")
                 # The policy may have changed since approval; nothing has been applied yet.
                 reason = await asyncio.to_thread(self.store.policy_block, action["approval_id"])
                 if reason:
@@ -152,37 +181,59 @@ class ExecutionWorker:
                 # (unknown user, missing repo) are caught with zero changes applied.
                 for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
                     await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
-            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} and await adapter.observe(action["id"], spec):
+            observed = False
+            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING}:
+                flow.send("observe")
+                observed = await adapter.observe(action["id"], spec)
+            if observed:
+                flow.send("reconciled")
                 result = {**(action.get("result") or {}), "reconciled": True}
                 await asyncio.to_thread(self.store.succeed, action, result)
+                flow.send("commit")
                 await self._emit(action, "action_reconciled")
                 return
             result = dict(action.get("result") or {})
             if action["tool_name"] == "request_access":
+                flow.send("baseline")
                 if "baseline_level" not in result:
                     result["baseline_level"] = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                     await asyncio.to_thread(self.store.save_result, action, result)
                 if rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"])):
+                    flow.send("preexisting")
                     await asyncio.to_thread(self.store.succeed, action, {**result, "preexisting": True}, preexisting=True)
+                    flow.send("commit")
                     await self._emit(action, "action_succeeded", preexisting=True)
                     return
             elif action["tool_name"] == "revoke_access":
+                flow.send("baseline")
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 if current != adapter.level(spec["arguments"]["role"]):
                     await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
+                    flow.send("drift")
                     await self._emit(action, "action_drifted", current=current)
                     return
+            flow.send("apply")
             result.update(await adapter.apply(action["id"], spec))
+            flow.send("verify")
             if not await adapter.observe(action["id"], spec):
                 raise AmbiguousError("变更后回查未看到目标状态")
+            flow.send("verified")
             await asyncio.to_thread(self.store.succeed, action, result)
+            flow.send("commit")
             await self._emit(action, "action_succeeded")
+        except asyncio.CancelledError:
+            if flow.state in flow.protocol.transitions:
+                flow.send("cancel")
+            raise
         except LeaseLost:
+            flow.send("lost")
             logger.warning("lease lost for action %s; another worker owns it", action["id"])
         except PermanentError as exc:
+            flow.send("fail")
             await self._settle(self.store.fail, action, str(exc))
             await self._emit(action, "action_failed", error=str(exc))
         except TransientError as exc:
+            flow.send("fail")
             if action["attempts"] >= self.max_attempts:
                 await self._settle(self.store.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
                 await self._emit(action, "action_failed", error=str(exc))
@@ -190,6 +241,8 @@ class ExecutionWorker:
                 await self._settle(self.store.retry_later, action, ActionStatus.QUEUED, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_retry", error=str(exc))
         except Exception as exc:  # AmbiguousError and anything unexpected: outcome unknown
+            if flow.state in flow.protocol.transitions:
+                flow.send("fail")
             if not isinstance(exc, AmbiguousError):
                 logger.exception("unexpected adapter failure for action %s", action["id"])
             if action["attempts"] >= self.max_attempts:

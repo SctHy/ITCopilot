@@ -5,12 +5,11 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api import state
+from api.approval_actions import submit_decision
 from api.deps import current_principal, forbid, require_admin, require_roles, require_workflow
 from api.schemas import ApprovalDecision
 from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
-from monitor import metrics
-from workflow.store import ApprovalForbidden
 
 router = APIRouter()
 
@@ -39,29 +38,13 @@ async def get_approval(approval_id: str, principal: Principal = Depends(current_
 
 @router.post("/approvals/{approval_id}")
 async def decide_approval(approval_id: str, payload: ApprovalDecision, principal: Principal = Depends(require_roles(ROLE_APPROVER, ROLE_IT_ADMIN))):
-    store = require_workflow()
-    before = await asyncio.to_thread(store.get, approval_id)
-    try:
-        body = await asyncio.to_thread(store.decide, approval_id, payload.decision, principal, payload.payload_hash)
-    except ApprovalForbidden as exc:
-        metrics.AUTH_FAILURES.labels(reason="separation_of_duties").inc()
-        raise HTTPException(403, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    if not body:
-        raise HTTPException(404, "approval not found")
-    if before and before["status"] == "pending" and body["status"] != "pending":
-        # 只统计真正发生的状态迁移；重复提交的幂等返回不计数。
-        metrics.APPROVALS.labels(event=body["status"]).inc()
-    if body["status"] == "approved" and state.worker:
-        # 执行由持久 worker 完成；这里只短暂等待，让快速路径直接返回结果，慢的外部系统返回 queued/executing。
-        body = await state.worker.wait_settled(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
-    return body
+    return await submit_decision(approval_id, payload, principal)
 
 
 @router.post("/approvals/{approval_id}/reconcile")
 async def reconcile_approval(approval_id: str, principal: Principal = Depends(require_admin)):
     """人工对账：把 manual_review/unknown 的动作重新交给 worker，先回查目标系统再决定是否重做。"""
+    await _readable_approval(approval_id, principal)
     body = await asyncio.to_thread(require_workflow().requeue, approval_id, principal)
     if not body:
         raise HTTPException(404, "approval not found")
