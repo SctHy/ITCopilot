@@ -23,7 +23,7 @@ const emit = defineEmits(['open'])
 const { state, search, link, resume, dispose } = createTaskHistoryController(props.client, props.room?.id, id => emit('open', id))
 const loaded = ref(false), followup = '请根据当前审批、执行和任务进度继续只读跟进；需要新变更时请说明申请步骤。'
 const statuses = { open: '跟进中', stopped: '已停止', resolved: '已解决' }
-const approvalStatuses = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已到期', superseded: '已替代', invalidated: '已失效' }
+const approvalStatuses = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已到期', superseded: '已替代', invalidated: '已失效', withdrawn: '已撤回' }
 const executions = { not_executed: '未执行', queued: '排队中', executing: '执行中', succeeded: '成功', failed: '失败', manual_review: '需人工复核' }
 function opened(event) { if (event.target.open) { loaded.value = true; search() } }
 onBeforeUnmount(dispose)

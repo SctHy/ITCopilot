@@ -189,6 +189,33 @@ audit = Table(
 )
 Index("ix_audit_approval", audit.c.approval_id, audit.c.id)
 
+# Administrative changes that are not tied to one approval (knowledge documents, policy
+# re-checks, skill reloads, retention sweeps). Append-only, like ``audit``.
+admin_audit = Table(
+    "admin_audit", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tenant", String(80), nullable=False),
+    Column("actor", String(200), nullable=False),
+    Column("event", String(60), nullable=False),
+    Column("subject", String(200)),                             # what was changed, e.g. a document id
+    Column("detail", JSON),
+    Column("at", Float, nullable=False),
+)
+Index("ix_admin_audit_tenant", admin_audit.c.tenant, admin_audit.c.id)
+
+# Tokens of (tenant, subject) issued at or before ``revoked_before`` are refused, even though
+# their signature and expiry are still valid (offboarding, leaked token, "sign out everywhere").
+session_revocations = Table(
+    "session_revocations", metadata,
+    Column("tenant", String(80), nullable=False),
+    Column("subject", String(200), nullable=False),
+    Column("revoked_before", Float, nullable=False),
+    Column("actor", String(200), nullable=False),
+    Column("reason", String(500)),
+    Column("at", Float, nullable=False),
+    PrimaryKeyConstraint("tenant", "subject"),
+)
+
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
 directory_employees = Table(
@@ -216,6 +243,16 @@ directory_tickets = Table(
     Column("employee_id", String(64), nullable=False),
     Column("title", Text, nullable=False),
     Column("description", Text, nullable=False),
+)
+
+# Sandbox device inventory: which employee holds which device and whether it is remotely locked.
+directory_devices = Table(
+    "directory_devices", metadata,
+    Column("id", String(40), primary_key=True),                 # asset tag, e.g. DEV-1001
+    Column("employee_id", String(64), nullable=False),
+    Column("kind", String(40), nullable=False),
+    Column("locked", Integer, nullable=False, default=0),
+    Column("operation_id", String(64)),                         # action that last locked it
 )
 
 # Effects applied by the local adapter, keyed by action id: makes retries idempotent.

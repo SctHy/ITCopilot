@@ -13,6 +13,7 @@ class ApprovalStatus(StrEnum):
     EXPIRED = "expired"
     SUPERSEDED = "superseded"      # replaced by a newer request in the same conversation
     INVALIDATED = "invalidated"    # the policy changed and no longer allows it
+    WITHDRAWN = "withdrawn"        # the requester took it back before any approver decided
 
 
 class Execution(StrEnum):
@@ -44,7 +45,7 @@ class GrantStatus(StrEnum):
 
 
 APPROVAL = Machine(ApprovalStatus, """
-    pending -> approved | rejected | expired | superseded | invalidated
+    pending -> approved | rejected | expired | superseded | invalidated | withdrawn
 """)
 
 EXECUTION = Machine(Execution, """

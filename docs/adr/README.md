@@ -21,3 +21,6 @@
 - [0014 共享事项的协作管理与独立通知](0014-task-product-capabilities.md)
 - [0015 步骤检查点、独立目标核验与有限重规划](0015-task-execution-verification.md)
 - [0016 租户内的用户隔离、显式事项成员与历史流程续接](0016-identity-scope-and-task-history.md)（取代 0012、0014 的默认部门访问规则）
+- [0017 申请人撤回待审批申请与提前归还限时权限](0017-requester-withdraw-and-early-release.md)
+- [0018 按身份限流与数据保留清理](0018-rate-limit-and-retention.md)
+- [0019 按身份的令牌吊销水位线](0019-token-revocation-watermark.md)

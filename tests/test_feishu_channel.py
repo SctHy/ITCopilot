@@ -70,14 +70,38 @@ def test_encrypted_events_are_signed_and_decrypted():
     body = _encrypt("ekey", event())
     headers = {"x-lark-request-timestamp": "1700000000", "x-lark-request-nonce": "n1"}
     headers["x-lark-signature"] = hashlib.sha256(("1700000000" + "n1" + "ekey").encode() + body).hexdigest()
-    assert open_event(settings, body, headers)["header"]["event_type"] == "im.message.receive_v1"
+    assert open_event(settings, body, headers, now=1700000000)["header"]["event_type"] == "im.message.receive_v1"
     with pytest.raises(EventRejected, match="signature"):
-        open_event(settings, body, {**headers, "x-lark-signature": "0" * 64})
+        open_event(settings, body, {**headers, "x-lark-signature": "0" * 64}, now=1700000000)
     with pytest.raises(EventRejected, match="plaintext"):
         open_event(settings, json.dumps(event()).encode(), {})
     with pytest.raises(EventRejected, match="decryption"):
         open_event(settings, _encrypt("other-key", event()), {})
 
+
+
+def _signed(settings, body, timestamp):
+    headers = {"x-lark-request-timestamp": timestamp, "x-lark-request-nonce": "n1"}
+    headers["x-lark-signature"] = hashlib.sha256((timestamp + "n1" + settings.encrypt_key).encode() + body).hexdigest()
+    return headers
+
+
+def test_signed_requests_cannot_be_replayed_outside_the_time_window():
+    settings = FeishuSettings(app_id="a", app_secret="s", verification_token="vtoken", encrypt_key="ekey", max_skew_s=300)
+    body = _encrypt("ekey", event())
+    headers = _signed(settings, body, "1700000000")
+    # Within the window either way (clock skew between Feishu and us).
+    assert open_event(settings, body, headers, now=1700000000 + 300)["header"]["event_type"] == "im.message.receive_v1"
+    assert open_event(settings, body, headers, now=1700000000 - 300)["header"]["event_type"] == "im.message.receive_v1"
+    # The same captured, validly signed request replayed later is refused before decryption.
+    with pytest.raises(EventRejected, match="window"):
+        open_event(settings, body, headers, now=1700000000 + 301)
+    with pytest.raises(EventRejected, match="window"):
+        open_event(settings, body, headers, now=1700000000 - 301)
+    # A timestamp the signature covers but that is not a plain number never passes the window check.
+    for bad in ("", "nan", "inf", "-1", "1700000000.5"):
+        with pytest.raises(EventRejected, match="malformed"):
+            open_event(settings, body, _signed(settings, body, bad), now=1700000000)
 
 def test_gate_admits_direct_messages_mentions_and_nothing_from_bots():
     direct = message()

@@ -63,6 +63,7 @@ class Request:
     checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
     planning_mode: Optional[str] = None  # per-run override, without mutating the shared orchestrator
     task_references: List[Dict[str, Any]] = field(default_factory=list)  # private-chat recall; not shared-room context
+    related_approvals: List[Dict[str, Any]] = field(default_factory=list)  # own withdrawable/releasable items (agents/request_recall.py)
 
     async def publish(self, event: str, data: Dict[str, Any]) -> None:
         if self.emit is not None:

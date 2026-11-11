@@ -112,6 +112,16 @@
                       :identity="identity"
                       @action="handleApproval(item, $event)"
                     />
+                    <div v-for="related in item.relatedApprovals || []" :key="related.approvalId" class="related-approval">
+                      <p class="muted">{{ related.kind === 'withdraw' ? '可撤回的申请' : '可提前归还的权限' }}：{{ related.summary }}</p>
+                      <ApprovalCard
+                        :approval="related.approval"
+                        :busy="related.approvalBusy"
+                        :error="related.approvalError"
+                        :identity="identity"
+                        @action="handleApproval(related, $event)"
+                      />
+                    </div>
                     <details v-if="item.trace?.toolCalls?.length || item.trace?.toolsUsed?.length" class="message-trace">
                       <summary>
                         <AppIcon name="chevron" />
@@ -284,6 +294,30 @@
             </form>
           </section>
         </div>
+        <section v-if="isAdmin" class="workspace-card skills-workspace">
+          <div class="card-heading">
+            <div>
+              <span class="kicker">DOCUMENTS</span>
+              <h2>文档管理</h2>
+            </div>
+            <button class="text-button" :disabled="busy" @click="loadKnowledgeDocs()">
+              <AppIcon name="refresh" />
+              刷新
+            </button>
+          </div>
+          <p v-if="!knowledgeDocs.length" class="muted">知识库中还没有文档。</p>
+          <div v-else class="result-list">
+            <article v-for="doc in knowledgeDocs" :key="doc.document_id" class="result-item">
+              <div>
+                <div class="result-title">
+                  <strong>{{ doc.title }}</strong>
+                  <small>{{ doc.department === '*' ? '全员可见' : doc.department }} · {{ doc.chunks }} 个片段 · 来源 {{ doc.source }}<template v-if="doc.demo_seed"> · 演示种子</template></small>
+                </div>
+              </div>
+              <button class="quiet-button" :disabled="busy" @click="performAction('delete-doc', removeKnowledgeDoc, doc)">删除</button>
+            </article>
+          </div>
+        </section>
         <section class="workspace-card skills-workspace">
           <div class="card-heading">
             <div>
@@ -513,7 +547,11 @@ import {
   requestHealth,
   requestApproval,
   reconcileApproval,
+  releaseApproval,
+  withdrawApproval,
   listApprovals,
+  listKnowledgeDocuments,
+  deleteKnowledgeDocument,
   requestAuthConfig,
   requestDevToken,
   requestMe,
@@ -574,7 +612,9 @@ const authConfig = ref(null)
 const devUser = ref('alice')
 const approvalInbox = ref([])
 const approvalFilter = ref('pending')
-const approvalFilters = [{ id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }]
+const approvalFilters = [{ id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }, { id: 'withdrawn', label: '已撤回' }]
+const knowledgeDocs = ref([])
+const isAdmin = computed(() => (identity.value?.roles || []).includes('it_admin'))
 const roleLabels = { employee: '员工', approver: '审批人', it_admin: 'IT 管理员', auditor: '审计员' }
 const pendingAction = ref('')
 const streamStatus = ref('')
@@ -619,6 +659,7 @@ watch(() => settings.conversationId, persist)
 watch(activeView, view => {
   operationsPolling.stop()
   if (view === 'approvals') loadApprovals()
+  if (view === 'knowledge') loadKnowledgeDocs()
   if (view !== 'evaluation') return
   loadOperations()
   operationsPolling.start()
@@ -697,6 +738,33 @@ async function loadApprovals() {
     if (!request.isCurrent()) return
     showToast(`审批列表加载失败：${error.message}`)
   }
+}
+
+async function loadKnowledgeDocs() {
+  if (!isAdmin.value) { knowledgeDocs.value = []; return }
+  const request = requestState.begin('knowledge-docs')
+  try {
+    const body = await listKnowledgeDocuments(request.backend, request.settings)
+    if (request.isCurrent()) knowledgeDocs.value = body.items
+  } catch (error) {
+    if (request.isCurrent()) showToast(`文档列表加载失败：${error.message}`)
+  }
+}
+
+async function removeKnowledgeDoc(doc) {
+  const reseed = doc.demo_seed ? '\n这是演示种子文档，服务重启后会按 knowledge/ 目录重新导入。' : ''
+  if (!window.confirm(`确认删除《${doc.title}》？Agent 将立即检索不到它。${reseed}`)) return
+  const request = requestState.begin('action')
+  busy.value = true
+  try {
+    await deleteKnowledgeDocument(request.backend, request.settings, doc.document_id)
+    if (!request.isCurrent()) return
+    knowledgeDocs.value = knowledgeDocs.value.filter(item => item.document_id !== doc.document_id)
+    await loadStats()
+    if (request.isCurrent()) showToast('文档已删除')
+  } catch (error) {
+    if (request.isCurrent()) showToast(`删除失败：${error.message}`)
+  } finally { if (request.isCurrent()) busy.value = false }
 }
 
 function openConnection() {
@@ -871,8 +939,14 @@ async function sendMessage() {
     const planMeta = response.plan?.steps?.length ? `计划 ${response.plan.steps.length} 步` : ''
     const approvalMeta = response.approvalRequired ? `待审批 · ${response.approvalId || ''}` : ''
     const meta = [intentMeta, clarificationMeta, planMeta, approvalMeta, response.primaryAgent || response.agentType, response.knowledgeUsed ? 'RAG' : '', response.escalated ? '转人工' : ''].filter(Boolean).join(' · ')
+    // The caller's own withdrawable/releasable items: shown as cards so taking something back is always a click.
+    const related = (response.relatedApprovals || []).map(entry => ({ approvalId: entry.approval_id, kind: entry.kind, summary: entry.summary,
+      approval: null, approvalSettings: request.settings, approvalBackend: request.backend }))
     messages.value.push({ id: createMessageId(), role: 'assistant', content: response.response, meta, trace: lastTrace.value?.trace || null,
-      taskReferences: response.taskReferences, approvalId: response.approvalId, approvalSettings: request.settings, approvalBackend: request.backend })
+      taskReferences: response.taskReferences, approvalId: response.approvalId, approvalSettings: request.settings, approvalBackend: request.backend,
+      relatedApprovals: related })
+    const pushed = messages.value[messages.value.length - 1]
+    for (const entry of pushed.relatedApprovals) handleApproval(entry)
     await loadMonitor()
   } catch (error) {
     if (!request.isCurrent()) return
@@ -900,8 +974,13 @@ async function handleApproval(item, decision) {
     }
     // 以当前登录身份操作；审批权限与职责分离由服务端判定。
     const target = { ...item.approvalSettings, accessToken: settings.accessToken }
-    item.approval = decision === 'reconcile'
-      ? await reconcileApproval(item.approvalBackend, target, item.approvalId)
+    const actions = {
+      reconcile: () => reconcileApproval(item.approvalBackend, target, item.approvalId),
+      withdraw: () => withdrawApproval(item.approvalBackend, target, item.approvalId),
+      release: () => releaseApproval(item.approvalBackend, target, item.approvalId),
+    }
+    item.approval = actions[decision]
+      ? await actions[decision]()
       : await requestApproval(item.approvalBackend, target, item.approvalId, decision, item.approval?.payload_hash)
   } catch (error) {
     item.approvalError = error.message
@@ -946,7 +1025,7 @@ async function submitKnowledge() {
     const data = await addKnowledge(request.backend, request.settings, [{ title: docTitle.value.trim(), content: docContent.value.trim() }])
     if (!request.isCurrent()) return
     statusText.value = JSON.stringify(data, null, 2)
-    await loadStats()
+    await Promise.all([loadStats(), loadKnowledgeDocs()])
     if (!request.isCurrent()) return
     showToast('文档已添加')
   } catch (error) {
@@ -967,7 +1046,7 @@ async function handleUpload(event) {
     const data = await uploadKnowledge(request.backend, request.settings, file)
     if (!request.isCurrent()) return
     statusText.value = JSON.stringify(data, null, 2)
-    await loadStats()
+    await Promise.all([loadStats(), loadKnowledgeDocs()])
     if (!request.isCurrent()) return
     showToast(`${file.name} 导入成功`)
   } catch (error) {

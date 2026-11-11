@@ -27,6 +27,33 @@ test('room observers and undesignated approvers cannot see voting actions', () =
   assert.equal(approvalPermissions({ ...approval, assigned_reviewers: ['bob'] }, bob).canDecide, true)
 })
 
+test('only the applicant can withdraw a pending request; holders and admins can give access back early', () => {
+  const alice = { subject: 'alice', employee_id: '1001', roles: ['employee'] }
+  const erin = { subject: 'erin', employee_id: '9001', roles: ['it_admin'] }
+  assert.equal(approvalPermissions(approval, alice).canWithdraw, true)
+  assert.equal(approvalPermissions(approval, bob).canWithdraw, false)
+  assert.equal(approvalPermissions({ ...approval, status: 'approved' }, alice).canWithdraw, false)
+  const later = new Date(Date.now() + 3600_000).toISOString(), earlier = new Date(Date.now() - 1000).toISOString()
+  const active = { ...approval, status: 'approved', revocations: [{ status: 'queued', not_before: later }] }
+  assert.equal(approvalPermissions(active, alice).canRelease, true)
+  assert.equal(approvalPermissions(active, erin).canRelease, true)
+  assert.equal(approvalPermissions(active, bob).canRelease, false)
+  for (const revocations of [[], [{ status: 'succeeded', not_before: later }], [{ status: 'queued', not_before: earlier }]]) {
+    assert.equal(approvalPermissions({ ...active, revocations }, alice).canRelease, false)
+  }
+})
+
+test('withdraw and release go through the transport and refresh the room', async () => {
+  const calls = []
+  const c = createTaskController(client({ withdraw: async a => { calls.push(['withdraw', a.approval_id]) },
+    release: async a => { calls.push(['release', a.approval_id]) } }))
+  await c.select('room/A')
+  await c.decide(approval, 'withdraw')
+  await c.decide(approval, 'release')
+  assert.deepEqual(calls, [['withdraw', 'approval-A'], ['release', 'approval-A']])
+  c.dispose()
+})
+
 test('history refresh preserves loaded overlapping pages but exposes gaps after long absence', async () => {
   let latest = { ...room('room'), events: [{ id: 'a', seq: 1 }, { id: 'b', seq: 2 }], has_more_events: false }
   const c = createTaskController(client({ get: async () => structuredClone(latest),

@@ -21,7 +21,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from sqlalchemy import and_, func, insert, or_, select, update
+from sqlalchemy import and_, false, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
@@ -31,12 +31,13 @@ from core.db import (
     approval_decisions,
     approvals,
     audit,
+    directory_devices,
     directory_employees,
     directory_grants,
     directory_tickets,
 )
 from core.identity import Principal
-from workflow.policy import AccessPolicy, load_policy
+from workflow.policy import AccessPolicy, PolicyViolation, load_policy
 from workflow.lifecycle import approval_phase, work_phase, WorkPhase
 from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
 
@@ -55,6 +56,10 @@ class ApprovalForbidden(PermissionError):
 
 class ApprovalConflict(ValueError):
     """Frozen content mismatch (hash or reused approval id)."""
+
+
+class ApprovalStateConflict(ValueError):
+    """The approval or grant is no longer in a state that allows the requested change."""
 
 
 class LeaseLost(RuntimeError):
@@ -77,6 +82,25 @@ def _action_key(action: Dict[str, Any]) -> tuple:
     """What a request is about: same tool, same target employee and, for access, same system."""
     args = action["arguments"]
     return (action["tool_name"], args.get("employee_id"), args.get("system") if action["tool_name"] == "request_access" else None)
+
+
+_ACTION_NAMES = {"request_access": "申请权限", "reset_password": "重置密码", "unlock_account": "解锁账号", "create_ticket": "创建工单",
+                 "lock_device": "远程锁定设备"}
+
+
+def _describe(action_requests: List[Dict[str, Any]]) -> str:
+    parts = []
+    for action in action_requests:
+        args = action["arguments"]
+        what = _ACTION_NAMES.get(action["tool_name"], action["tool_name"])
+        if action["tool_name"] == "request_access":
+            what += f" {args.get('system')} {args.get('role')}"
+        elif action["tool_name"] == "create_ticket":
+            what += f"「{str(args.get('title', ''))[:40]}」"
+        elif action["tool_name"] == "lock_device":
+            what += f" {args.get('device_id')}"
+        parts.append(f"{what}（工号 {args.get('employee_id')}）")
+    return "；".join(parts)
 
 
 def action_id(approval_id: str, payload_hash: str, seq: int, kind: str = "apply") -> str:
@@ -117,6 +141,11 @@ class WorkflowStore:
             rows = [{"id": i, "username": u, "department": d} for i, u, d in SEED_EMPLOYEES if i not in known]
             if rows:
                 db.execute(insert(directory_employees), rows)
+            # One laptop per seeded employee: DEV-<employee id>.
+            devices = set(db.execute(select(directory_devices.c.id)).scalars())
+            rows = [{"id": f"DEV-{i}", "employee_id": i, "kind": "laptop", "locked": 0} for i, _, _ in SEED_EMPLOYEES if f"DEV-{i}" not in devices]
+            if rows:
+                db.execute(insert(directory_devices), rows)
 
     def username_of(self, employee_id: str) -> Optional[str]:
         with schema.read(self.engine) as db:
@@ -172,7 +201,9 @@ class WorkflowStore:
                   "action_requests": frozen_actions, "policy_version": self.policy.version}
         digest = hashlib.sha256(canonical(frozen).encode()).hexdigest()
         now = self.clock()
-        payload = {**(summary or {}), "action_requests": frozen_actions}
+        # Roles at filing time, outside the frozen hash: server-derived, and only used to
+        # re-check on-behalf requests when the policy changes (ADR 0008).
+        payload = {**(summary or {}), "action_requests": frozen_actions, "requester_roles": sorted(principal.roles)}
         superseded: List[str] = []
         try:
             with (nullcontext(connection) if connection is not None else self.engine.begin()) as db:
@@ -359,6 +390,107 @@ class WorkflowStore:
                 self._notify(db, approval_id, "rejected", {"by": principal.username})
         return True
 
+    # ── Requester actions ───────────────────────────────────────────────────
+
+    def withdraw(self, approval_id: str, principal: Principal, reason: str = "") -> Optional[Dict[str, Any]]:
+        """The requester takes back a request nobody has settled yet.
+
+        Shares the decision CAS: a withdrawal racing an approver's vote either lands first
+        (the vote then sees a settled approval) or loses and reports the decided status.
+        """
+        for _ in range(8):
+            try:
+                found = self._withdraw_once(approval_id, principal, reason.strip()[:500])
+            except _Retry:
+                continue
+            return self.get(approval_id) if found else None
+        raise RuntimeError("审批并发冲突重试次数耗尽")
+
+    def _withdraw_once(self, approval_id: str, principal: Principal, reason: str) -> bool:
+        now = self.clock()
+        with self.engine.begin() as db:
+            row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+            if not row:
+                return False
+            if row["tenant"] != principal.tenant or row["requester"] != principal.subject:
+                raise ApprovalForbidden("只有申请人本人可以撤回申请")
+            if row["status"] == ApprovalStatus.WITHDRAWN:
+                return True  # idempotent
+            if row["status"] != ApprovalStatus.PENDING:
+                raise ApprovalStateConflict(f"申请已是 {row['status']} 状态，不能撤回")
+            if now >= row["expires_at"]:
+                self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
+                self._audit(db, approval_id, "expired", "system")
+                self._notify(db, approval_id, "expired")
+                return True
+            self._cas(db, row, status=ApprovalStatus.WITHDRAWN, decided_at=now)
+            self._audit(db, approval_id, "withdrawn", principal.subject, detail={"reason": reason} if reason else None)
+            self._notify(db, approval_id, "withdrawn", {"reason": reason})
+        return True
+
+    def requester_items(self, principal: Principal, limit: int = 5) -> List[Dict[str, Any]]:
+        """What this person could take back right now: own pending requests (withdraw) and live
+        time-limited grants they requested or hold (release). Read-only; the same checks run
+        again when the button is pressed."""
+        now = self.clock()
+        with schema.read(self.engine) as db:
+            pending = db.execute(select(approvals).where(
+                approvals.c.tenant == principal.tenant, approvals.c.requester == principal.subject,
+                approvals.c.status == ApprovalStatus.PENDING, approvals.c.expires_at > now,
+            ).order_by(approvals.c.created_at.desc()).limit(limit)).mappings().all()
+            mine = or_(approvals.c.requester == principal.subject,
+                       access_grants.c.employee_id == principal.employee_id if principal.employee_id else false())
+            grants = db.execute(select(access_grants, approvals.c.created_at.label("filed_at"))
+                                .join(approvals, approvals.c.id == access_grants.c.approval_id)
+                                .join(actions, actions.c.id == access_grants.c.revoke_action_id)
+                                .where(approvals.c.tenant == principal.tenant, mine, access_grants.c.status == GrantStatus.ACTIVE,
+                                       actions.c.status == ActionStatus.QUEUED, actions.c.not_before > now)
+                                .order_by(access_grants.c.expires_at).limit(limit)).mappings().all()
+        items = [{"approval_id": row["id"], "kind": "withdraw", "summary": _describe(row["payload"]["action_requests"]),
+                  "created_at": _iso(row["created_at"]), "expires_at": _iso(row["expires_at"])} for row in pending]
+        items += [{"approval_id": g["approval_id"], "kind": "release", "summary": f"{g['system']} {g['role']} 权限（工号 {g['employee_id']}）",
+                   "created_at": _iso(g["filed_at"]), "expires_at": _iso(g["expires_at"])} for g in grants]
+        return items
+
+    def release(self, approval_id: str, principal: Principal) -> Optional[Dict[str, Any]]:
+        """Give back the time-limited access an approval granted before it expires.
+
+        Nothing is revoked here: the revoke action queued when the grant took effect is
+        simply made due now, so the worker applies the same drift check as at expiry and
+        never removes access the employee had before or someone else changed since.
+        Returns the approval with ``released`` listing the grants made due by this call.
+        """
+        now = self.clock()
+        with self.engine.begin() as db:
+            row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+            if not row:
+                return None
+            grants = db.execute(select(access_grants).where(access_grants.c.approval_id == approval_id)
+                                .order_by(access_grants.c.action_id)).mappings().all()
+            targets = {g["employee_id"] for g in grants}
+            allowed = row["tenant"] == principal.tenant and (
+                row["requester"] == principal.subject or principal.is_admin
+                or bool(principal.employee_id and principal.employee_id in targets))
+            if not allowed:
+                raise ApprovalForbidden("只有申请人、权限持有人或 IT 管理员可以提前归还权限")
+            active = [g for g in grants if g["status"] == GrantStatus.ACTIVE and g["revoke_action_id"]]
+            if not active and not any(g["status"] == GrantStatus.REVOKED for g in grants):
+                raise ApprovalStateConflict("该申请没有生效中的限时权限可归还")
+            released: List[str] = []  # stays empty when everything was already given back: idempotent
+            for grant in active:
+                moved = db.execute(update(actions).where(actions.c.id == grant["revoke_action_id"], actions.c.status == ActionStatus.QUEUED,
+                                                         actions.c.not_before > now)
+                                   .values(not_before=now, version=actions.c.version + 1, updated_at=now)).rowcount
+                if not moved:
+                    continue  # already due, running or done
+                db.execute(update(access_grants).where(access_grants.c.action_id == grant["action_id"])
+                           .values(expires_at=now, updated_at=now))
+                self._audit(db, approval_id, "grant_released", principal.subject, action_id=grant["action_id"],
+                            detail={"system": grant["system"], "role": grant["role"], "scheduled_expiry": _iso(grant["expires_at"])})
+                released.append(grant["action_id"])
+        body = self.get(approval_id)
+        return {**body, "released": released}
+
     # ── Policy changes ──────────────────────────────────────────────────────
     #
     # An approval freezes the policy version it was created under. When the policy file
@@ -408,7 +540,7 @@ class WorkflowStore:
         """Returns the refreshed row, or None when the approval was invalidated."""
         policy = self.policy
         frozen = row["payload"]["action_requests"]
-        reason = policy.still_allows(frozen)
+        reason = policy.still_allows(frozen, self._requester(row))
         if reason:
             self._cas(db, row, status=ApprovalStatus.INVALIDATED, decided_at=now)
             self._audit(db, row["id"], "policy_invalidated", "system", detail={"from": row["policy_version"], "to": policy.version, "reason": reason})
@@ -423,7 +555,7 @@ class WorkflowStore:
 
     def _cancel_if_disallowed(self, db, approval_id: str, now: float) -> bool:
         row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-        reason = self.policy.still_allows(row["payload"]["action_requests"])
+        reason = self.policy.still_allows(row["payload"]["action_requests"], self._requester(row))
         if not reason:
             return False
         # Only actions nobody started; one already running is stopped by the worker's own check.
@@ -441,7 +573,8 @@ class WorkflowStore:
         if grant["status"] != GrantStatus.ACTIVE or not grant["revoke_action_id"]:
             return None
         max_hours = self.policy.max_hours(grant["system"], grant["role"])
-        if max_hours is None:
+        approval = db.execute(select(approvals).where(approvals.c.id == grant["approval_id"])).mappings().first()
+        if max_hours is None or not self._may_have_filed(grant["employee_id"], approval):
             expires_at, outcome = now, "grants_revoked"
         else:
             # The revoke row is written once, when the grant took effect; expires_at may already have been moved.
@@ -462,11 +595,28 @@ class WorkflowStore:
     def policy_block(self, approval_id: str) -> Optional[str]:
         """Checked by the worker right before an approval's first effect."""
         with schema.read(self.engine) as db:
-            row = db.execute(select(approvals.c.policy_version, approvals.c.payload).where(approvals.c.id == approval_id)).first()
+            row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
         policy = self.policy
-        if not row or row.policy_version == policy.version:
+        if not row or row["policy_version"] == policy.version:
             return None
-        return policy.still_allows(row.payload["action_requests"])
+        return policy.still_allows(row["payload"]["action_requests"], self._requester(row))
+
+    def _may_have_filed(self, employee_id: str, approval) -> bool:
+        """Whether the current policy still lets the original requester file for this employee."""
+        requester = self._requester(approval) if approval else None
+        if requester is None:
+            return True
+        try:
+            self.policy.check_requester({"arguments": {"employee_id": employee_id}}, *requester)
+        except PolicyViolation:
+            return False
+        return True
+
+    @staticmethod
+    def _requester(row) -> Optional[tuple]:
+        """(employee_id, roles) snapshotted at filing; None for approvals created before the snapshot."""
+        roles = (row["payload"] or {}).get("requester_roles")
+        return None if roles is None else (row["requester_employee_id"], frozenset(roles))
 
     @staticmethod
     def _cas(db, row, **values) -> None:
@@ -676,12 +826,14 @@ class WorkflowStore:
                 return None
             grants = db.execute(select(directory_grants).where(directory_grants.c.employee_id == employee_id).order_by(directory_grants.c.system)).mappings().all()
             tickets = db.execute(select(directory_tickets.c.id, directory_tickets.c.title).where(directory_tickets.c.employee_id == employee_id)).all()
+            devices = db.execute(select(directory_devices).where(directory_devices.c.employee_id == employee_id).order_by(directory_devices.c.id)).mappings().all()
             ledger = db.execute(select(access_grants).where(access_grants.c.employee_id == employee_id).order_by(access_grants.c.updated_at)).mappings().all()
         return {
             "employee_id": row["id"], "username": row["username"], "department": row["department"], "active": row["active"],
             "locked": row["locked"], "password_version": row["password_version"],
             "grants": [{"system": g["system"], "role": g["role"], "operation_id": g["operation_id"]} for g in grants],
             "tickets": [{"ticket_id": t.id, "title": t.title} for t in tickets],
+            "devices": [{"device_id": d["id"], "kind": d["kind"], "locked": bool(d["locked"])} for d in devices],
             "access_ledger": [{"action_id": g["action_id"], "approval_id": g["approval_id"], "system": g["system"], "role": g["role"],
                                "adapter": g["adapter"], "status": g["status"], "baseline_role": g["baseline_role"],
                                "expires_at": _iso(g["expires_at"])} for g in ledger],
@@ -700,3 +852,4 @@ class WorkflowStore:
             db.execute(delete(directory_grants).where(directory_grants.c.employee_id.in_(ids)))
             db.execute(delete(directory_tickets).where(directory_tickets.c.employee_id.in_(ids)))
             db.execute(update(directory_employees).where(directory_employees.c.id.in_(ids)).values(locked=1, password_version=0, active=1))
+            db.execute(update(directory_devices).where(directory_devices.c.employee_id.in_(ids)).values(locked=0, operation_id=None))

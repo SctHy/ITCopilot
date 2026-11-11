@@ -42,11 +42,11 @@
 | I14 | 后台画像合并 | `JOB` idle → queued → running → dirty → running/idle；`SERVICE` 管理 worker 启停 | [concurrency.py](../core/concurrency.py) |
 | I15 | 记忆压缩与归档 | `COMPRESSION` snapshot → summarizing → validating → committed → archived/archive_pending；快照冲突可重试或 defer | [memory/states.py](../memory/states.py)、[conversation_memory.py](../memory/conversation_memory.py) |
 | I16 | 画像提炼节奏 | `profile_phase` waiting/due；`MAINTENANCE` checking → compressing → extracting → finished/deferred；成功才推进水位 | [memory/states.py](../memory/states.py)、[conversation_memory.py](../memory/conversation_memory.py) |
-| I17 | 审批票数、过期和策略 | `approval_phase` awaiting_first_vote/awaiting_quorum/expiry_due；`APPROVAL` 保持持久终态；到期扫描与策略校验是状态推进事件 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |
+| I17 | 审批票数、过期、撤回和策略 | `approval_phase` awaiting_first_vote/awaiting_quorum/expiry_due；`APPROVAL` 保持持久终态（含申请人撤回 `withdrawn`）；到期扫描、撤回与策略校验是状态推进事件，撤回与投票共用 CAS | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |
 | I18 | 动作租约、时间与顺序 | `WorkPhase` waiting/ready/blocked/leased/reclaimable/review/settled；SQL 排除前序阻塞；即时领取、续租、到期写隔离 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[worker.py](../workflow/worker.py) |
 | I19 | 外部副作用 | `EFFECT` claimed → preflight/baseline/observing → applying → verifying → verified → committed；漂移进入 review | [workflow/lifecycle.py](../workflow/lifecycle.py)、[worker.py](../workflow/worker.py) |
 | I20 | Saga 聚合 | `approval_phase` 从 apply 和 revoke 两类动作计算 compensating/manual_review/failed；原有 `EXECUTION` 只汇总 apply，不改变其含义 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |
-| I21 | 授权后回收 | `approval_phase` active_until_revocation → revoking → completed/manual_review；`GRANT` 仍记录权限账本状态 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[ApprovalCard.vue](../frontend/src/components/ApprovalCard.vue) |
+| I21 | 授权后回收 | `approval_phase` active_until_revocation → revoking → completed/manual_review；提前归还只把已排期的 revoke 动作提前，不新增状态；`GRANT` 仍记录权限账本状态 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[ApprovalCard.vue](../frontend/src/components/ApprovalCard.vue) |
 | I22 | IM 接入、顺序与通知 | `ADMISSION` new → ignored/eligible → queued/duplicate；`INBOX/OUTBOX` 保持持久状态；租约、前序阻塞单独派生 | [im.py](../intake/im.py) |
 | I23 | MCP 首次可用与工具目录 | `STARTUP` pending → available/unavailable；`CATALOG` empty → refreshing → ready → empty/closed；连接仍用 `CONNECTION` | [mcp_client.py](../tooling/mcp_client.py) |
 | I24 | 缓存与惰性实例 | `CacheState` missing/fresh/stale，按 TTL 与版本计算；技能热加载使用 `SNAPSHOT` empty/loading/ready/degraded/failed | [protocols.py](../core/protocols.py)、[skill_loader.py](../core/skill_loader.py)、[tool_manager.py](../tooling/tool_manager.py) |

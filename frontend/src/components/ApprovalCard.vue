@@ -64,9 +64,9 @@ defineEmits(['action'])
 
 const viewState = computed(() => resourceState({ pending: props.busy, error: props.error, loaded: !!props.approval }))
 
-const actionLabels = { request_access: '申请权限', reset_password: '重置密码', unlock_account: '解锁账号', create_ticket: '创建工单', revoke_access: '回收权限' }
-const fieldLabels = { employee_id: '工号', system: '系统', role: '角色', reason: '理由', title: '标题', description: '描述', priority: '优先级', duration_hours: '有效期（小时）' }
-const statusLabels = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', superseded: '已被替代', invalidated: '策略变更已失效' }
+const actionLabels = { request_access: '申请权限', reset_password: '重置密码', unlock_account: '解锁账号', create_ticket: '创建工单', revoke_access: '回收权限', lock_device: '远程锁定设备' }
+const fieldLabels = { employee_id: '工号', system: '系统', role: '角色', reason: '理由', title: '标题', description: '描述', priority: '优先级', duration_hours: '有效期（小时）', device_id: '设备' }
+const statusLabels = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', superseded: '已被替代', invalidated: '策略变更已失效', withdrawn: '申请人已撤回' }
 const decisionLabels = { approved: '批准', rejected: '拒绝' }
 const executionLabels = { not_executed: '尚未执行', queued: '排队中', executing: '执行中', succeeded: '执行成功', failed: '执行失败（请查看回收状态）', manual_review: '需人工复核' }
 const lifecycleLabels = { compensating: '正在补偿回收', active_until_revocation: '权限生效中，已安排回收', revoking: '正在回收权限', manual_review: '业务流程需人工复核', expiry_due: '已到期，等待过期扫描' }

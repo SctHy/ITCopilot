@@ -43,6 +43,8 @@ async def application(*, model=None, redis_url=None, documents=()):
             "IT_COPILOT_APPROVAL_WAIT_S": "10",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "",
             "IT_INTENT_LLM_ENABLED": "true",
+            # Suites replay many turns as one demo user; they measure behaviour, not abuse protection.
+            "IT_COPILOT_RATE_LIMIT_AGENT_TURN": "off",
         }
         if redis_url:
             env["REDIS_URL"] = redis_url
@@ -78,6 +80,10 @@ async def application(*, model=None, redis_url=None, documents=()):
                                 "task_event_pump",
                                 "task_capabilities",
                                 "task_recall",
+                                "request_recall",
+                                "sessions",
+                                "rate_limiter",
+                                "retention",
                             )
                         },
                     )

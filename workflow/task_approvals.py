@@ -11,7 +11,8 @@ from workflow.tasks import TaskForbidden, key
 from core.identity import principal_from_record
 
 STATUS = {"pending": "待审批", "approved": "已同意审批", "rejected": "已拒绝", "expired": "已过期",
-          "invalidated": "策略变更已失效", "superseded": "已被新申请替代"}
+          "invalidated": "策略变更已失效", "superseded": "已被新申请替代",
+          "withdrawn": "申请人已撤回"}
 EXECUTION = {"not_executed": "尚未执行", "queued": "排队中", "executing": "执行中", "succeeded": "执行成功",
              "failed": "执行失败", "manual_review": "需人工核对"}
 
@@ -82,7 +83,7 @@ class ApprovalEventSource:
             row = updates.get(approval_id)
             if row is None:
                 continue
-            terminal = row["status"] in {"rejected", "expired", "invalidated"} or (
+            terminal = row["status"] in {"rejected", "expired", "invalidated", "withdrawn"} or (
                 row["status"] == "approved" and row["execution"] in {"succeeded", "failed", "manual_review"})
             self.tasks.ingest(row["task_id"], source="approval", object_id=row["id"], version=row["version"],
                 event_id=key("approval", row["id"], row["version"]),

@@ -53,6 +53,18 @@ export async function reconcileApproval(type, settings, id) {
   return requestFor(type, settings, `/approvals/${encodeURIComponent(id)}/reconcile`, { method: 'POST' })
 }
 
+// 申请人撤回仍待审批的申请；已有结果的申请服务端返回 409。
+export async function withdrawApproval(type, settings, id, reason = '') {
+  return requestFor(type, settings, `/approvals/${encodeURIComponent(id)}/withdraw`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+  })
+}
+
+// 提前归还该申请开通的限时权限：到期回收立即执行，仍做漂移检查。
+export async function releaseApproval(type, settings, id) {
+  return requestFor(type, settings, `/approvals/${encodeURIComponent(id)}/release`, { method: 'POST' })
+}
+
 export async function listApprovals(type, settings, status = 'pending') {
   return requestFor(type, settings, `/approvals?status=${encodeURIComponent(status)}`)
 }
@@ -251,6 +263,14 @@ export async function addKnowledge(type, settings, documents) {
   })
 }
 
+export async function listKnowledgeDocuments(type, settings) {
+  return requestFor(type, settings, '/knowledge/documents')
+}
+
+export async function deleteKnowledgeDocument(type, settings, documentId) {
+  return requestFor(type, settings, `/knowledge/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+}
+
 export async function uploadKnowledge(type, settings, file) {
   const form = new FormData()
   form.append('file', file)
@@ -273,6 +293,7 @@ function authHeaders(settings, extra = {}) {
 function normalizeChatResponse(type, raw) {
   return {
     taskReferences: raw.task_references || [],
+    relatedApprovals: raw.related_approvals || [],
     backend: type,
     conversationId: raw.conversation_id || raw.conversationId || raw.conv_id || '',
     requestId: raw.request_id || raw.requestId || '',

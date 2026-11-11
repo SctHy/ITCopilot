@@ -36,6 +36,8 @@ INTENT_INHERITED = Counter("it_copilot_intent_inherited_total", "追问继承上
 KNOWLEDGE_SEARCHES = Counter("it_copilot_knowledge_searches_total", "Agent 知识库检索结果", ["outcome"])
 APPROVALS = Counter("it_copilot_approvals_total", "写操作审批事件", ["event"])
 AUTH_FAILURES = Counter("it_copilot_auth_failures_total", "鉴权/授权拒绝", ["reason"])
+RETENTION_DELETED = Counter("it_copilot_retention_deleted_total", "按保留期删除的行", ["kind"])
+RATE_LIMITED = Counter("it_copilot_rate_limited_total", "按身份限流拒绝的请求", ["bucket", "channel"])
 
 # ── 受控执行（outbox worker） ─────────────────────────────────────────────────
 WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])

@@ -11,7 +11,10 @@ from workflow import policy as policy_module
 from workflow.policy import AccessPolicy, load_policy
 from workflow.store import WorkflowStore
 from workflow.worker import ExecutionWorker
-from tests.test_workflow import BOB, CAROL, Clock, access, create, run
+from sqlalchemy import update
+
+from core.db import approvals
+from tests.test_workflow import ALICE, BOB, CAROL, ERIN, Clock, access, create, run
 
 
 def changed(version, edit):
@@ -125,6 +128,54 @@ def test_live_grants_are_shortened_or_revoked_early(env):
     assert "policy_shortened" in events(store, "b") and "policy_revoked" in events(store, "a")
     assert store.revalidate()["grants_shortened"] == []
 
+
+
+def no_on_behalf(data):
+    data["on_behalf_roles"] = []
+
+
+def test_on_behalf_requests_are_rechecked_against_the_role_they_were_filed_under(env):
+    store, worker, clock, _ = env
+    # erin (it_admin) files for alice: allowed by on_behalf_roles at filing time.
+    create(store, "pending", ERIN, [access(system="Jira")])
+    granted = create(store, "granted", ERIN, [access(duration_hours=100)])
+    store.decide("granted", "approved", BOB, granted["payload_hash"])
+    own = create(store, "own", ALICE, [access(system="VPN", duration_hours=100)])
+    store.decide("own", "approved", BOB, own["payload_hash"])
+    run(worker)
+    assert {g["system"] for g in store.employee("1001")["grants"]} == {"gitlab", "vpn"}
+
+    store.policy = changed("v2", no_on_behalf)
+    report = store.revalidate()
+    assert report["invalidated"] == ["pending"] and "代他人申请" in store.audit("pending")[-1]["detail"]["reason"]
+    assert len(report["grants_revoked"]) == 1 and "policy_revoked" in events(store, "granted")
+    run(worker)
+    # Only the on-behalf grant goes; alice's own request is untouched by the on-behalf rule.
+    assert [g["system"] for g in store.employee("1001")["grants"]] == ["vpn"]
+    again = store.revalidate()
+    assert again["invalidated"] == [] and again["grants_revoked"] == []  # idempotent
+
+
+def test_on_behalf_rule_also_stops_approved_work_before_its_first_effect(env):
+    store, worker, _, _ = env
+    body = create(store, "a", ERIN, [access()])
+    store.decide("a", "approved", BOB, body["payload_hash"])
+    store.policy = changed("v2", no_on_behalf)
+    run(worker)
+    assert store.employee("1001")["grants"] == []
+    assert store.get("a")["results"][0]["status"] == "cancelled"
+
+
+def test_approvals_filed_before_the_role_snapshot_are_not_guessed_at(env):
+    store, _, _, _ = env
+    create(store, "legacy", ERIN, [access()])
+    with store.engine.begin() as db:  # what rows written by the previous version look like
+        row = db.execute(approvals.select().where(approvals.c.id == "legacy")).mappings().one()
+        payload = {k: v for k, v in row["payload"].items() if k != "requester_roles"}
+        db.execute(update(approvals).where(approvals.c.id == "legacy").values(payload=payload))
+    store.policy = changed("v2", no_on_behalf)
+    assert store.revalidate()["invalidated"] == []
+    assert store.get("legacy")["status"] == "pending"
 
 def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_last_good(tmp_path, monkeypatch):
     path = tmp_path / "policy.yaml"

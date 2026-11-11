@@ -1,6 +1,7 @@
 """路由共用的依赖：身份解析、角色检查、请求 ID 与后台任务。"""
 import asyncio
 import logging
+import math
 import os
 import uuid
 from typing import Optional
@@ -26,6 +27,34 @@ def _on_background_done(task: asyncio.Task) -> None:
         logger.warning("background task failed: %s", type(task.exception()).__name__)
 
 
+async def rate_limit_decision(principal: Principal, bucket: str, channel: str):
+    """Shared check for every entry that starts model work; returns the decision, never raises."""
+    from core.rate_limit import Decision
+
+    if state.rate_limiter is None:
+        return Decision(True)
+    decision = await state.rate_limiter.check(bucket, principal.scope_key)
+    if not decision.allowed:
+        metrics.RATE_LIMITED.labels(bucket=bucket, channel=channel).inc()
+    return decision
+
+
+async def enforce_rate_limit(principal: Principal, bucket: str, channel: str = "http") -> None:
+    decision = await rate_limit_decision(principal, bucket, channel)
+    if not decision.allowed:
+        retry = max(1, math.ceil(decision.retry_after_s))
+        raise HTTPException(429, f"请求过于频繁，请 {retry} 秒后再试", headers={"Retry-After": str(retry)})
+
+
+async def record_admin_change(principal: Principal, event: str, subject: Optional[str] = None, detail=None) -> None:
+    """Append to ``admin_audit`` after an administrative change succeeded (no-op without a database)."""
+    if state.workflow is None:
+        return
+    from core.admin_audit import record
+
+    await asyncio.to_thread(record, state.workflow.engine, principal, event, subject, detail)
+
+
 def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     scheme, _, token = (authorization or "").partition(" ")
     try:
@@ -35,6 +64,16 @@ def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     except AuthError as exc:
         metrics.AUTH_FAILURES.labels(reason="unauthenticated").inc()
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+    if state.sessions is not None:
+        try:
+            revoked = state.sessions.is_revoked(principal)
+        except Exception:
+            # Fail closed: this is an authentication decision, not a capacity control.
+            logger.warning("session revocation lookup failed", exc_info=True)
+            raise HTTPException(503, "身份校验暂不可用，请稍后重试") from None
+        if revoked:
+            metrics.AUTH_FAILURES.labels(reason="revoked").inc()
+            raise HTTPException(401, "会话已被撤销，请重新登录", headers={"WWW-Authenticate": 'Bearer error="invalid_token"'})
     access = getattr(state.task_capabilities, "access", None) if state.task_capabilities else None
     if access:
         try:

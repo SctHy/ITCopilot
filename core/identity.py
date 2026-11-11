@@ -50,6 +50,9 @@ class Principal:
     roles: FrozenSet[str] = field(default_factory=frozenset)
     employee_id: Optional[str] = None
     tenant: str = "default"
+    # Token issue time (epoch seconds); None for identities not taken from a token (IM mapping,
+    # stored records). Not part of identity equality.
+    issued_at: Optional[int] = field(default=None, compare=False, repr=False)
 
     @property
     def scope_key(self) -> str:
@@ -190,5 +193,5 @@ def principal_from_token(token: str) -> Principal:
     return Principal(
         subject=str(claims["sub"]), username=str(claims.get("preferred_username") or claims["sub"]),
         department=str(department), roles=_roles(claims), employee_id=str(employee_id) if employee_id else None,
-        tenant=str(claims.get("tenant") or "default"),
+        tenant=str(claims.get("tenant") or "default"), issued_at=int(claims["iat"]) if isinstance(claims.get("iat"), (int, float)) else None,
     )

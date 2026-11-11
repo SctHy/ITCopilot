@@ -24,6 +24,10 @@ from api.routes import task_history, task_execution, approvals, auth, chat, inta
 from api.routes.chat import _channel_turn
 from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
+from core.retention import RetentionPolicy, RetentionSweeper
+from agents.request_recall import RequestRecall
+from core.session_revocation import SessionRevocations
+from core.rate_limit import MemoryRateLimiter, RedisRateLimiter, rules_from_env
 from core.protocols import APPLICATION
 from core.identity import dev_mode_allowed
 from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
@@ -146,10 +150,16 @@ async def lifespan(app: FastAPI):
             if env_flag("IT_COPILOT_WORKER_ENABLED", "true"):
                 state.worker.start()
             state.events = RedisEventBus(state.memory._redis) if state.memory else InMemoryEventBus()
+            rules = rules_from_env(os.getenv)
+            state.rate_limiter = (RedisRateLimiter(state.memory._redis, rules) if state.memory else MemoryRateLimiter(rules)) if rules else None
+            resources.callback(lambda: setattr(state, "rate_limiter", None))
             state.tasks = TaskStore(state.workflow.engine, effects=TaskApprovalEffects(state.workflow))
             state.task_capabilities = TaskCapabilities(state.tasks, state.tasks.effects.view, AccessGoalVerifier(state.registry))
             state.tasks.governance = state.task_capabilities.governance
             state.task_recall = TaskRecall(state.task_capabilities.history.recall_owned)
+            state.request_recall = RequestRecall(state.workflow.requester_items)
+            state.sessions = SessionRevocations(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_REVOCATION_CACHE_S", 5))
+            resources.callback(lambda: setattr(state, "sessions", None))
             state.tasks.effects = CompositeTaskEffects([state.tasks.effects, state.task_capabilities.suggestions, state.task_capabilities.goals])
             state.workflow.shared_access = state.task_capabilities.access.approval_access
             state.workflow.shared_filter = state.task_capabilities.access.approval_filter
@@ -159,6 +169,11 @@ async def lifespan(app: FastAPI):
             verification_worker = TaskVerificationWorker(state.task_capabilities.goals)
             services.push_async_callback(verification_worker.stop)
             verification_worker.start()
+            state.retention = RetentionSweeper(state.workflow.engine, RetentionPolicy.from_env(),
+                                               interval_s=env_float("IT_COPILOT_RETENTION_INTERVAL_S", 3600))
+            services.push_async_callback(state.retention.stop)
+            if env_flag("IT_COPILOT_RETENTION_ENABLED", "true"):
+                state.retention.start()
             state.task_event_pump = TaskEventPump([ApprovalEventSource(state.workflow, state.tasks), state.task_capabilities.reminders, state.task_capabilities.deadlines, ApprovalDeadlineSource(state.tasks)])
             services.push_async_callback(state.task_event_pump.stop)
             state.task_event_pump.start()

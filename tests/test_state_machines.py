@@ -48,7 +48,7 @@ def test_every_state_is_reachable_from_the_initial_one(machine):
 
 def test_settled_rows_cannot_be_reopened():
     assert APPROVAL.terminal == {ApprovalStatus.APPROVED, ApprovalStatus.REJECTED, ApprovalStatus.EXPIRED,
-                                 ApprovalStatus.SUPERSEDED, ApprovalStatus.INVALIDATED}
+                                 ApprovalStatus.SUPERSEDED, ApprovalStatus.INVALIDATED, ApprovalStatus.WITHDRAWN}
     assert not ACTION.allows(ActionStatus.SUCCEEDED, ActionStatus.QUEUED)
     assert not ACTION.allows(ActionStatus.EXECUTING, ActionStatus.CANCELLED)  # running work is stopped by the worker, not cancelled
     assert not EXECUTION.allows(Execution.SUCCEEDED, Execution.EXECUTING)

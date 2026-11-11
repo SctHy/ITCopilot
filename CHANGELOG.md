@@ -202,3 +202,19 @@
 - Bug：资产号 `DEV-023` 被当成错误码；“错误码是 E1003”被当成工号；用户本轮要求重新提交时，“历史里提交过”的豁免让无据声称漏过纠正；评测器 `no_approval` 只看最后一轮、写操作结果只认最后一轮的审批。
 - 新增难例应用评测集 `application_hard_v4.json`（46 场景：长对话、不该写的陷阱、难措辞的写操作、带干扰文档的引用、安全、多个写操作）及检查项 `forbid_text`、`require_text_any`、`distractors`、`forbid_grant`、多权限、`free`。同一套题：改动前代码 43/46（错用历史背景文档作出处、回显用户粘贴的密码、长对话漏提交）、当前代码 + LLM 意图 44/46、当前代码 + Jev 46/46；p50 延迟 7.2 → 4.5 → 3.3 s，Agent token 549k → 271k → 270k。
 - 原 64 场景集（Jev 意图）63/64；多轮模拟（Jev 意图）37/50，失败多为模拟用户提出任务外的写请求，与此前 41/50 的差异在两次运行的波动范围内。测试 353 项。
+
+## v3.15 — 申请撤回、权限提前归还、知识库文档管理、飞书防重放、限流与数据保留
+
+- 审批：新增终态 `withdrawn` 与 `POST /approvals/{id}/withdraw`，只有申请人本人可撤回仍待审批的申请；与投票共用版本号 CAS，撤回与批准并发时只有一方生效；状态、审计、飞书通知同事务提交，共享事项视为终态（ADR 0017）。
+- 限时授权：`POST /approvals/{id}/release` 让申请人、权限持有人或 IT 管理员提前归还生效中的权限；只把授权时排好的回收动作提前，worker 仍做漂移检查，不会删除原有或被他人改动的权限。前端审批卡片新增“撤回申请”“提前归还权限”，审批页新增“已撤回”筛选。
+- 知识库：管理员可 `GET /knowledge/documents` 按文档查看（部门、片段数、来源、是否演示种子），`DELETE /knowledge/documents/{id}` 删除过时文档，BM25 与向量两路同时移除、检索缓存立即失效；演示种子文档在非生产环境重启后会重新导入，响应与界面会提示。知识库页新增管理员文档列表。
+- 飞书：启用签名时校验 `X-Lark-Request-Timestamp` 在 ±`FEISHU_MAX_CLOCK_SKEW_S`（默认 300 秒）内，拒绝事后重放；威胁模型对应条目由“未覆盖”改为有测试。
+- 策略复核覆盖代他人申请：审批保存申请人提交时的角色快照（不进冻结哈希）；新策略不再允许以该角色代申请时，待审批失效、未执行动作取消、已生效授权立即回收。快照之前的旧审批不做推测（ADR 0008）。
+- 限流：按租户＋用户的 GCRA 限流，`/chat`、`/chat/stream`、要求 Agent 回复的事项消息与飞书消息共用默认 30 次/60 秒的预算（`IT_COPILOT_RATE_LIMIT_AGENT_TURN`）；Redis Lua 原子执行、多进程共享，429 + `Retry-After`，飞书回复一句提示；Redis 故障时放行。评测框架关闭限流（ADR 0018）。
+- 数据保留：每小时清理处理完的飞书收发记录（默认 30 天）与情景记忆（默认 90 天）；未结审批关联的消息保留到审批结束；审批、执行与审计记录不清理。管理员可 `POST /ops/retention/run`，指标 `it_copilot_retention_deleted_total`（ADR 0018）。
+- 对话中的撤回与归还：用户提到撤回、归还、“我的申请”等时，服务端按身份召回本人可撤回的申请与可归还的权限，放进本轮上下文并通过 `related_approvals` 返回，网页显示卡片供本人点击；Agent 不获得撤回/归还工具（ADR 0017）。
+- 管理操作审计：新增只追加的 `admin_audit` 表（迁移 0012），记录知识库导入/删除、策略复核、技能重载与数据清理的操作人和明细；`GET /admin/audit` 供管理员与审计员按租户查看、按 id 翻页。
+- 令牌吊销：按身份的吊销水位线（`session_revocations`，迁移 0013），签发不晚于水位线的令牌一律 401；管理员 `POST /admin/sessions/revoke`（subject 或用户名）、本人 `POST /auth/logout-all`、`GET /admin/sessions/revocations`；查询失败拒绝请求，进程内缓存 5 秒（ADR 0019）。
+- 设备远程锁定：新写操作 `lock_device`（Endpoint/通用 Agent），与其他写操作一样只生成待审批请求；本地沙箱设备台账（`directory_devices`，迁移 0014，每个演示员工一台 `DEV-<工号>`）；执行前核对设备属于申请中的员工；策略版本升为 2026-11-12.1。工具目录体积预算 2600 → 2800 字符。
+- 测试：新增 `tests/test_requester_actions.py`（撤回、并发、归还、漂移、HTTP）、知识库列表/删除、飞书时间窗、代申请复核、限流（`tests/test_rate_limit.py`）、保留清理（`tests/test_retention.py`）、对话召回（`tests/test_request_recall.py`）、管理审计（`tests/test_admin_audit.py`）、令牌吊销（`tests/test_session_revocation.py`）、设备锁定（`tests/test_device_lock.py`）；前端新增权限与控制器用例。
+

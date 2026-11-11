@@ -146,7 +146,7 @@ def jev_state(message: str, history: Optional[List[Dict[str, str]]]) -> str:
 # 写操作工具 → 给 Jev 的说明；以及能直接推出“用户要办这件事”的意图。
 WRITE_ACTIONS: Dict[str, str] = {
     "create_ticket": "建工单或提交工单", "request_access": "申请或开通系统权限",
-    "reset_password": "重置密码", "unlock_account": "解锁账号",
+    "reset_password": "重置密码", "unlock_account": "解锁账号", "lock_device": "远程锁定丢失或被盗的设备",
 }
 INTENT_WRITE_ACTION: Dict[IntentCategory, str] = {
     IntentCategory.TICKET_CREATE: "create_ticket", IntentCategory.PERMISSION_REQUEST: "request_access",

@@ -21,6 +21,9 @@ worker: Any = None
 tasks: Any = None               # shared service rooms, distinct from private conversations
 task_worker: Any = None
 task_event_pump: Any = None
+retention: Any = None          # core.retention.RetentionSweeper
+sessions: Any = None           # core.session_revocation.SessionRevocations；None 时不检查吊销
+rate_limiter: Any = None       # core.rate_limit；None 表示不限流（单元测试默认）
 task_capabilities: Any = None
 registry: Any = None
 channels: Optional[Any] = None  # IM 渠道服务（配置 FEISHU_APP_ID 时启用）
@@ -32,3 +35,5 @@ background_tasks: set = set()
 
 # Read-only cross-conversation workflow recall, injected independently from private memory.
 task_recall = None
+# The caller's own withdrawable requests and releasable grants (agents/request_recall.py).
+request_recall = None

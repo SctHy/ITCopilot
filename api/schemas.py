@@ -20,6 +20,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     task_references: list[Dict[str, Any]] = Field(default_factory=list)
+    # The caller's own withdrawable requests / releasable grants mentioned this turn (shown as cards; never acted on).
+    related_approvals: list[Dict[str, Any]] = Field(default_factory=list)
     request_id: str
     response: str
     status: str
@@ -62,6 +64,18 @@ class ApprovalDecision(BaseModel):
     """审批人由 token 决定，不接受请求体中的 actor。"""
     decision: str = Field(..., pattern="^(approved|rejected)$")
     payload_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class ApprovalWithdrawal(BaseModel):
+    """只有申请人本人可以撤回；身份来自 token。"""
+    reason: str = Field("", max_length=500)
+
+
+class SessionRevocationRequest(BaseModel):
+    """按 subject 或用户名（本租户最近登录过的身份）指定；两者给一个。"""
+    subject: Optional[str] = Field(None, min_length=1, max_length=200)
+    username: Optional[str] = Field(None, min_length=1, max_length=80)
+    reason: str = Field("", max_length=500)
 
 
 class DevTokenRequest(BaseModel):

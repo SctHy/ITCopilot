@@ -72,7 +72,8 @@ class KnowledgeBase:
 
         # 非生产环境导入演示知识库：只写入新增或内容有变化的文档，已有数据库也能补齐。
         seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}
-        if os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo:
+        self._seeding_demo = os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo
+        if self._seeding_demo:
             self._load_default_docs()
         self._rebuild_lexical_index()
 
@@ -139,6 +140,45 @@ class KnowledgeBase:
             legacy = self._collection.get(where={"title": title})
             existing.update(i for i, meta in zip(legacy["ids"], legacy["metadatas"]) if not (meta or {}).get("document_id"))
         return existing
+
+    def list_documents(self, department: Optional[str] = None) -> List[Dict[str, Any]]:
+        """按文档聚合片段，供管理员核对知识库内容；department 为 None 时列出全部部门。"""
+        self._ensure_lexical_index(self._collection.version())
+        documents: Dict[str, Dict[str, Any]] = {}
+        for entry in self._lexical_index.values():
+            meta = entry["metadata"]
+            document_id = meta.get("document_id") or entry["id"].rsplit(":", 1)[0]
+            if department is not None and meta.get("department", "*") != department:
+                continue
+            item = documents.setdefault(document_id, {
+                "document_id": document_id, "title": meta.get("title", ""), "source": meta.get("source", ""),
+                "department": meta.get("department", "*"), "updated_at": meta.get("updated_at", ""),
+                "version": meta.get("version", ""), "chunks": 0, "demo_seed": self._is_demo_source(meta.get("source", "")),
+            })
+            item["chunks"] += 1
+        return sorted(documents.values(), key=lambda d: (d["title"], d["document_id"]))
+
+    def delete_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """删除一篇文档的全部片段并立即重建 BM25 索引；文档不存在时返回 None。"""
+        with self._write_lock:
+            found = self._collection.get(where={"document_id": document_id})
+            if not found["ids"]:
+                return None
+            meta = found["metadatas"][0] or {}
+            self._collection.delete(found["ids"])
+            self._rebuild_lexical_index()
+        source = meta.get("source", "")
+        logger.info("知识库删除文档《%s》（%s 个片段）", meta.get("title", ""), len(found["ids"]))
+        return {"document_id": document_id, "title": meta.get("title", ""), "source": source, "chunks": len(found["ids"]),
+                # 演示种子文档在下次启动时会按 knowledge/ 目录重新导入（生产环境不导入演示文档）。
+                "demo_seed": self._is_demo_source(source)}
+
+    def _is_demo_source(self, source: str) -> bool:
+        if not (self._seeding_demo and source.endswith(".md")):
+            return False
+        root = self._knowledge_root().resolve()
+        path = (root / source).resolve()
+        return path.is_relative_to(root) and path.is_file()
 
     async def add_documents_async(self, documents: List[Dict[str, str]]) -> int:
         """异步导入文档；embedding 与数据库访问是同步的，因此放入线程池执行。"""
@@ -328,9 +368,13 @@ class KnowledgeBase:
             chunks.append(current.strip())
         return [c for c in chunks if c]
 
+    @staticmethod
+    def _knowledge_root() -> pathlib.Path:
+        return pathlib.Path(os.getenv("IT_COPILOT_KNOWLEDGE_DIR", str(pathlib.Path(__file__).resolve().parent.parent / "knowledge")))
+
     def _load_default_docs(self) -> None:
         """导入演示知识库：knowledge/ 下每个 Markdown 是一篇文档，首行 `# 标题`，其余为正文。"""
-        root = pathlib.Path(os.getenv("IT_COPILOT_KNOWLEDGE_DIR", str(pathlib.Path(__file__).resolve().parent.parent / "knowledge")))
+        root = self._knowledge_root()
         docs = []
         for path in sorted(root.rglob("*.md")):
             title, _, content = path.read_text(encoding="utf-8").partition("\n")

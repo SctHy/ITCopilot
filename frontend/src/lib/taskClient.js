@@ -1,5 +1,5 @@
 // All shared-task HTTP paths live here; UI state and approval cards only call this port.
-import { reconcileApproval, requestTasks, requestTaskInbox, requestTaskHistory, continueTask, uploadTaskFile, downloadTaskFile } from './backends.js'
+import { reconcileApproval, releaseApproval, withdrawApproval, requestTasks, requestTaskInbox, requestTaskHistory, continueTask, uploadTaskFile, downloadTaskFile } from './backends.js'
 
 export function createTaskClient(settings) {
   const snapshot = { ...settings, endpoints: { ...settings.endpoints } }
@@ -19,6 +19,8 @@ export function createTaskClient(settings) {
     decide: (id, approval, decision) => request(id, `/approvals/${encodeURIComponent(approval.approval_id)}`,
       { decision, payload_hash: approval.payload_hash }),
     reconcile: approval => reconcileApproval(snapshot.backend, snapshot, approval.approval_id),
+    withdraw: approval => withdrawApproval(snapshot.backend, snapshot, approval.approval_id),
+    release: approval => releaseApproval(snapshot.backend, snapshot, approval.approval_id),
     retry: (id, run) => request(id, `/runs/${encodeURIComponent(run)}/retry`, {}),
     stop: id => request(id, '/stop', {})
   }

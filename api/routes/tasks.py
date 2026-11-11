@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, StringConstraints
 
 from api import state
-from api.deps import current_principal
+from api.deps import current_principal, enforce_rate_limit
 from api.schemas import ApprovalDecision
 from api.approval_actions import submit_decision
 from core.identity import Principal
 from workflow.tasks import TaskConflict, TaskForbidden
+from core.rate_limit import AGENT_TURN
 
 router = APIRouter(prefix="/tasks", tags=["shared tasks"])
 Message = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)]
@@ -67,6 +68,8 @@ async def get_task(task_id: str, principal: Principal = Depends(current_principa
 
 @router.post("/{task_id}/messages", status_code=202)
 async def post_message(task_id: str, payload: TaskMessage, principal: Principal = Depends(current_principal)):
+    if payload.ask_agent:  # plain discussion does not start model work
+        await enforce_rate_limit(principal, AGENT_TURN)
     body = await call(store().post, task_id, principal, payload.message, payload.client_request_id, payload.ask_agent)
     wake()
     return body

@@ -9,7 +9,7 @@ Every step is stored before it is done (after DeepSeek dsh-superagent's "stored 
   turn re-run after a crash returns the stored receipt) and, in one transaction, marks
   the row done and queues the reply in ``channel_outbox``.
 - ``notify_approval`` is the ``WorkflowStore.notify`` hook: an approval that settles
-  (rejected, expired, invalidated, executed) queues one notice to the conversation that
+  (rejected, expired, invalidated, withdrawn, executed) queues one notice to the conversation that
   asked for it, in the same transaction as the state change.
 - Outgoing messages of one conversation go out in the order they were queued; a message
   waits behind an earlier one until that one has failed three times. Transient failures
@@ -56,6 +56,7 @@ NOTICES = {
     "rejected": "审批单 {short} 未通过审批。",
     "expired": "审批单 {short} 超过有效期无人审批，已过期；如仍需要请重新提交。",
     "invalidated": "审批单 {short} 已失效：{reason}。如仍需要请按新规则重新申请。",
+    "withdrawn": "审批单 {short} 已由申请人撤回，不会再执行。",
     "execution_succeeded": "审批单 {short} 已批准并执行完成{results}。",
     "execution_failed": "审批单 {short} 已批准，但执行失败：{error}",
     "execution_manual_review": "审批单 {short} 的执行结果需要 IT 人工核对，核对完成后会再通知你。",
@@ -110,6 +111,8 @@ def _results_text(results: List[Dict[str, Any]]) -> str:
     for r in results or []:
         if r.get("ticket_id"):
             parts.append(f"工单号 {r['ticket_id']}")
+        elif r.get("action") == "lock_device" and r.get("device_id"):
+            parts.append(f"设备 {r['device_id']} 已远程锁定")
         elif r.get("action") == "request_access" and r.get("system"):
             parts.append(f"{r['system']} {r.get('role', '')} 权限已开通".replace("  ", " "))
     return "：" + "；".join(parts) if parts else ""

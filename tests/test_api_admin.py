@@ -24,6 +24,17 @@ class FakeKnowledgeBase:
     async def doc_count_async(self):
         return len(self.documents)
 
+    def list_documents(self, department=None):
+        return [{"document_id": d["title"], "title": d["title"], "chunks": 1} for d in self.documents
+                if department is None or d.get("department", "*") == department]
+
+    def delete_document(self, document_id):
+        for doc in self.documents:
+            if doc["title"] == document_id:
+                self.documents.remove(doc)
+                return {"document_id": document_id, "title": doc["title"], "source": doc["title"], "chunks": 1, "demo_seed": False}
+        return None
+
 
 @pytest.fixture
 def client(monkeypatch):
@@ -122,3 +133,17 @@ def test_search_accepts_the_full_advertised_range(client, top_k):
     response = http.post("/search", params={"query": "VPN", "top_k": top_k})
     assert response.status_code == 200
     assert response.json() == [{"title": "hit"}]
+
+
+def test_knowledge_documents_can_be_listed_and_deleted_by_admins_only(client):
+    http, kb = client
+    http.post("/knowledge/add", json={"documents": [{"title": "旧 SOP", "content": "过时", "department": "研发"}, {"title": "新 SOP", "content": "现行"}]})
+    assert http.get("/knowledge/documents", headers=auth("alice")).status_code == 403
+    assert http.delete("/knowledge/documents/旧 SOP", headers=auth("alice")).status_code == 403
+    assert http.get("/knowledge/documents").json()["total"] == 2
+    assert [d["title"] for d in http.get("/knowledge/documents?department=研发").json()["items"]] == ["旧 SOP"]
+    version = state.tool_manager._cache_versions.get("knowledge_search", 0)
+    response = http.delete("/knowledge/documents/旧 SOP")
+    assert response.status_code == 200 and response.json()["total_chunks"] == 1
+    assert state.tool_manager._cache_versions["knowledge_search"] == version + 1   # agents stop seeing it at once
+    assert http.delete("/knowledge/documents/旧 SOP").status_code == 404

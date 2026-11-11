@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 import yaml
 
@@ -18,6 +18,7 @@ REQUIRED_ARGS = {
     "reset_password": ("employee_id",),
     "unlock_account": ("employee_id",),
     "create_ticket": ("employee_id", "title", "description"),
+    "lock_device": ("employee_id", "device_id", "reason"),
 }
 
 
@@ -60,6 +61,8 @@ class AccessPolicy:
             if hours > rule["max_hours"]:
                 raise PolicyViolation(f"{system}/{role} 最长可申请 {rule['max_hours']} 小时")
             args.update(system=system, role=role, duration_hours=hours)
+        elif name == "lock_device":
+            args["device_id"] = args["device_id"].upper()  # asset tags are matched exactly downstream
         return {"tool_name": name, "arguments": args}
 
     def requirement(self, action: Dict[str, Any]) -> ActionRequirement:
@@ -75,11 +78,18 @@ class AccessPolicy:
             return
         raise PolicyViolation("只能为本人账号提交申请；代他人申请需由 IT 管理员发起")
 
-    def still_allows(self, frozen_actions) -> Optional[str]:
-        """Re-check actions frozen under an older version; returns why this version refuses them."""
+    def still_allows(self, frozen_actions, requester: Optional[Tuple[Optional[str], FrozenSet[str]]] = None) -> Optional[str]:
+        """Re-check actions frozen under an older version; returns why this version refuses them.
+
+        ``requester`` is (employee_id, roles) as snapshotted when the approval was created, so a
+        request filed on someone else's behalf is refused once ``on_behalf_roles`` no longer
+        covers the role it was filed under. Approvals created before the snapshot existed pass
+        ``None`` and keep the old behaviour (only the actions are re-checked)."""
         for action in frozen_actions:
             try:
                 self.normalise(action)
+                if requester is not None:
+                    self.check_requester(action, *requester)
             except ValueError as exc:  # PolicyViolation included
                 return f"策略 {self.version} 不再允许：{exc}"
         return None

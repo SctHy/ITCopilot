@@ -1,6 +1,6 @@
 """Approval domain objects shared by API and the runtime."""
 
-UNSAFE_TOOLS = {"reset_password", "unlock_account", "request_access", "create_ticket"}
+UNSAFE_TOOLS = {"reset_password", "unlock_account", "request_access", "create_ticket", "lock_device"}
 
 
 def approval_summary(tool_names, message):
@@ -9,7 +9,7 @@ def approval_summary(tool_names, message):
         return None
     risk = (
         "high"
-        if any(name in {"reset_password", "unlock_account", "request_access"} for name in actions)
+        if any(name in {"reset_password", "unlock_account", "request_access", "lock_device"} for name in actions)
         else "medium"
     )
     return {

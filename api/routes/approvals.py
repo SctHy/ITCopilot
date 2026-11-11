@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api import state
-from api.approval_actions import submit_decision
-from api.deps import current_principal, forbid, require_admin, require_roles, require_workflow
-from api.schemas import ApprovalDecision
+from api.approval_actions import release_grants, submit_decision, withdraw_approval
+from api.deps import current_principal, forbid, record_admin_change, require_admin, require_roles, require_workflow
+from api.schemas import ApprovalDecision, ApprovalWithdrawal
 from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
@@ -25,7 +25,7 @@ async def _readable_approval(approval_id: str, principal: Principal) -> Dict[str
 
 
 @router.get("/approvals")
-async def list_approvals(status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|expired|superseded|invalidated)$"),
+async def list_approvals(status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|expired|superseded|invalidated|withdrawn)$"),
                          principal: Principal = Depends(current_principal)):
     """申请人看到自己的申请；审批人、管理员、审计员看到全部（审批收件箱）。"""
     return {"items": await asyncio.to_thread(require_workflow().list, principal, status)}
@@ -39,6 +39,18 @@ async def get_approval(approval_id: str, principal: Principal = Depends(current_
 @router.post("/approvals/{approval_id}")
 async def decide_approval(approval_id: str, payload: ApprovalDecision, principal: Principal = Depends(require_roles(ROLE_APPROVER, ROLE_IT_ADMIN))):
     return await submit_decision(approval_id, payload, principal)
+
+
+@router.post("/approvals/{approval_id}/withdraw")
+async def withdraw(approval_id: str, payload: ApprovalWithdrawal = ApprovalWithdrawal(), principal: Principal = Depends(current_principal)):
+    """申请人撤回仍待审批的申请；已有审批结果、已过期或被替代的申请不能撤回。"""
+    return await withdraw_approval(approval_id, payload.reason, principal)
+
+
+@router.post("/approvals/{approval_id}/release")
+async def release(approval_id: str, principal: Principal = Depends(current_principal)):
+    """提前归还该申请开通、仍在有效期内的限时权限（申请人、权限持有人或 IT 管理员）。"""
+    return await release_grants(approval_id, principal)
 
 
 @router.post("/approvals/{approval_id}/reconcile")
@@ -60,10 +72,12 @@ async def policy_info():
     return {"version": policy.version, "approval_ttl_hours": policy.approval_ttl_hours}
 
 
-@router.post("/policy/revalidate", dependencies=[Depends(require_admin)])
-async def policy_revalidate():
+@router.post("/policy/revalidate")
+async def policy_revalidate(principal: Principal = Depends(require_admin)):
     """立即按当前策略复核在途审批与未到期授权（worker 发现版本变化时也会自动执行）。"""
     report = await asyncio.to_thread(require_workflow().revalidate)
+    await record_admin_change(principal, "policy_revalidated", report["policy_version"],
+                              {k: len(v) for k, v in report.items() if isinstance(v, list)})
     if state.worker:
         state.worker.kick()
     return report

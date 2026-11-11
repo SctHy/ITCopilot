@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.engine import Engine
 
-from core.db import directory_effects, directory_employees, directory_grants, directory_tickets
+from core.db import directory_devices, directory_effects, directory_employees, directory_grants, directory_tickets
 from workflow.adapters.base import PermanentError
 
 
@@ -30,8 +30,14 @@ class LocalDirectoryAdapter:
     def _preflight(self, action):
         with self.engine.connect() as db:
             row = db.execute(select(directory_employees.c.active).where(directory_employees.c.id == action["arguments"]["employee_id"])).first()
+            device = None
+            if action["tool_name"] == "lock_device":
+                device = db.execute(select(directory_devices.c.employee_id).where(directory_devices.c.id == action["arguments"]["device_id"])).first()
         if not row or not row.active:
             raise PermanentError("员工不存在或已停用")
+        if action["tool_name"] == "lock_device" and (device is None or device.employee_id != action["arguments"]["employee_id"]):
+            # The approval names both; locking someone else's device must fail before any effect.
+            raise PermanentError("设备不存在或不属于该员工")
 
     async def current_level(self, employee_id: str, system: str) -> Optional[str]:
         return await asyncio.to_thread(self._current_level, employee_id, system)
@@ -75,6 +81,12 @@ class LocalDirectoryAdapter:
                 db.execute(update(directory_employees).where(directory_employees.c.id == employee).values(password_version=directory_employees.c.password_version + 1))
             elif name == "unlock_account":
                 db.execute(update(directory_employees).where(directory_employees.c.id == employee).values(locked=0))
+            elif name == "lock_device":
+                locked = db.execute(update(directory_devices).where(directory_devices.c.id == args["device_id"], directory_devices.c.employee_id == employee)
+                                    .values(locked=1, operation_id=action_id)).rowcount
+                if not locked:
+                    raise PermanentError("设备不存在或不属于该员工")
+                result["device_id"] = args["device_id"]
             elif name == "create_ticket":
                 ticket = "INC-" + action_id[:12]
                 db.execute(insert(directory_tickets).values(id=ticket, employee_id=employee, title=args["title"], description=args["description"]))

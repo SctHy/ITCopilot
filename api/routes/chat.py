@@ -11,9 +11,10 @@ from fastapi.responses import StreamingResponse
 
 from agents.states import TURN
 from api import state
-from api.deps import current_principal, forbid, request_id, spawn
+from api.deps import current_principal, enforce_rate_limit, forbid, rate_limit_decision, request_id, spawn
 from api.schemas import ChatRequest, ChatResponse
 from core.env import env_float
+from core.rate_limit import AGENT_TURN
 from core.events import TERMINAL_EVENTS, EventPublisher, StreamConflict, request_fingerprint
 from core.identity import Principal
 from monitor import metrics
@@ -88,6 +89,12 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
             req.context += state.task_recall.prompt(req.task_references)
         except Exception:
             logger.warning('task recall unavailable; continuing without task references')
+    if state.request_recall:
+        try:
+            req.related_approvals = await asyncio.wait_for(state.request_recall.recall(principal, payload.message, intent_result.intent.value), 3)
+            req.context += state.request_recall.prompt(req.related_approvals)
+        except Exception:
+            logger.warning('request recall unavailable; continuing without it')
     # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
     entities = with_login_employee(intent_result.entities, conv_state, principal.employee_id, intent_result.intent.value)
     req.conversation_state = merge_state(conv_state, intent_result.intent_group, entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
@@ -127,6 +134,7 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(payload: ChatRequest, principal: Principal = Depends(current_principal)):
+    await enforce_rate_limit(principal, AGENT_TURN)
     return await _chat_entry(payload, principal, request_id(principal, payload.client_request_id))
 
 
@@ -203,7 +211,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
 
     flow.send("respond")
     response = ChatResponse(
-        task_references=req.task_references,
+        task_references=req.task_references, related_approvals=req.related_approvals,
         request_id=rid, response=reply, status=result.status, agent_type=result.agent_type.value,
         intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
@@ -293,6 +301,7 @@ async def chat_stream(payload: ChatRequest, principal: Principal = Depends(curre
     重复提交只订阅已有执行，不会再跑一遍。"""
     if not state.orchestrator:
         raise HTTPException(503, "service not ready")
+    await enforce_rate_limit(principal, AGENT_TURN)
     rid = request_id(principal, payload.client_request_id)
     stream = "chat:" + rid
     try:
@@ -320,8 +329,15 @@ async def chat_stream_resume(request_id: str, principal: Principal = Depends(cur
     return _stream_response(stream, last_event_id)
 
 
+RATE_LIMITED_REPLY = "消息太频繁了，请稍等一分钟再发。"
+
+
 async def _channel_turn(principal: Principal, text: str, conv_id: str, client_request_id: str) -> Dict[str, Any]:
     """IM 消息与 /chat 走同一条路径；client_request_id 取平台消息 ID，崩溃后重放返回已存回执。"""
     payload = ChatRequest(message=text[:8000], conv_id=conv_id[:200], client_request_id=client_request_id[:200])
-    raw = await _chat_entry(payload, principal, request_id(principal, payload.client_request_id))
+    rid = request_id(principal, payload.client_request_id)
+    if not (await rate_limit_decision(principal, AGENT_TURN, "feishu")).allowed:
+        # Answered, not retried: the message is settled with this reply instead of queueing more model work.
+        return {"request_id": rid, "response": RATE_LIMITED_REPLY, "approval_required": False}
+    raw = await _chat_entry(payload, principal, rid)
     return raw.model_dump() if isinstance(raw, ChatResponse) else dict(raw)

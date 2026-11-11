@@ -4,7 +4,8 @@ Inbound events arrive at ``POST /channels/feishu/events`` (event subscription v2
 ``im.message.receive_v1``). Trust comes from the platform, never from message text:
 
 - the request is authentic when its verification token matches and, with an encrypt key,
-  its ``X-Lark-Signature`` matches and the body decrypts;
+  its ``X-Lark-Signature`` matches, its signed ``X-Lark-Request-Timestamp`` is within
+  ``max_skew_s`` of our clock (a captured request cannot be replayed later) and the body decrypts;
 - the sender is the Feishu ``open_id`` / ``user_id`` in the event header, mapped to an
   IT-Copilot identity by ``config/feishu_users.yaml``. Unmapped senders get no access.
 
@@ -33,6 +34,7 @@ import httpx2
 import yaml
 
 from intake.base import ChannelError, InboundMessage
+from core.env import env_float
 from core.identity import KNOWN_ROLES, Principal
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ class FeishuSettings:
     allowed_chats: FrozenSet[str] = field(default_factory=frozenset)   # empty: every group the bot is in
     base_url: str = "https://open.feishu.cn"
     ack_emoji: str = "OnIt"
+    max_skew_s: float = 300.0   # signed request timestamp must be this close to our clock
 
     @classmethod
     def from_env(cls) -> Optional["FeishuSettings"]:
@@ -69,6 +72,7 @@ class FeishuSettings:
             bot_open_id=os.getenv("FEISHU_BOT_OPEN_ID", ""),
             allowed_chats=frozenset(c.strip() for c in os.getenv("FEISHU_ALLOWED_CHATS", "").split(",") if c.strip()),
             base_url=os.getenv("FEISHU_BASE_URL", "https://open.feishu.cn"), ack_emoji=os.getenv("FEISHU_ACK_EMOJI", "OnIt"),
+            max_skew_s=env_float("FEISHU_MAX_CLOCK_SKEW_S", 300.0),
         )
 
 
@@ -86,7 +90,19 @@ def _decrypt(encrypt_key: str, ciphertext: str) -> Dict[str, Any]:
         raise EventRejected("event decryption failed") from exc
 
 
-def open_event(settings: FeishuSettings, body: bytes, headers: Dict[str, str]) -> Dict[str, Any]:
+def _check_freshness(settings: FeishuSettings, timestamp: str, now: float) -> None:
+    """Only the request timestamp is covered by the signature, so only it can bound replay.
+
+    The event's own ``create_time`` is not checked: Feishu re-delivers an unacknowledged
+    event for hours, each time as a new request with a new timestamp and signature.
+    """
+    if not timestamp.isdigit():   # also rejects "nan", "inf", signs and fractions
+        raise EventRejected("request timestamp missing or malformed")
+    if abs(now - int(timestamp)) > settings.max_skew_s:
+        raise EventRejected("request timestamp outside the allowed window")
+
+
+def open_event(settings: FeishuSettings, body: bytes, headers: Dict[str, str], *, now: Optional[float] = None) -> Dict[str, Any]:
     """Authenticate a webhook request and return the plaintext event."""
     if not settings.verification_token:
         raise EventRejected("FEISHU_VERIFICATION_TOKEN is not configured")
@@ -100,6 +116,7 @@ def open_event(settings: FeishuSettings, body: bytes, headers: Dict[str, str]) -
             base = (headers.get("x-lark-request-timestamp", "") + headers.get("x-lark-request-nonce", "") + settings.encrypt_key).encode() + body
             if not hmac.compare_digest(hashlib.sha256(base).hexdigest(), signature):
                 raise EventRejected("signature mismatch")
+            _check_freshness(settings, headers.get("x-lark-request-timestamp", ""), time.time() if now is None else now)
         if "encrypt" not in payload:
             raise EventRejected("encrypt key configured but event is plaintext")
         payload = _decrypt(settings.encrypt_key, payload["encrypt"])

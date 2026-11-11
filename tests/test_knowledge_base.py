@@ -137,3 +137,35 @@ def test_demo_seeding_updates_its_own_docs_but_never_overwrites_admin_docs(tmp_p
     assert seeded["VPN 指南"] == "演示 VPN 正文 v1"
     (seed / "it" / "vpn.md").write_text("# VPN 指南\n演示 VPN 正文 v2\n", encoding="utf-8")
     assert contents(KnowledgeBase(url))["VPN 指南"] == "演示 VPN 正文 v2"
+
+
+def test_documents_are_listed_per_document_and_deleted_from_both_indexes(kb):
+    kb.add_documents([{"title": "打印机", "content": "驱动。" * 400, "department": "研发"}])  # several chunks
+    listed = {d["title"]: d for d in kb.list_documents()}
+    assert set(listed) == {"VPN 指南", "ERP 权限", "打印机"}
+    assert listed["打印机"]["chunks"] > 1 and listed["打印机"]["demo_seed"] is False
+    assert [d["title"] for d in kb.list_documents(department="财务")] == ["ERP 权限"]
+
+    removed = kb.delete_document(listed["VPN 指南"]["document_id"])
+    assert removed == {"document_id": listed["VPN 指南"]["document_id"], "title": "VPN 指南", "source": "VPN 指南", "chunks": 1, "demo_seed": False}
+    for mode in ("bm25", "vector", "hybrid"):
+        assert all(r["title"] != "VPN 指南" for r in kb.search("VPN 客户端证书", mode=mode, top_k=10))
+    assert {d["title"] for d in kb.list_documents()} == {"ERP 权限", "打印机"}
+    assert kb.delete_document(listed["VPN 指南"]["document_id"]) is None
+
+
+def test_deleting_a_demo_document_reports_that_seeding_brings_it_back(tmp_path, monkeypatch):
+    seed = tmp_path / "knowledge"
+    seed.mkdir()
+    (seed / "vpn.md").write_text("# VPN 指南\n演示 VPN 正文\n", encoding="utf-8")
+    monkeypatch.setenv("IT_COPILOT_KNOWLEDGE_DIR", str(seed))
+    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "true")
+    url = f"sqlite:///{tmp_path / 'kb.sqlite3'}"
+    base = KnowledgeBase(url)
+    base.add_documents([{"title": "管理员文档", "content": "正文", "source": "../outside.md"}])
+    (tmp_path / "outside.md").write_text("x", encoding="utf-8")
+    listed = {d["title"]: d for d in base.list_documents()}
+    assert listed["VPN 指南"]["demo_seed"] is True
+    assert listed["管理员文档"]["demo_seed"] is False   # a source outside knowledge/ is never treated as a seed file
+    assert base.delete_document(listed["VPN 指南"]["document_id"])["demo_seed"] is True
+    assert "VPN 指南" in {d["title"] for d in KnowledgeBase(url).list_documents()}   # re-seeded on the next start

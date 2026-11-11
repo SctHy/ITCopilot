@@ -73,11 +73,13 @@ export function createTaskController(client) {
   }
   async function decide(approval, decision) {
     const id = state.selected, at = generation, approvalId = approval.approval_id
-    if (![undefined, 'approved', 'rejected', 'reconcile'].includes(decision)) return
+    if (![undefined, 'approved', 'rejected', 'reconcile', 'withdraw', 'release'].includes(decision)) return
     if (state.approvalBusy[approvalId]) return
     state.approvalBusy[approvalId] = true; state.approvalErrors[approvalId] = ''
     try {
       if (decision === 'reconcile') await client.reconcile(approval)
+      else if (decision === 'withdraw') await client.withdraw(approval)
+      else if (decision === 'release') await client.release(approval)
       else if (decision) await client.decide(id, approval, decision)
     } catch (error) {
       if (alive && at === generation) state.approvalErrors[approvalId] = error.message

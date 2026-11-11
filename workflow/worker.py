@@ -27,6 +27,7 @@ import os
 import random
 import socket
 import uuid
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 from workflow.adapters import AdapterRegistry
@@ -140,6 +141,20 @@ class ExecutionWorker:
             if body is None or body["status"] != ApprovalStatus.APPROVED or all(r["status"] in SETTLED for r in body["results"]):
                 return body
             if asyncio.get_running_loop().time() >= deadline:
+                return body
+            await asyncio.sleep(0.05)
+
+    async def wait_revoked(self, approval_id: str, timeout_s: float) -> Optional[Dict[str, Any]]:
+        """Wait until no revocation of the approval is due and unfinished (or the timeout passes)."""
+        self.kick()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        while True:
+            body = await asyncio.to_thread(self.store.get, approval_id)
+            now = self.store.clock()
+            due = [r for r in (body or {}).get("revocations", []) if r["status"] in {ActionStatus.EXECUTING, ActionStatus.UNKNOWN}
+                   or (r["status"] == ActionStatus.QUEUED and r["not_before"] and datetime.fromisoformat(r["not_before"]).timestamp() <= now)]
+            if body is None or not due or loop.time() >= deadline:
                 return body
             await asyncio.sleep(0.05)
 

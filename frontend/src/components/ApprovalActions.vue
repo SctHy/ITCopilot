@@ -4,8 +4,10 @@
       <button v-if="permissions.canDecide" type="button" :disabled="busy" @click="$emit('action', 'approved')">同意审批</button>
       <button v-if="permissions.canDecide" type="button" :disabled="busy" @click="$emit('action', 'rejected')">拒绝申请</button>
       <button v-if="allowClarification && permissions.canClarify" type="button" class="quiet-button" :disabled="busy" @click="$emit('action', 'clarify')">要求补充说明</button>
-      <p v-if="permissions.reason" class="muted">{{ permissions.reason }}</p>
+      <button v-if="permissions.canWithdraw" type="button" class="quiet-button" :disabled="busy" @click="confirmThen('withdraw', '确认撤回这条申请？撤回后不会再执行，如仍需要请重新提交。')">撤回申请</button>
+      <p v-if="permissions.reason && !permissions.canWithdraw" class="muted">{{ permissions.reason }}</p>
     </template>
+    <button v-if="permissions.canRelease" type="button" class="quiet-button" :disabled="busy" @click="confirmThen('release', '确认现在归还这项限时权限？归还后如需使用要重新申请。')">提前归还权限</button>
     <button v-if="permissions.canReconcile && needsReview" type="button" :disabled="busy" @click="$emit('action', 'reconcile')">回查目标系统并对账</button>
     <button type="button" class="text-button" :disabled="busy" @click="$emit('action')">刷新状态</button>
   </div>
@@ -15,8 +17,11 @@
 import { computed } from 'vue'
 import { approvalPermissions } from '../lib/approvalActions.js'
 const props = defineProps({ approval: Object, identity: Object, busy: Boolean, allowClarification: Boolean })
-defineEmits(['action'])
+const emit = defineEmits(['action'])
 const permissions = computed(() => approvalPermissions(props.approval, props.identity))
+function confirmThen(action, message) {
+  if (typeof window === 'undefined' || window.confirm(message)) emit('action', action)
+}
 const needsReview = computed(() => [...(props.approval?.results || []), ...(props.approval?.revocations || [])].some(step => ['manual_review', 'unknown'].includes(step.status)))
 </script>
 

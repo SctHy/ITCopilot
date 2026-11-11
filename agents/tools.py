@@ -84,6 +84,10 @@ def create_ticket(req, args):
     return _pending(req, args, "create_ticket")
 
 
+def lock_device(req, args):
+    return _pending(req, args, "lock_device")
+
+
 # ── 共享 RAG 工具 ─────────────────────────────────────────────────────────────
 
 def slim_hit(item: Any) -> Any:
@@ -136,6 +140,8 @@ def triage_tools() -> ToolSet:
 def endpoint_tools() -> ToolSet:
     return _toolset(
         make_tool("lookup_asset", "只读查询设备资产状态。", _strings("asset_id"), lookup_asset),
+        make_tool("lock_device", "设备丢失或被盗时，创建远程锁定待审批请求；只能锁本人设备，device_id 如 DEV-1001。",
+                  _strings("employee_id", "device_id", "reason"), lock_device, required=["employee_id", "device_id", "reason"], retry_safe=False),
         _create_ticket_tool(),
     )
 

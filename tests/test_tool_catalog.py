@@ -39,11 +39,11 @@ def test_low_value_tools_are_gone_and_triage_needs_no_tools(orchestrator):
     assert set(orchestrator._pool[AgentType.TRIAGE][0].get_tools()) == {"search_knowledge_base"}
     assert set(orchestrator._generalist.get_tools()) == {
         "search_knowledge_base", "lookup_asset", "lookup_error_code", "check_service_status", "query_ticket",
-        "create_ticket", "reset_password", "unlock_account", "request_access"}
+        "create_ticket", "reset_password", "unlock_account", "request_access", "lock_device"}
 
 
 def test_write_tools_are_not_retry_safe_and_read_tools_are(orchestrator):
-    writes = {"create_ticket", "reset_password", "unlock_account", "request_access"}
+    writes = {"create_ticket", "reset_password", "unlock_account", "request_access", "lock_device"}
     for name, spec in all_specs(orchestrator).items():
         assert spec.retry_safe is (name not in writes), name
 
@@ -57,7 +57,8 @@ def test_prompt_and_tool_budgets(orchestrator):
     specs = orchestrator._generalist.get_tools().values()
     assert all(len(spec.description) <= 80 for spec in specs)
     payload = [{"name": s.name, "description": s.description, "parameters": s.input_schema} for s in specs]
-    assert len(json.dumps(payload, ensure_ascii=False)) <= 2600
+    # 2600 → 2800 when lock_device (≈325 chars: three required string fields) was added; keep the margin tight.
+    assert len(json.dumps(payload, ensure_ascii=False)) <= 2800
 
 
 class FakeManager:
