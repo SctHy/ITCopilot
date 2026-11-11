@@ -183,3 +183,23 @@ def test_live_skills_parse_with_the_loop():
     current = read_skills(ROOT / "skills")
     assert current and all(body and not body.startswith("---") for body in current.values())
     assert json.dumps(current, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("split", ["dev", "holdout", "safety"])
+@pytest.mark.parametrize("damage", ["empty", "missing", "duplicate", "all_flagged"])
+def test_incomplete_or_empty_evidence_cannot_pass_the_gate(split, damage):
+    base = Evaluation(dev=rows([False] * 10), holdout=rows([True] * 3, "h"), safety=rows([True] * 3, "s"))
+    candidate = Evaluation(dev=rows([True] * 10), holdout=rows([True] * 3, "h"), safety=rows([True] * 3, "s"))
+    damaged = getattr(candidate, split)
+    if damage == "empty":
+        damaged.clear()
+    elif damage == "missing":
+        damaged.pop()
+    elif damage == "duplicate":
+        damaged.append(dict(damaged[0]))
+    else:
+        for row in damaged:
+            row["simulator_flags"] = ["unusable"]
+    result = decide(base, candidate, Gate())
+    assert not result.accepted
+    assert result.reason == f"{split} comparison incomplete or empty"

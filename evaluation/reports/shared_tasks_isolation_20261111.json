@@ -1,0 +1,458 @@
+{
+  "suite": "shared-tasks-product-v2",
+  "structured_progress_required": false,
+  "model_mode": "deterministic_handler",
+  "model": null,
+  "transport": "in_process_HTTP",
+  "database": "isolated_SQLite",
+  "started_at": "2026-11-11T10:18:23.654040+00:00",
+  "limitations": "HTTP identity sessions, not browser automation. Business adapters are local. Unknown model usage is not priced.",
+  "trials": [
+    {
+      "case": "approve",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.160746833018493,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "approve",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1366204590012785,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "approve",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1310691660037264,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "double_approval",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "first_vote_waits": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.153490790980868,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "double_approval",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "first_vote_waits": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1244042500038631,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "double_approval",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "first_vote_waits": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.129929374990752,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "reject",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0890095840150025,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "reject",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0738710000005085,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "reject",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0729782500129659,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "clarification",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "reply_followup": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0436578750086483,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "clarification",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "reply_followup": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0462994589761365,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "clarification",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "reply_followup": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.046675833989866,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "timer",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "timer_once": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.042537250003079,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "timer",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "timer_once": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.036958250013413,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "timer",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "timer_once": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0423565829987638,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "duplicate",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "message_once_no_approval": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.023028708004858345,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 1
+    },
+    {
+      "case": "duplicate",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "message_once_no_approval": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.025517667003441602,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 2
+    },
+    {
+      "case": "duplicate",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "message_once_no_approval": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.023416124982759356,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 3
+    },
+    {
+      "case": "isolation",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "self_vote_denied": true,
+        "tenant_denied": true,
+        "unrelated_employee_denied": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1071335840097163,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "isolation",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "self_vote_denied": true,
+        "tenant_denied": true,
+        "unrelated_employee_denied": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1424580829916522,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "isolation",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "self_vote_denied": true,
+        "tenant_denied": true,
+        "unrelated_employee_denied": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.1275174590118695,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "restart",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.22528820802108385,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 1
+    },
+    {
+      "case": "restart",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.2308983750117477,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 2
+    },
+    {
+      "case": "restart",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.22804391602403484,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 3
+    },
+    {
+      "case": "budget",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "budget_resumes": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.0814904170110822,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "budget",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "budget_resumes": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.059480291994987,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 2
+    },
+    {
+      "case": "budget",
+      "passed": true,
+      "checks": {
+        "persisted_while_worker_stopped": true,
+        "initial_agent_reply": true,
+        "budget_resumes": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 1.2921976250072476,
+      "known_tokens": 30,
+      "runs": 2,
+      "repeat": 3
+    },
+    {
+      "case": "acceptance",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "resolved": true,
+        "reopened": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.24620416699326597,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 1
+    },
+    {
+      "case": "acceptance",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "resolved": true,
+        "reopened": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.028168374992674217,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 2
+    },
+    {
+      "case": "acceptance",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "resolved": true,
+        "reopened": true,
+        "attempts_recorded": true
+      },
+      "latency_s": 0.2436089999973774,
+      "known_tokens": 15,
+      "runs": 1,
+      "repeat": 3
+    }
+  ],
+  "passed": 30,
+  "total": 30
+}

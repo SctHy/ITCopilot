@@ -68,7 +68,8 @@ def test_http_chat_approval_execution_and_replay():
             assert employee["access_ledger"][0]["status"] == "active" and employee["access_ledger"][0]["expires_at"]
             events = [e["event"] for e in (await http.get(path + "/audit")).json()["events"]]
             assert events == ["created", "approved", "execution_queued", "apply_started", "apply_succeeded"]
-            history = await state.memory._get_working_memory("dev:alice", "access")
+            from core.scopes import identity_scope
+            history = await state.memory._get_working_memory(identity_scope('default', 'dev:alice'), 'access')
             assert len(history) == 2  # duplicate request cannot append a second turn
             assert (await http.post("/chat", json={**payload, "message": "different"})).status_code == 409
             # Other employees cannot read alice's approval, trace or account; the same client id is a separate request for them.

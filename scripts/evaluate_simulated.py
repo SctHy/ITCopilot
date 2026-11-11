@@ -27,6 +27,7 @@ from dotenv import load_dotenv  # noqa: E402
 from core.llm import build_model, complete_text  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
 from evaluation.reporting import DATASETS_DIR, ROOT, billable_tokens, write_report  # noqa: E402
+from evaluation.states import TRIAL  # noqa: E402
 from evaluation.simulated import STOP, generate_tasks, grade, simulator_flags, user_prompt  # noqa: E402
 from workflow.store import SEED_EMPLOYEES  # noqa: E402
 
@@ -39,6 +40,7 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
     auditor = auth("grace")
     state.workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
     transcript, tool_calls, agent_tokens, user_calls, ended = [], [], 0, 0, "max_turns"
+    flow = TRIAL.start()
     started = time.monotonic()
     result = {"case_id": task["id"], "stratum": task["tier"], "planning": mode, "repeat": 0}
     try:
@@ -54,9 +56,12 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
             reply = (await complete_text(user_llm, user_prompt(task, transcript), max_tokens=200, request_timeout=60)).text.strip()
             user_calls += 1
             if STOP in reply or not reply:
-                ended = "user_stop"
+                ended = flow.send("stop")
                 break
             message = reply
+        if flow.state == "dialogue":
+            ended = flow.send("limit")
+        flow.send("approve")
         # Approvers decide everything the agent filed; state is graded after execution.
         approvals = (await http.get("/approvals", params={"status": "pending"}, headers=requester)).json()["items"]
         for approval in approvals:
@@ -66,11 +71,14 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
         superseded = len((await http.get("/approvals", params={"status": "superseded"}, headers=requester)).json()["items"])
         state = (await http.get(f"/business/employees/{task['employee_id']}", headers=auditor)).json()
         agent_text = "\n".join(m["content"] for m in transcript if m["role"] == "assistant")
+        flow.send("grade")
         checks = grade(task, state, tool_calls, agent_text, approvals)
         result.update(checks=checks, passed=all(checks.values()), approvals=len(approvals), superseded=superseded, simulator_flags=simulator_flags(task, transcript), state={k: state[k] for k in ("grants", "tickets", "password_version", "locked")})
+        flow.send("complete")
     except Exception as exc:
+        flow.send("fail")
         result.update(checks={"no_exception": False}, passed=False, error_type=f"{type(exc).__name__}: {exc}"[:300])
-    result.update(turns=len(transcript) // 2, ended=ended, agent_tokens=agent_tokens, user_calls=user_calls,
+    result.update(phase=flow.state, turns=len(transcript) // 2, ended=ended, agent_tokens=agent_tokens, user_calls=user_calls,
                   latency_s=time.monotonic() - started, transcript=transcript, tool_calls=tool_calls)
     return result
 

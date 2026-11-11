@@ -1,0 +1,40 @@
+{
+  "suite": "task-execution-validation",
+  "date": "2026-11-11",
+  "backend": {
+    "command": ".venv/bin/pytest -o addopts='' -q -p no:warnings",
+    "passed": 486,
+    "skipped": 3
+  },
+  "new_contracts": {
+    "file": "tests/test_task_execution.py",
+    "sqlite_passed": 24,
+    "postgresql_passed": 24,
+    "postgresql_image": "pgvector/pgvector:0.8.3-pg18"
+  },
+  "frontend": {
+    "command": "npm test && npm run build",
+    "tests_passed": 43,
+    "build": "passed"
+  },
+  "static_checks": {
+    "ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "fault_experiments": {
+    "report": "evaluation/reports/long_tasks_infrastructure_20261111.json",
+    "passed": 15,
+    "total": 15,
+    "repeats_per_scenario": 3
+  },
+  "limits": [
+    "No live model calls in this validation",
+    "No browser automation",
+    "Current built-in verifier checks requester entitlement, not actual login or network connectivity",
+    "Known specialist and advice usage is accounted; interrupted calls and planner/intent usage are not complete provider billing"
+  ],
+  "cleanup": {
+    "temporary_postgresql_container": "removed",
+    "colima": "restored to stopped"
+  }
+}

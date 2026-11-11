@@ -1,0 +1,63 @@
+{
+  "suite": "shared-tasks-product-v2",
+  "model_mode": "live",
+  "model": "deepseek-flash",
+  "transport": "in_process_HTTP",
+  "database": "isolated_SQLite",
+  "started_at": "2026-11-11T06:46:11.041642+00:00",
+  "limitations": "HTTP identity sessions, not browser automation. Business adapters are local. Unknown model usage is not priced.",
+  "trials": [
+    {
+      "case": "approve",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "proposal_created": true,
+        "business_result": true,
+        "no_duplicate_operations": true,
+        "no_followup_write_proposals": true,
+        "attempts_recorded": true,
+        "structured_progress_staged": true,
+        "suggestions_await_human": true
+      },
+      "latency_s": 14.132453624974005,
+      "known_tokens": 8904,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "clarification",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "reply_followup": true,
+        "attempts_recorded": true,
+        "structured_progress_staged": true,
+        "suggestions_await_human": true
+      },
+      "latency_s": 16.98101291700732,
+      "known_tokens": 11257,
+      "runs": 2,
+      "repeat": 1
+    },
+    {
+      "case": "acceptance",
+      "passed": true,
+      "checks": {
+        "initial_agent_reply": true,
+        "resolved": true,
+        "reopened": true,
+        "attempts_recorded": true,
+        "structured_progress_staged": true,
+        "suggestions_await_human": true
+      },
+      "latency_s": 5.623315750010079,
+      "known_tokens": 6771,
+      "runs": 1,
+      "repeat": 1
+    }
+  ],
+  "passed": 3,
+  "total": 3,
+  "structured_progress_required": true
+}

@@ -19,6 +19,7 @@ from pydantic_ai.models import Model
 
 from agents.intent.recognizer import IntentRecognizer
 from core.llm import complete_text
+from evaluation.states import JUDGE
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,9 @@ Agent 响应: {response}
         stop_reason = None
         error = ""
         error_type = ""
+        flow = JUDGE.start()
         for attempt in range(1, 3):
+            flow.send("request")
             stop_reason = None
             try:
                 resp = await asyncio.wait_for(complete_text(
@@ -165,7 +168,11 @@ Agent 响应: {response}
                     raise JudgeOutputError("truncated", "评分输出达到 token 上限，未完成")
                 raw = resp.text
                 values = self._parse_scores(raw)
+                flow.send("valid")
                 return QualityScores(**values, attempts=attempt, stop_reason=stop_reason)
+            except asyncio.CancelledError:
+                flow.send("cancel")
+                raise
             except Exception as ex:
                 status = getattr(ex, "status_code", None)
                 if isinstance(ex, JudgeOutputError):
@@ -186,10 +193,16 @@ Agent 响应: {response}
                     retryable = retryable or isinstance(ex, (TimeoutError, ConnectionError, ModelConnectionError, ModelRequestTimeout))
                 logger.warning("LLM Judge 失败: attempt=%s type=%s stop=%s error=%s", attempt, error_type, stop_reason, error)
                 if not retryable or attempt == 2:
+                    flow.send("fail")
                     break
+                flow.send("retry")
                 if stop_reason == "max_tokens":
                     budget = min(budget * 2, 8192)
-                await asyncio.sleep(0.5)
+                try:
+                    await asyncio.sleep(0.5)
+                except asyncio.CancelledError:
+                    flow.send("cancel")
+                    raise
         return QualityScores(None, None, None, None, judge_failed=True,
                              error=error, attempts=attempt, stop_reason=stop_reason,
                              error_type=error_type)

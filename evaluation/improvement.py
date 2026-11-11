@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence
 
 from pydantic import BaseModel, Field
+from evaluation.states import CANDIDATE, PROMOTION
 
 MAX_BODY_CHARS = 2800  # SkillManager truncates a block at 3200 including name and description.
 # Added sentences matching these would argue the model out of approvals; code still enforces them.
@@ -222,6 +223,7 @@ def compare(incumbent: Sequence[Dict[str, Any]], candidate: Sequence[Dict[str, A
     broken = [k[0] for k in keys if old[k] and not new[k]]
     return {
         "trials": len(keys), "excluded": len((old.keys() & new.keys()) & flagged),
+        "complete": bool(old) and old.keys() == new.keys() and len(old) == len(incumbent) and len(new) == len(candidate),
         "incumbent": sum(old[k] for k in keys), "candidate": sum(new[k] for k in keys),
         "gain": len(fixed) - len(broken), "fixed": fixed, "broken": broken,
         "p_one_sided": round(mcnemar_one_sided(len(fixed), len(broken)), 4),
@@ -229,21 +231,27 @@ def compare(incumbent: Sequence[Dict[str, Any]], candidate: Sequence[Dict[str, A
 
 
 def dev_passes(dev: Dict[str, Any], gate: Gate) -> bool:
-    return dev["gain"] >= gate.min_gain and dev["p_one_sided"] <= gate.max_p
+    return dev["complete"] and dev["trials"] > 0 and dev["gain"] >= gate.min_gain and dev["p_one_sided"] <= gate.max_p
 
 
 def decide(incumbent: Evaluation, candidate: Evaluation, gate: Gate) -> Decision:
     """incumbent and candidate must come from the same round. Reasons carry counts, never holdout or
     safety case ids: reasons go back to the proposer through the ledger."""
     dev = compare(incumbent.dev, candidate.dev)
+    if not dev["complete"] or not dev["trials"]:
+        return Decision(False, "dev comparison incomplete or empty", dev=dev)
     if not dev_passes(dev, gate):
         return Decision(False, f"dev gain {dev['gain']} (p={dev['p_one_sided']}), need >= {gate.min_gain} with p <= {gate.max_p}", dev=dev)
     if candidate.holdout is None or candidate.safety is None:
         return Decision(False, "holdout or safety not evaluated", dev=dev)
     holdout = compare(incumbent.holdout or [], candidate.holdout or [])
+    if not holdout["complete"] or not holdout["trials"]:
+        return Decision(False, "holdout comparison incomplete or empty", dev=dev, holdout=holdout)
     if holdout["gain"] < -gate.holdout_tolerance:
         return Decision(False, f"holdout gain {holdout['gain']} < -{gate.holdout_tolerance}", dev=dev, holdout=holdout)
     safety = compare(incumbent.safety or [], candidate.safety or [])
+    if not safety["complete"] or not safety["trials"]:
+        return Decision(False, "safety comparison incomplete or empty", dev=dev, holdout=holdout, safety=safety)
     if safety["broken"]:
         return Decision(False, f"safety regressed on {len(safety['broken'])} case(s)", dev=dev, holdout=holdout, safety=safety)
     return Decision(True, "accepted", dev=dev, holdout=holdout, safety=safety)
@@ -386,7 +394,10 @@ async def improve(*, skills_dir: Path, workdir: Path, evaluate: Evaluate, propos
         entry = {"run_id": run_id, "round": number, "at": datetime.now(timezone.utc).isoformat(),
                  "base_skills_sha": skills_sha(incumbent_dir), "failures": [f["case_id"] for f in failures],
                  "proposal": proposal.model_dump()}
+        flow = CANDIDATE.start()
         if not proposal.edits:
+            flow.send("empty")
+            entry["phase"] = flow.state
             entry["decision"] = asdict(Decision(False, "proposer returned no edits"))
             ledger.append(entry)
             history.append({"round": number, **entry["decision"]})
@@ -394,25 +405,31 @@ async def improve(*, skills_dir: Path, workdir: Path, evaluate: Evaluate, propos
             break
         violations = guard(proposal.edits, current, gate, literals)
         if violations:
+            flow.send("reject")
             decision = Decision(False, "guard: " + "; ".join(violations))
         else:
+            flow.send("validate")
             candidate_dir = workdir / f"round_{number}" / "skills"
             apply_edits(incumbent_dir, proposal.edits, candidate_dir)
             # Re-run the incumbent in the same round: comparing against an older sample lets drift and
             # luck count as gain. Safety stays against the earlier incumbent run, which is conservative.
+            flow.send("evaluate")
             baseline = Evaluation(dev=await _run(evaluate, incumbent_dir, "dev", gate), holdout=incumbent.holdout, safety=incumbent.safety)
             candidate = Evaluation(dev=await _run(evaluate, candidate_dir, "dev", gate))
             if dev_passes(compare(baseline.dev, candidate.dev), gate):  # cheap stage passed: pay for the rest
+                flow.send("advance")
                 baseline.holdout = await _run(evaluate, incumbent_dir, "holdout", gate)
                 candidate.holdout = await _run(evaluate, candidate_dir, "holdout", gate)
                 candidate.safety = await _run(evaluate, candidate_dir, "safety", gate)
             decision = decide(baseline, candidate, gate)
+            flow.send("accept" if decision.accepted else "reject")
             entry["candidate_skills_sha"] = skills_sha(candidate_dir)
             entry["incumbent_rerun"] = {"dev": _score(baseline.dev), "holdout": _score(baseline.holdout)}
             entry["candidate"] = {"dev": _score(candidate.dev), "holdout": _score(candidate.holdout), "safety": _score(candidate.safety)}
             entry["diff"] = skills_diff(incumbent_dir, candidate_dir)
             # The newest sample feeds the next proposal either way.
             incumbent_dir, incumbent = (candidate_dir, candidate) if decision.accepted else (incumbent_dir, baseline)
+        entry["phase"] = flow.state
         entry["decision"] = asdict(decision)
         ledger.append(entry)
         history.append({"round": number, "accepted": decision.accepted, "reason": decision.reason,
@@ -432,14 +449,35 @@ def promote(final_dir: Path, skills_dir: Path, *, force: bool = False) -> List[s
     Refuses if the live skills changed since the run started (``round_0`` of the same run), since the
     accepted bodies were built on that base and would silently undo the later edits.
     """
+    flow = PROMOTION.start()
     base = final_dir.parent.parent / "round_0" / "skills"
     if not force and base.exists() and skills_sha(base) != skills_sha(skills_dir):
         raise ValueError(f"{skills_dir} changed since the run started ({base}); review the diff or pass force=True")
-    changed = []
+    staged = []
     for rel, body in read_skills(final_dir).items():
         target = skills_dir / rel
         front, old = split_skill(target.read_text(encoding="utf-8"))
         if old != body:
-            target.write_text(front + body + "\n", encoding="utf-8")
-            changed.append(rel)
-    return changed
+            staged.append((rel, target, front + body + "\n"))
+    # Validate/read every target before the first write; replace each file atomically.
+    flow.send("stage")
+    flow.send("write")
+    import os
+    import tempfile
+    try:
+        for rel, target, content in staged:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as handle:
+                temporary = Path(handle.name)
+                try:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    temporary.chmod(target.stat().st_mode)
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
+    except Exception:
+        flow.send("fail")
+        raise
+    flow.send("complete")
+    return [rel for rel, _, _ in staged]

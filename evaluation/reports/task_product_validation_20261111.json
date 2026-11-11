@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-11",
+  "backend": {
+    "passed": 462,
+    "skipped": 3,
+    "warning": "Existing test fixture JWT HMAC key length"
+  },
+  "postgresql": {
+    "passed": 57,
+    "image": "pgvector/pgvector:0.8.3-pg18",
+    "scope": [
+      "test_task_product.py",
+      "test_task_capabilities.py",
+      "test_shared_tasks.py",
+      "test_workflow.py"
+    ]
+  },
+  "frontend": {
+    "passed": 43,
+    "production_build": "passed"
+  },
+  "ruff": "passed",
+  "git_diff_check": "passed",
+  "browser": {
+    "profiles": [
+      "alice/default",
+      "bob/incognito"
+    ],
+    "backend": "isolated temporary SQLite and deterministic task handler",
+    "verified": [
+      "Create shared task and approval card",
+      "Two identities see same discussion",
+      "Chat consent leaves formal approval pending",
+      "Bob requests clarification; Alice answers and Agent follows up",
+      "Alice uploads log; upload event visible to Bob",
+      "Bob clicks formal approval; Alice sees approval and successful local execution"
+    ],
+    "limits": "Manual native-browser smoke, not an exhaustive automated UI suite. External delivery and production identity provider were not exercised."
+  },
+  "live_model": {
+    "report": "task_product_live_20261111.json",
+    "passed": 3,
+    "total": 3,
+    "checks_structured_progress": true,
+    "earlier_diagnostic": "Plain JSON generation failed the suggestion assertion in 1 of 3 scenarios. Replaced with validated structured output and one bounded correction retry; rerun passed."
+  },
+  "external_notifications": "Fake injected transports only; no email or Feishu message sent"
+}

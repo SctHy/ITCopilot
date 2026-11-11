@@ -1,0 +1,41 @@
+{
+  "suite": "identity-scope-explicit-membership-task-history",
+  "date": "2026-11-11",
+  "backend": {
+    "command": ".venv/bin/pytest -o addopts='' -q --tb=short -p no:warnings",
+    "passed": 507,
+    "skipped": 3,
+    "failed": 0,
+    "skip_reason": "Two real Keycloak tests and one real Gitea test require integration environment variables."
+  },
+  "postgres": {
+    "image": "pgvector/pgvector:0.8.3-pg18",
+    "environment": "IT_COPILOT_TEST_DATABASE_URL points to a temporary PostgreSQL database; each database test has its own schema",
+    "command": ".venv/bin/pytest -o addopts='' -q --tb=short -p no:warnings tests/test_workflow.py tests/test_shared_tasks.py tests/test_task_capabilities.py tests/test_task_product.py tests/test_task_execution.py tests/test_isolation_and_history.py",
+    "passed": 102,
+    "failed": 0
+  },
+  "frontend": {"command": "npm test --prefix frontend", "passed": 48, "failed": 0},
+  "checks": {
+    "npm run build --prefix frontend": "passed",
+    ".venv/bin/ruff check .": "passed",
+    "git diff --check": "passed",
+    ".venv/bin/python scripts/migrate_memory_scope.py --help": "passed"
+  },
+  "shared_http_evaluation": {
+    "command": ".venv/bin/python scripts/evaluate_shared_tasks.py --repeats 3 --output evaluation/reports/shared_tasks_isolation_20261111.json",
+    "report": "shared_tasks_isolation_20261111.json",
+    "cases": 10,
+    "repeats_per_case": 3,
+    "passed": 30,
+    "total": 30,
+    "handler": "deterministic",
+    "database": "isolated SQLite"
+  },
+  "limits": [
+    "No browser automation or real-model evaluation was performed for this change.",
+    "No production database or user legacy memory was migrated; the migration service was tested on isolated data.",
+    "Task retrieval uses authorized keyword matching, not semantic embedding search.",
+    "External business adapters and knowledge repositories have their own tenant mapping boundaries."
+  ]
+}

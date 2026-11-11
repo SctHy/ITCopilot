@@ -33,7 +33,10 @@ async def application(*, model=None, redis_url=None, documents=()):
             "IT_COPILOT_ENV": "development",
             "IT_COPILOT_SEED_DEMO_DOCS": "false",
             "IT_COPILOT_MCP_ENABLED": "false",
+            "FEISHU_APP_ID": "",
             "IT_COPILOT_ALERT_WEBHOOK": "",
+            "IT_COPILOT_TASK_CONTACTS": "{}",
+            "IT_COPILOT_SMTP_HOST": "",
             "IT_COPILOT_AUTH_MODE": "dev",
             "IT_COPILOT_DATABASE_URL": f"sqlite:///{directory}/it_copilot.sqlite3",
             "IT_COPILOT_GITEA_REPOS": "",
@@ -43,6 +46,10 @@ async def application(*, model=None, redis_url=None, documents=()):
         }
         if redis_url:
             env["REDIS_URL"] = redis_url
+        if model is not None:
+            # An offline model substitute must cover every model path, regardless
+            # of the developer's .env or installed third-party credentials.
+            env.update(IT_INTENT_BACKEND="llm", IT_COPILOT_INJECTION_GUARD="off", IT_COPILOT_RERANK_BACKEND="llm")
         with patch.dict(os.environ, env):
             with ExitStack() as stack:
                 stack.enter_context(
@@ -66,6 +73,11 @@ async def application(*, model=None, redis_url=None, documents=()):
                                 "channels",
                                 "feishu",
                                 "events",
+                                "tasks",
+                                "task_worker",
+                                "task_event_pump",
+                                "task_capabilities",
+                                "task_recall",
                             )
                         },
                     )
@@ -85,8 +97,12 @@ async def application(*, model=None, redis_url=None, documents=()):
                     if documents:
                         await state.kb.add_documents_async(list(documents))
                     if model is not None:
+                        state.orchestrator._llm = model
+                        if state.orchestrator._planner:
+                            state.orchestrator._planner.llm = model
                         state.orchestrator._intent_recognizer.llm = model
                         state.tool_manager._llm = model
+                        state.task_worker.handle.advisor.model = model
                         state.memory._llm = model
                         for pool in state.orchestrator._pool.values():
                             for agent in pool:
