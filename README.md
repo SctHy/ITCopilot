@@ -24,6 +24,8 @@
 - **实时执行流与统一工具治理**：意图、路由、工具开始/结束、审批等事件在执行中写入 Redis Streams，SSE 实时推送并支持 `Last-Event-ID` 断线续传；所有 Agent 工具经同一执行层（超时、熔断、只读重试、写操作幂等键）。
 - **策略变更即时复核**：策略文件按修改时间热加载；版本变化后，旧版本下的待审批单失效或提高审批人数，未执行的动作取消，生效中的授权按新上限提前回收；审批人决定前、worker 执行第一个动作前都会再查一次（[ADR 0008](docs/adr/0008-revalidate-on-policy-change.md)）。
 - **IM 入口**（借鉴 DeepSeek dsh-superagent）：飞书消息先落库再处理，回复与审批通知走出站 outbox，按会话保序、退避重试、幂等去重；只在被叫到时说话，一次请求最多一次回应、一次答复、一次结果通知（[ADR 0009](docs/adr/0009-feishu-channel-stored-work.md)）。
+- **共享事项会话**：申请人、受邀或指定的审批人与 Agent 在同一网页事项中讨论。消息内嵌审批卡片，支持「同意审批」「拒绝申请」「要求补充说明」；正式投票独立留痕，讨论不代替审批。持久化任务层通过独立事件源接收审批结果并唤醒只读跟进，重启后可恢复；任务存储、Agent 执行、审批业务与网页交互通过接口组合，共享上下文不读取私人聊天记忆（[ADR 0012](docs/adr/0012-shared-service-tasks.md)、[当前访问规则](docs/adr/0016-identity-scope-and-task-history.md)）。
+- **用户隔离与历史流程续接**：私聊记忆、回执和事件流按“租户＋用户”隔离；共享事项使用显式成员权限。私聊可召回本人发起事项的当前摘要，网页可按权限查找、关联并继续原流程；关联不复制讨论或授予源事项权限（[ADR 0016](docs/adr/0016-identity-scope-and-task-history.md)）。
 - **可观测与可验收**：Prometheus / OpenTelemetry 关联运行指标与调用轨迹；安全回归、PostgreSQL 并发、真实 Keycloak/Gitea 集成在 CI 中运行；真实模型实验以业务状态断言判定成功并保留失败样本。
 
 当前边界：本项目不宣称跨系统 exactly-once（外部系统无幂等键时依靠目标状态回查）；Gitea 是权限系统的沙箱替身，不是企业 IAM。详见 [设计取舍](docs/design-tradeoffs.md)、[ADR](docs/adr/) 与 [威胁模型](docs/threat-model.md)。
@@ -148,6 +150,63 @@ docker compose up -d --build                           # 前端 http://127.0.0.1
 
 Compose 默认 `IT_COPILOT_AUTH_MODE=oidc`，前端跳转 Keycloak 登录；`gitlab` 权限申请通过 Gitea 沙箱仓库 `it-sandbox/platform` 生效，可在 Gitea 中直接看到协作者变化。开启链路追踪：在 `.env` 中把 `OTEL_EXPORTER_OTLP_ENDPOINT` 设为自己的 OTLP 收集端后重启 api。对外部署前替换所有默认口令并关闭 Keycloak 密码模式（`directAccessGrantsEnabled`）。
 
+### 事项进度、协作待办与运行治理
+
+共享事项新增四个独立面板：
+
+- **任务进度与验收**：编辑目标、步骤、阻塞原因和下一步；完成步骤引用本事项证据。申请人或管理员填写验收说明后解决事项，仍有待办、待审批或执行中的操作时不能验收。支持重新打开。
+- **协作待办**：指派给申请人或已参与事项的人员；只有指定回答人可以答复，答复触发 Agent 只读跟进。侧栏支持未读、待我补充、待我审批筛选；“标记当前消息已读”只推进到已看到的位置。
+- **定时提醒与复查**：提醒持久化保存，到期写入事项，可选择唤醒只读复查。待办逾期自动提醒一次，审批到期前一小时自动提醒一次；停止或解决事项取消尚未触发的手动提醒。
+- **运行记录与预算**：查看每次尝试、排队/执行时长、失败原因、工具成功状态及已知 token。默认每事项 30 次运行、200000 已知 token；达到阈值后暂停后续运行，管理员可调整。token 阈值不是计费硬上限，当前回合可能超限，中断时供应商未返回的用量仍未知。
+
+升级并重启 API 会执行迁移 `0008`。新能力按进度、待办、提醒、运行治理拆分，审批仍只通过正式审批接口处理。详见 [ADR 0013](docs/adr/0013-task-capabilities.md)。
+
+后续六项扩展已落地，启动时迁移至 `0009`：
+
+- 待办创建人/管理员可以填写原因后取消或改派，所有调整留痕。
+- 事项支持标题及讨论搜索、服务端分页、个人归档；讨论可加载更早的消息。
+- 上传最多 5 MiB 的日志、文本、图片或 PDF，附件消息可作为步骤证据，下载复查事项权限。
+- 成员可设为协作者、观察者或移除；IT 管理员可指定有资格的审批人，旧审批入口同样执行限制。
+- Agent 自动整理结构化进度建议，人工采纳时检查版本；建议不会自动验收或投票。
+- 独立通知 worker 提供邮件/飞书订阅、提醒升级、持久化重试和投递记录。需配置可信联系人与渠道凭证后启用。
+
+模块边界、通知环境变量及当前限制见 [ADR 0014](docs/adr/0014-task-product-capabilities.md)。
+
+共享事项还支持步骤检查点、独立核验和有限重规划（迁移 `0010`）：
+
+- 回合中断后复用已完成的 Agent 步骤，保留冻结输入与计划；已知用量随检查点提交，重试不重复计入。
+- 在“目标独立核验”面板设置申请人的系统权限目标；核验器独立读取当前权限，结果不采信模型自述。
+- 核验失败最多自动进行两轮只读诊断，随后转人工；正式变更仍需申请与审批。通过核验也需申请人最终验收。
+- 恢复存储、Agent 适配、核验器、调度与网页面板各自独立；范围及有效期见 [ADR 0015](docs/adr/0015-task-execution-verification.md)。
+
+长任务故障评测：`.venv/bin/python scripts/evaluate_long_tasks.py --repeats 3`。覆盖真实 SIGKILL 后恢复、错误完成判断、权限实际达标、核验器不可用；使用确定性处理器与隔离本地业务数据，不代表真实模型能力评测。
+
+复现三方评测（隔离 SQLite、应用 HTTP 接口、分别签发申请人/审批人令牌）：
+
+```bash
+.venv/bin/python scripts/evaluate_shared_tasks.py --output /tmp/shared-offline.json
+.venv/bin/python scripts/evaluate_shared_tasks.py --live --output /tmp/shared-live.json
+```
+
+本次保存的评测报告：[隔离流程 30/30](evaluation/reports/shared_tasks_offline_20261111.json)、[真实模型 30/30](evaluation/reports/shared_tasks_live_20261111.json)。这是本地业务适配器上的三方 HTTP 场景结果，不代表浏览器交互或生产服务成功率。
+
+默认 10 个场景各 3 次。第一条用确定性任务处理器验证流程；第二条读取本地 `.env` 调用真实模型。业务执行使用隔离的本地适配器，不写生产系统。两者都不是浏览器或真实 IdP 验证。可用 `--cases approve,restart --repeats 1` 缩小范围；PostgreSQL 契约测试通过 `IT_COPILOT_TEST_DATABASE_URL` 运行 `tests/test_task_capabilities.py`。
+
+### 三方共享事项
+
+1. 在网页以 `alice` 登录，打开「共享事项 → 新建事项」，填写“申请 GitLab 只读权限，开通后继续排查访问问题”。
+2. Agent 回复及审批卡片会保存在该事项中。让 `bob` 在独立浏览器会话登录一次；申请人在“参与人与审批指派”中读取租户成员，把 `bob` 邀请为协作者，再复制事项链接给他。双人审批时也需邀请第二位审批人。管理员还可指定审批负责人。本地演示可在连接配置切换身份。
+3. `bob` 在对应消息的审批卡片选择「同意审批」或「拒绝申请」，正式决定会写入讨论。选择「要求补充说明」填写协作待办，指定回答人和截止时间；提交待办不改变审批状态。需要双人批准的操作仍需另一位审批人投票。
+4. 业务 worker 完成后，结果事件自动回到事项，Agent 继续只读核验或排障。离开页面不会取消处理，重新打开仍可看到记录。
+
+共享事项仅对申请人、受邀成员、指定审批人和同租户 IT 管理员可见；同部门身份不会自动授予访问权。观察者只读，普通成员不能自行邀请其他人。只想交流时可取消勾选「同时请 Agent 回复」。停止跟进只停止 Agent 回合，不撤销已有审批和已批准动作，后续投票与执行结果仍可查看。当前共享入口为网页，飞书仍沿用原来的单申请人话题流程。
+
+私聊下方的“查找并继续历史事项”与共享页的“历史事项与关联流程”可搜索当前有权访问的旧事项，查看实时进度，并回原事项继续只读跟进。只有申请人或管理员能重新打开已停止/已解决事项。私聊自动回忆仅限本人发起的事项；关联他人事项不会把内容带入当前共享 Agent 上下文。
+
+升级后重启 API 自动应用迁移至 `0011`。旧记忆保留但不自动混入新租户作用域，需按可信用户归属执行显式迁移；旧版仅凭部门可见的事项需重新邀请审批人。迁移步骤、模块边界与重试注意事项见 [ADR 0016](docs/adr/0016-identity-scope-and-task-history.md)。当前显式邀请流程的确定性 HTTP 评测为 [30/30](evaluation/reports/shared_tasks_isolation_20261111.json)，不代表浏览器或真实模型验证。
+
+任务层的 `TaskStore.ingest` 可由可信适配器接入其他事件，以来源、对象与版本去重并过滤旧状态。它是内部接口，没有向客户端开放任意事件注入；当前实际接入的是审批事件，告警和外部工单仍需各自的事件源适配器。
+
 ### 飞书机器人（可选）
 
 1. 在飞书开放平台创建企业自建应用，开启机器人；事件订阅地址填 `https://<公网域名>/channels/feishu/events`（本地开发需内网穿透），订阅 `im.message.receive_v1`。
@@ -190,7 +249,7 @@ python scripts/evaluate_rag_wixqa.py [--embedding-model BAAI/bge-small-en-v1.5]
 
 在 `.env` 中设置 `IT_COPILOT_MCP_ENABLED=true` 后，API 启动时后台连接 `config/mcp_servers.json` 中的服务（默认：微软 Learn 文档检索，适合 Windows / Office / Entra ID 类问题）。只接收服务端标注 `readOnlyHint` 且在 `allowed_tools` 白名单内的工具，按 `agents` 字段下发；连接断开时工具自动从 Agent 移除。默认关闭，因为开启后员工问题可能被发送到第三方。
 
-本地知识库同时以 MCP 服务对外提供：`http://127.0.0.1:8001/mcp/`（工具 `search_local_knowledge`、资源 `it-copilot://knowledge/stats`），可直接配置到 Claude Desktop / Cursor 等客户端。
+本地知识库同时以 MCP 服务对外提供：`http://127.0.0.1:8001/mcp/`（工具 `search_local_knowledge`、资源 `it-copilot://knowledge/stats`），可直接配置到 Claude Desktop / Cursor 等客户端。该入口没有员工身份，只检索 `department="*"` 的公共文档；部门受限内容通过已鉴权的 `/search` 或对话接口访问。
 
 ## 项目结构
 
@@ -235,6 +294,7 @@ docs/                设计取舍、ADR、威胁模型、评测说明与截图
 
 ## 文档
 
+- [状态机清单与恢复契约](docs/state-machines.md)
 - [模块设计与 trade-off](docs/design-tradeoffs.md)
 - [架构决策记录（ADR）](docs/adr/)
 - [威胁模型](docs/threat-model.md)

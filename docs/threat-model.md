@@ -17,8 +17,12 @@
 | 篡改 | 提示注入让模型申请管理员权限或给他人改密码 | 写工具只生成待审批；策略限制角色与时长；仅限本人申请 | `injection_kb_skip_approval`、`policy_*` 4 项 |
 | 抵赖 | 审批人否认批准 | 决定按 subject 记录（唯一约束），审计日志记录每次状态迁移与执行者 | `test_http_chat_approval_execution_and_replay` 审计序列 |
 | 信息泄露 | 读取他人 trace、审批、审计、员工状态、事件流 | 对象级授权；`/trace/tools` 仅管理员/审计员 | `idor_cross_user_reads`（7 个端点 + 列表） |
-| 信息泄露 | 通过 `department` 参数检索其他部门文档 | 部门取自令牌（管理员除外）；向量召回自适应扩窗后过滤 | `spoof_search_department`、`test_department_filter_is_not_crowded_out_by_other_departments` |
+| 信息泄露 | 通过 `department` 参数检索其他部门文档 | 部门取自令牌（管理员除外）；向量召回前在 SQL 中过滤 | `spoof_search_department`、`test_department_filter_is_not_crowded_out_by_other_departments` |
+| 信息泄露 | 匿名 MCP 检索部门受限知识 | MCP 检索固定公共部门 `*`，不接受客户端提供部门 | `test_anonymous_mcp_can_only_retrieve_public_documents` |
 | 信息泄露 | 不同用户使用相同 `client_request_id` 读到对方回执 | 请求 ID 按 (tenant, subject, client id) 派生 | `idor_client_request_id_collision` |
+| 信息泄露 | 不同租户同名主体共享私聊记忆、旧审批或 trace | 记忆/回执/SSE 使用结构化租户用户作用域；审批、替代操作与 trace 校验租户；旧无归属记忆不兜底 | `tests/test_isolation_and_history.py` |
+| 信息泄露 | 同部门审批人读取不相关事项，或通过历史关联绕过撤权 | 显式成员/指定审批人访问；历史 SQL 候选及摘要再次授权；关联不复制内容或授予权限 | `test_new_room_denies_same_department_reviewer_until_explicit_invite`、`test_reference_does_not_copy_private_source_into_shared_room` |
+| 权限提升 | 继续历史流程时重复执行旧批准操作 | 原事项幂等续接事件，读取当前状态；续接回合禁用写工具 | `test_continuation_is_idempotent_readonly_and_uses_original_task` |
 | 拒绝服务 | 同一请求并发提交导致重复执行 | 会话锁 + 回执；事件流按请求认领，重复提交只订阅 | `test_http_chat_approval_execution_and_replay`、`test_live_stream_reports_tools_before_completion_and_resumes` |
 | 拒绝服务 | 外部系统持续超时拖垮 Agent | 统一工具执行层：超时、熔断、只读重试 | `test_timeout_and_circuit_breaker` |
 | 权限提升 | 审批人批准自己的申请或针对自己账号的申请 | 职责分离（按 subject 与 employee_id），API 与审批库双重检查 | `sod_*` 5 项、`test_separation_of_duties_and_authority` |
@@ -30,6 +34,8 @@
 | 篡改 | 结果未知时重试造成重复变更 | 三分类错误；先回查再重做；租约 + CAS | `test_ambiguous_outcome_is_reconciled_before_retry`、`test_worker_crash_after_effect_is_recovered_without_repeating` |
 
 ## 已知未覆盖
+
+共享事项边界见 [ADR 0012](adr/0012-shared-service-tasks.md) 与 [ADR 0016](adr/0016-identity-scope-and-task-history.md)：按租户及显式成员/指派限制访问，保留私人会话命名空间；审批人讨论与结果回调不可生成写申请；事件回复和审批原子提交，过期租约禁止提交。验证见 `tests/test_shared_tasks.py` 与 `tests/test_isolation_and_history.py`。共享上下文不使用私人记忆。
 
 - 令牌吊销与会话失效：依赖短有效期（Keycloak 15 分钟），API 不查询吊销列表。
 - 服务账号权限：compose 中 Gitea 服务账号是管理员；生产应使用仅能管理指定仓库协作者的最小权限账号。
