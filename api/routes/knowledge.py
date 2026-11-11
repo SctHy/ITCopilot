@@ -62,7 +62,9 @@ async def knowledge_upload(file: UploadFile = File(...)):
 
 @router.get("/knowledge/stats")
 async def knowledge_stats():
-    return {"documents": await state.kb.doc_count_async() if state.kb else 0}
+    count = await state.kb.doc_count_async() if state.kb else 0
+    # documents 是旧接口的片段数别名；前端明确展示 total_chunks。
+    return {"documents": count, "total_chunks": count}
 
 
 @router.post("/search")

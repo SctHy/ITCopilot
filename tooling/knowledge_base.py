@@ -12,24 +12,27 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
-import re
 import math
-from datetime import datetime, timezone
+import os
+import pathlib
+import re
 import threading
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from core.vector_store import VectorStore
+from core.protocols import CacheState, cache_state
+from core.states import Protocol
 
 # knowledge_search 工具的参数契约：应用注册与评测脚本共用。
 KNOWLEDGE_SEARCH_SCHEMA = {
     "type": "object",
     "properties": {
         "query": {"type": "string", "minLength": 1},
-        "top_k": {"type": "integer", "minimum": 1, "maximum": 8},
+        "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
         "department": {"type": ["string", "null"]},
         "mode": {"type": "string", "enum": ["hybrid", "vector", "bm25"]},
     },
@@ -38,6 +41,13 @@ KNOWLEDGE_SEARCH_SCHEMA = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+DOCUMENT_UPDATE = Protocol("document_update", "prepared", {
+    "prepared": {"write": "writing"},
+    "writing": {"commit": "committed"},
+    "committed": {"index": "indexed"},
+})
 
 
 class KnowledgeBase:
@@ -60,9 +70,9 @@ class KnowledgeBase:
         # Docker 已预下载 embedding 模型，本地首次使用会下载。
         self._collection = VectorStore(database_url).collection(self.COLLECTION_NAME)
 
-        # 如果知识库为空，导入默认文档
+        # 非生产环境导入演示知识库：只写入新增或内容有变化的文档，已有数据库也能补齐。
         seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}
-        if os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo and self._collection.count() == 0:
+        if os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo:
             self._load_default_docs()
         self._rebuild_lexical_index()
 
@@ -91,9 +101,13 @@ class KnowledgeBase:
 
         count = 0
         with self._write_lock:
+            flow = DOCUMENT_UPDATE.start()
+            flow.send("write")
             for identity, doc in prepared.items():
                 count += self._upsert_document(identity, doc)
+            flow.send("commit")
             self._rebuild_lexical_index()
+            flow.send("index")
         logger.info("知识库写入 %s 个文档片段", count)
         return count
 
@@ -109,9 +123,7 @@ class KnowledgeBase:
             "total_chunks": len(chunks), "source": str(doc.get("source") or title), "department": str(doc.get("department") or "*"),
             "updated_at": str(doc.get("updated_at") or datetime.now(timezone.utc).isoformat()),
         }
-        self._collection.upsert(ids=ids, documents=chunks, metadatas=[{**base, "chunk_index": i, "chunk_id": chunk_id} for i, chunk_id in enumerate(ids)])
-        if stale:
-            self._collection.delete(ids=list(stale))
+        self._collection.upsert(ids=ids, documents=chunks, metadatas=[{**base, "chunk_index": i, "chunk_id": chunk_id} for i, chunk_id in enumerate(ids)], delete_ids=stale)
         return len(chunks)
 
     def _existing_chunk_ids(self, document_id: str, title: str, explicit_id: Optional[str]) -> set:
@@ -163,7 +175,7 @@ class KnowledgeBase:
 
     def _ensure_lexical_index(self, version: tuple) -> None:
         """集合版本（行数, 最近写入时间）变化时重建 BM25 索引；覆盖其他进程写入同一数据库的情况。"""
-        if version != self._indexed_version:
+        if cache_state(True, version_matches=version == self._indexed_version) == CacheState.STALE:
             self._rebuild_lexical_index()
 
     def _bm25_array(self, query: str, mask: np.ndarray) -> np.ndarray:
@@ -317,14 +329,39 @@ class KnowledgeBase:
         return [c for c in chunks if c]
 
     def _load_default_docs(self) -> None:
-        """导入 IT 服务台的最小知识库。"""
-        default_docs = [
-            {"title":"VPN 连接排障 SOP", "content":"先确认企业账号未锁定，再检查系统时间、网络、DNS 和 VPN 客户端版本。记录错误码与发生时间。不得索取密码、验证码或私钥；仍失败时创建 P2 工单。"},
-            {"title":"密码重置与 MFA", "content":"密码重置必须由员工本人通过企业身份平台发起并完成 MFA。服务台只创建待审批请求，不在聊天中接收或回显密码、OTP、恢复码。"},
-            {"title":"权限申请流程", "content":"权限申请需要系统名称、业务理由、所需角色、有效期和直属负责人审批。遵循最小权限，离职或转岗触发权限复核。"},
-            {"title":"Wi-Fi 与网络排障", "content":"收集地点、设备、SSID、错误提示和时间窗口，优先执行只读 DNS、路由和服务状态检查。不要修改网络策略；影响多人时升级网络团队。"},
-            {"title":"软件安装与许可证", "content":"仅从企业软件目录安装，核对版本、兼容性和许可证归属。未知安装包、破解软件和绕过终端管控的请求必须拒绝并转人工。"},
-            {"title":"工单优先级与 SLA", "content":"P1 为大范围业务中断，P2 为关键员工无法工作，P3 为单用户一般问题，P4 为咨询。创建工单后保留 ticket_id，所有变更需审计。"},
-        ]
-        self.add_documents(default_docs)
-        logger.info(f"已导入默认知识库: {len(default_docs)} 篇文档")
+        """导入演示知识库：knowledge/ 下每个 Markdown 是一篇文档，首行 `# 标题`，其余为正文。"""
+        root = pathlib.Path(os.getenv("IT_COPILOT_KNOWLEDGE_DIR", str(pathlib.Path(__file__).resolve().parent.parent / "knowledge")))
+        docs = []
+        for path in sorted(root.rglob("*.md")):
+            title, _, content = path.read_text(encoding="utf-8").partition("\n")
+            if title.startswith("# ") and content.strip():
+                docs.append({"title": title[2:].strip(), "content": content.strip(), "source": path.relative_to(root).as_posix()})
+        # 按标题身份比对内容哈希，未变化的文档不重新生成 embedding；同名但非演示来源的文档不覆盖。
+        stale = [doc for doc in docs if self._seed_state(doc) == "stale"]
+        if stale:
+            self.add_documents(stale)
+            logger.info("已导入默认知识库: %s/%s 篇文档有新增或更新", len(stale), len(docs))
+
+    # 旧版内置演示文档（source 为标题）的内容哈希：只有这些可以被 knowledge/ 下的同名文件替换。
+    _LEGACY_DEMO_VERSIONS = frozenset({
+        "beceea6bf36e03bf53f9bea23dd46f2070ef85669f5e33af53b509636abba919",  # VPN 连接排障 SOP
+        "8509e2372913c5c58e682a734384cbc749689050f858b588d28c949a6a79b097",  # 密码重置与 MFA
+        "62ab9686bba110061da7543921788d00e827da9172012a5d7ae5cdb06bd6d1d7",  # 权限申请流程
+        "c89408d5f53446ed1883601fa1600862c3e3aedff96e433e38d8ed8243d021b6",  # Wi-Fi 与网络排障
+        "89ba23c7d7534f79668439e4ca68a4b35a39d4b1fdf9480395aa0ecada3c0bc3",  # 软件安装与许可证
+        "133ccbb09436d7fcb434a4ff45552f21128ccd289aae83cb9c8b99c9ce405aa9",  # 工单优先级与 SLA
+    })
+
+    def _seed_state(self, doc: Dict[str, str]) -> str:
+        """current：已是最新；stale：缺失或是演示种子的旧版本；foreign：同名文档来自管理员等其他来源，保留不动。"""
+        document_id = hashlib.sha256(json.dumps(["title", doc["title"]], ensure_ascii=True).encode()).hexdigest()
+        version = hashlib.sha256(doc["content"].encode()).hexdigest()
+        metadatas = [meta or {} for meta in self._collection.get(where={"document_id": document_id})["metadatas"]]
+        if not metadatas:
+            return "stale"
+        if all(meta.get("version") == version and meta.get("source") == doc["source"] for meta in metadatas):
+            return "current"
+        if all(meta.get("source") == doc["source"] or meta.get("version") in self._LEGACY_DEMO_VERSIONS for meta in metadatas):
+            return "stale"
+        logger.info("跳过演示文档《%s》：知识库中已有非演示来源的同名文档", doc["title"])
+        return "foreign"
