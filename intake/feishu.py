@@ -14,6 +14,8 @@ Other bots' messages, including its own, never enter.
 """
 from __future__ import annotations
 
+from core.protocols import CredentialState, credential_state
+
 import base64
 import hashlib
 import hmac
@@ -205,8 +207,12 @@ class FeishuClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    @property
+    def token_state(self):
+        return credential_state(self._token, self._token_expires, time.monotonic())
+
     async def _tenant_token(self) -> str:
-        if self._token and time.monotonic() < self._token_expires:
+        if self.token_state == CredentialState.VALID:
             return self._token
         data = await self._call("POST", "/auth/v3/tenant_access_token/internal",
                                 json={"app_id": self.settings.app_id, "app_secret": self.settings.app_secret}, auth=False)

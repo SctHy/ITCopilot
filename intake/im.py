@@ -36,9 +36,11 @@ from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
 from core.db import channel_inbox, channel_outbox
-from core.states import Machine
+from core.states import Machine, Protocol
 from core.identity import Principal
 from intake.base import ChannelError, InboundMessage, Sender
+from core.protocols import SERVICE
+from core.concurrency import LeaseLostError, run_leased
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,12 @@ OUTBOX = Machine(OutboxStatus, """
     queued  -> sending
     sending -> sent | dropped | failed | queued
 """)
+
+
+ADMISSION = Protocol("im_admission", "new", {
+    "new": {"ignore": "ignored", "accept": "eligible"},
+    "eligible": {"insert": "queued", "duplicate": "duplicate"},
+})
 
 
 def short_id(approval_id: str) -> str:
@@ -170,47 +178,76 @@ class ChannelService:
         self.notify_approval = approval_notifier(senders, clock)
         self._wake = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
-        self._stopping = False
+        self._outgoing: Optional[asyncio.Task] = None
+        self._send_wake = asyncio.Event()
+        self.lifecycle = SERVICE.start()
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
+    @property
+    def _stopping(self):
+        return self.lifecycle.state != "running"
+
     def start(self) -> None:
-        self._stopping = False
-        self._task = asyncio.create_task(self._loop(), name="channel-service")
+        if self.lifecycle.state == "running":
+            return
+        self.lifecycle.send("start")
+        self._task = asyncio.create_task(self._loop(self.receive_once, self._wake), name="channel-inbox")
+        self._outgoing = asyncio.create_task(self._loop(self.send_once, self._send_wake), name="channel-outbox")
 
     async def stop(self) -> None:
-        self._stopping = True
+        if self.lifecycle.state == "stopped":
+            return
+        self.lifecycle.send("stop")
         self._wake.set()
-        if self._task:
-            await asyncio.gather(self._task, return_exceptions=True)
+        self._send_wake.set()
+        await asyncio.gather(*(t for t in (self._task, self._outgoing) if t), return_exceptions=True)
+        self._task = None
+        self._outgoing = None
+        self.lifecycle.send("stopped")
 
     def kick(self) -> None:
         self._wake.set()
+        self._send_wake.set()
 
-    async def _loop(self) -> None:
+    async def _loop(self, operation, wake) -> None:
         while not self._stopping:
             try:
-                processed = await self.run_once()
+                processed = await operation()
             except Exception:
                 logger.exception("channel service iteration failed")
                 processed = 0
             if processed:
                 continue
-            self._wake.clear()
+            wake.clear()
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=self.poll_s)
+                await asyncio.wait_for(wake.wait(), timeout=self.poll_s)
             except TimeoutError:
                 pass
 
     async def run_once(self) -> int:
+        # Deterministic drain helper; production uses independent receive/send loops.
+        return await self.receive_once() + await self.send_once()
+
+    async def receive_once(self) -> int:
         rows = await asyncio.to_thread(self._claim, channel_inbox, self.concurrency)
         if rows:
-            await asyncio.gather(*(self._process(row) for row in rows))
+            await asyncio.gather(*(self._owned(channel_inbox, row, self._process) for row in rows))
+            self._send_wake.set()
+        return len(rows)
+
+    async def send_once(self) -> int:
         sent = 0
-        for row in await asyncio.to_thread(self._claim, channel_outbox, 20):
-            await self._deliver(row)
+        seen = set()
+        for _ in range(20):
+            claimed = await asyncio.to_thread(self._claim, channel_outbox, 1, exclude_ids=seen)
+            if not claimed:
+                break
+            row = claimed[0]
+            seen.add(row["id"])
+            await self._owned(channel_outbox, row, self._deliver)
             sent += 1
-        return len(rows) + sent
+        return sent
 
     async def run_until_idle(self, max_rounds: int = 50) -> None:
         for _ in range(max_rounds):
@@ -222,18 +259,20 @@ class ChannelService:
     def accept(self, msg: InboundMessage) -> str:
         """Store an addressed message. Returns queued / duplicate / ignored."""
         now = self.clock()
+        flow = ADMISSION.start()
         with self.engine.begin() as db:
             if not msg.addressed and not self._is_followup(db, msg):
-                outcome = "ignored"
+                outcome = flow.send("ignore")
             else:
+                flow.send("accept")
                 try:
                     with db.begin_nested():
                         db.execute(insert(channel_inbox).values(
                             id=msg.id, channel=msg.channel, conv_id=msg.conv_id, sender=msg.sender, text=msg.text[:8000], address=msg.address,
                             status=InboxStatus.RECEIVED, attempts=0, not_before=now, version=0, created_at=now, updated_at=now))
-                    outcome = "queued"
+                    outcome = flow.send("insert")
                 except IntegrityError:
-                    outcome = "duplicate"
+                    outcome = flow.send("duplicate")
         metrics.CHANNEL_MESSAGES.labels(channel=msg.channel, outcome=outcome).inc()
         if outcome == "queued":
             self.kick()
@@ -247,13 +286,25 @@ class ChannelService:
         root = db.execute(select(channel_inbox.c.sender).where(channel_inbox.c.id == msg.thread_root)).scalar()
         return bool(root) and root.get("open_id") == msg.sender.get("open_id")
 
-    def _claim(self, table, limit: int) -> List[Dict[str, Any]]:
+    def _claim(self, table, limit: int, *, exclude_ids=()) -> List[Dict[str, Any]]:
         now = self.clock()
         machine = INBOX if table is channel_inbox else OUTBOX
         idle, busy = (I.RECEIVED, I.PROCESSING) if table is channel_inbox else (O.QUEUED, O.SENDING)
         due = or_(and_(table.c.status == idle, table.c.not_before <= now), and_(table.c.status == busy, table.c.lease_until < now))
+        earlier = table.alias("earlier_message")
+        if table is channel_inbox:
+            blocked = select(earlier.c.id).where(
+                earlier.c.conv_id == table.c.conv_id, earlier.c.status.in_((I.RECEIVED, I.PROCESSING)),
+                or_(earlier.c.created_at < table.c.created_at,
+                    and_(earlier.c.created_at == table.c.created_at, earlier.c.id < table.c.id)),
+            ).exists()
+        else:
+            blocked = select(earlier.c.id).where(
+                earlier.c.conv_key == table.c.conv_key, earlier.c.seq < table.c.seq,
+                earlier.c.status.in_((O.QUEUED, O.SENDING)), earlier.c.attempts < BLOCKING_ATTEMPTS,
+            ).exists()
         with schema.read(self.engine) as db:
-            candidates = db.execute(select(table).where(due).order_by(table.c.created_at).limit(limit * 4)).mappings().all()
+            candidates = db.execute(select(table).where(due, ~blocked, table.c.id.not_in(exclude_ids)).order_by(table.c.created_at).limit(limit * 4)).mappings().all()
         claimed, convs = [], set()
         for row in candidates:
             if len(claimed) >= limit:
@@ -262,15 +313,10 @@ class ChannelService:
             if conv in convs:
                 continue  # one message per conversation at a time
             with self.engine.begin() as db:
-                if table is channel_inbox and db.execute(select(channel_inbox.c.id).where(
-                        channel_inbox.c.conv_id == conv, channel_inbox.c.status.in_((I.RECEIVED, I.PROCESSING)), channel_inbox.c.id != row["id"],
-                        or_(channel_inbox.c.created_at < row["created_at"],
-                            and_(channel_inbox.c.created_at == row["created_at"], channel_inbox.c.id < row["id"])))).first():
-                    continue  # an earlier message of this conversation is not answered yet
-                if table is channel_outbox and db.execute(select(channel_outbox.c.id).where(
-                        channel_outbox.c.conv_key == conv, channel_outbox.c.seq < row["seq"],
-                        channel_outbox.c.status.in_((O.QUEUED, O.SENDING)), channel_outbox.c.attempts < BLOCKING_ATTEMPTS)).first():
-                    continue  # an earlier message to this conversation has not gone out yet
+                # Same ordering predicate, re-evaluated under the write lock: an earlier message
+                # may have appeared after the candidate snapshot was read.
+                if db.execute(select(table.c.id).where(table.c.id == row["id"], blocked)).first():
+                    continue
                 machine.check(row["status"], busy)
                 done = db.execute(update(table).where(table.c.id == row["id"], table.c.version == row["version"]).values(
                     status=busy, lease_until=now + self.lease_s, attempts=row["attempts"] + 1, version=row["version"] + 1)).rowcount
@@ -279,11 +325,25 @@ class ChannelService:
                 claimed.append({**row, "status": busy, "attempts": row["attempts"] + 1, "version": row["version"] + 1})
         return claimed
 
+    async def _owned(self, table, row, operation):
+        try:
+            await run_leased(lambda: operation(row), lambda: asyncio.to_thread(self._renew, table, row), self.lease_s / 3)
+        except LeaseLostError:
+            logger.warning("channel lease lost for %s", row["id"])
+
+    def _renew(self, table, row):
+        now = self.clock()
+        with self.engine.begin() as db:
+            return db.execute(update(table).where(
+                table.c.id == row["id"], table.c.version == row["version"],
+                table.c.status == row["status"], table.c.lease_until >= now,
+            ).values(lease_until=now + self.lease_s)).rowcount == 1
+
     def _finish(self, row, status: str, *, reply: Optional[str] = None, request_id: Optional[str] = None, error: Optional[str] = None) -> None:
         now = self.clock()
         INBOX.check(row["status"], status)
         with self.engine.begin() as db:
-            done = db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"]).values(
+            done = db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"], channel_inbox.c.lease_until >= self.clock()).values(
                 status=status, request_id=request_id, error=error, lease_until=None, version=row["version"] + 1, updated_at=now)).rowcount
             if done and reply:
                 self.enqueue(db, channel=row["channel"], conv_key=row["conv_id"], address=row["address"], text=reply,
@@ -294,7 +354,7 @@ class ChannelService:
         delay = min(5 * 2 ** (row["attempts"] - 1), 300)
         INBOX.check(row["status"], I.RECEIVED)
         with self.engine.begin() as db:
-            db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"]).values(
+            db.execute(update(channel_inbox).where(channel_inbox.c.id == row["id"], channel_inbox.c.version == row["version"], channel_inbox.c.lease_until >= self.clock()).values(
                 status=I.RECEIVED, error=error[:500], not_before=self.clock() + delay, lease_until=None, version=row["version"] + 1,
                 updated_at=self.clock()))
 
@@ -332,7 +392,7 @@ class ChannelService:
     def _settle(self, row, **values) -> None:
         OUTBOX.check(row["status"], values["status"])
         with self.engine.begin() as db:
-            db.execute(update(channel_outbox).where(channel_outbox.c.id == row["id"], channel_outbox.c.version == row["version"])
+            db.execute(update(channel_outbox).where(channel_outbox.c.id == row["id"], channel_outbox.c.version == row["version"], channel_outbox.c.lease_until >= self.clock())
                        .values(lease_until=None, version=row["version"] + 1, **values))
 
     async def _deliver(self, row: Dict[str, Any]) -> None:

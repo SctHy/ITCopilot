@@ -306,3 +306,42 @@ def test_webhook_verifies_then_only_stores(channel, monkeypatch):
 def test_webhook_is_absent_when_feishu_is_not_configured(monkeypatch):
     monkeypatch.setattr(state, "channels", None)
     assert TestClient(api.app).post("/channels/feishu/events", json={}).status_code == 404
+
+
+def test_slow_inbound_turn_does_not_hold_back_ready_notifications(channel):
+    from intake.im import enqueue
+    service, sender, _, _, _, clock = channel
+
+    async def run():
+        entered, release, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def slow_turn(*args):
+            entered.set()
+            await release.wait()
+            return {"request_id": "slow", "response": "处理完成"}
+
+        original_send = sender.send
+
+        async def observed_send(address, text, key):
+            await original_send(address, text, key)
+            if text == "另一事项审批已完成":
+                delivered.set()
+
+        service.handle = slow_turn
+        sender.send = observed_send
+        service.poll_s = .01
+        service.accept(message())
+        service.start()
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            with service.engine.begin() as db:
+                enqueue(db, now=clock(), channel="feishu", conv_key="other", address={"message_id": "other"},
+                        text="另一事项审批已完成", ref="approval", key="notification")
+            service.kick()
+            await asyncio.wait_for(delivered.wait(), 2)
+            assert not release.is_set()
+        finally:
+            release.set()
+            await service.stop()
+
+    asyncio.run(run())
