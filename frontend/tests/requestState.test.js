@@ -59,3 +59,28 @@ for (const [name, requestName, field, result] of [
     })
   }
 }
+
+test('changing identity invalidates responses even when the endpoint stays the same', () => {
+  const settings = { ...state(), accessToken: 'alice' }
+  const requests = createRequestState(settings)
+  const pending = requests.begin('approvals')
+  settings.accessToken = 'bob'
+  assert.equal(pending.isCurrent(), false)
+})
+
+test('approval inbox discards a response from the previous identity', async () => {
+  const settings = { ...state(), accessToken: 'alice' }
+  const requestState = createRequestState(settings)
+  let resolve
+  const pending = new Promise(r => { resolve = r })
+  const inbox = { value: [] }
+  const context = vm.createContext({ settings, requestState, approvalFilter: { value: 'pending' },
+    approvalInbox: inbox, listApprovals: () => pending, showToast: () => {} })
+  loadFunction('loadApprovals', context)
+  const task = context.loadApprovals()
+  settings.accessToken = 'bob'
+  requestState.invalidate()
+  resolve({ items: [{ approval_id: 'alice-private-approval' }] })
+  await task
+  assert.deepEqual(inbox.value, [])
+})

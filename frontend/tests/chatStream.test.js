@@ -37,3 +37,41 @@ test('an abandoned run is reported as interrupted and a resend starts a new requ
     const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
     assert.notEqual(ids[0], ids[1])
   }))
+
+test('subscriber timeout keeps the request key until an authoritative completion', () =>
+  withFetch([
+    sse(['1', 'error', { detail: 'stream_abandoned', retry_same_request: true }]),
+    sse(['2', 'completed', { request_id: 'original', response: 'done' }]),
+    sse(['3', 'completed', { request_id: 'next', response: 'done again' }])
+  ], async (calls) => {
+    await assert.rejects(requestChatStream('python', settings, 'timeout-recovery'), /续接原请求/)
+    await requestChatStream('python', settings, 'timeout-recovery')
+    await requestChatStream('python', settings, 'timeout-recovery')
+    const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
+    assert.equal(ids[0], ids[1])
+    assert.notEqual(ids[1], ids[2])
+  }))
+
+test('EOF without a terminal event keeps the key and identity changes isolate it', () =>
+  withFetch([
+    sse(['1', 'status', { request_id: 'eof' }]),
+    sse(['2', 'completed', { request_id: 'other', response: 'done' }]),
+    sse(['3', 'completed', { request_id: 'eof', response: 'recovered' }])
+  ], async (calls) => {
+    await assert.rejects(requestChatStream('python', settings, 'eof-recovery', () => {}, { maxResumes: 0 }), /续接原请求/)
+    await requestChatStream('python', { ...settings, accessToken: 'another-identity' }, 'eof-recovery')
+    await requestChatStream('python', settings, 'eof-recovery')
+    const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
+    assert.notEqual(ids[0], ids[1])
+    assert.equal(ids[0], ids[2])
+  }))
+
+test('terminal event returns without waiting for transport EOF', async (t) => {
+  let cancelled = false
+  t.mock.method(globalThis, 'fetch', async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode('event: completed\ndata: {"response":"done"}\n\n')) },
+    cancel() { cancelled = true }
+  })))
+  assert.equal((await requestChatStream('python', settings, 'terminal')).response, 'done')
+  assert.equal(cancelled, true)
+})

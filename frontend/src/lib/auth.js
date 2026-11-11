@@ -1,3 +1,4 @@
+import { LOGIN, machine } from './stateMachine.js'
 // 登录与令牌：dev 模式向后端申请演示身份令牌；oidc 模式走 Keycloak 授权码 + PKCE（公开客户端，不存 client secret）。
 // 访问令牌只放 sessionStorage：关闭标签页即失效，不跨标签共享。身份展示用的 claims 仅供 UI，授权以后端校验为准。
 
@@ -8,7 +9,13 @@ export function storedToken(storage = sessionStorage) {
   const token = storage.getItem(TOKEN_KEY) || ''
   const claims = parseJwt(token)
   // 提前 30 秒视为过期，避免请求途中失效。
-  return claims && claims.exp * 1000 > Date.now() + 30000 ? token : ''
+  return tokenState(token, claims) === 'valid' ? token : ''
+}
+
+export function tokenState(token, claims = parseJwt(token), now = Date.now()) {
+  if (!token) return 'missing'
+  if (!claims || !Number.isFinite(claims.exp)) return 'invalid'
+  return claims.exp * 1000 > now + 30000 ? 'valid' : 'expired'
 }
 
 export function storeToken(token, storage = sessionStorage) {
@@ -73,19 +80,28 @@ export async function completeOidcLogin() {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code')
   if (!code) return ''
-  const pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null')
-  sessionStorage.removeItem(PKCE_KEY)
-  window.history.replaceState({}, '', redirectUri())
-  if (!pending || pending.state !== params.get('state')) throw new Error('登录状态校验失败，请重新登录')
-  const response = await fetch(`${pending.issuer.replace(/\/+$/, '')}/protocol/openid-connect/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), client_id: pending.clientId, code_verifier: pending.verifier }),
-  })
-  if (!response.ok) throw new Error(`登录失败：${response.status}`)
-  const token = (await response.json()).access_token
-  storeToken(token)
-  return token
+  const flow = machine(LOGIN, 'callback')
+  try {
+    const pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null')
+    sessionStorage.removeItem(PKCE_KEY)
+    window.history.replaceState({}, '', redirectUri())
+    if (!pending || pending.state !== params.get('state')) throw new Error('登录状态校验失败，请重新登录')
+    flow.send('validate')
+    const response = await fetch(`${pending.issuer.replace(/\/+$/, '')}/protocol/openid-connect/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), client_id: pending.clientId, code_verifier: pending.verifier }),
+    })
+    if (!response.ok) throw new Error(`登录失败：${response.status}`)
+    const token = (await response.json()).access_token
+    if (typeof token !== 'string' || !token) throw new Error('登录响应缺少访问令牌')
+    flow.send('token')
+    storeToken(token)
+    return token
+  } catch (error) {
+    if (flow.state !== 'authenticated') flow.send('fail')
+    throw error
+  }
 }
 
 export function oidcLogout(config) {

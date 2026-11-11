@@ -55,3 +55,12 @@ test('returns empty lists for an empty or missing trace without throwing', () =>
   assert.deepEqual(empty.trace.toolCalls, [])
   assert.deepEqual(empty.trace.toolsUsed, [])
 })
+
+test('knowledge search maps the API list into visible results and surfaces failures', async (t) => {
+  const { requestSearch } = await import('../src/lib/backends.js')
+  const settings = { endpoints: { python: 'http://api.test' }, accessToken: '' }
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([{ title: 'VPN' }]), { status: 200 }))
+  assert.deepEqual((await requestSearch('python', settings, 'VPN')).results, [{ title: 'VPN' }])
+  globalThis.fetch = async () => new Response(JSON.stringify({ items: [], error: 'search failed', fallback: true }), { status: 200 })
+  await assert.rejects(requestSearch('python', settings, 'VPN'), /search failed/)
+})

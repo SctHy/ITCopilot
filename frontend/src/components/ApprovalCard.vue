@@ -1,5 +1,5 @@
 <template>
-  <div class="approval-card">
+  <div class="approval-card" :data-state="viewState">
     <strong>操作审批</strong>
     <button v-if="!approval" :disabled="busy" @click="$emit('action')">查看申请内容</button>
     <template v-else>
@@ -20,6 +20,7 @@
         审批：{{ statusLabels[approval.status] || approval.status }}
         <template v-if="approval.decisions?.length">（{{ approval.decisions.map(d => `${d.actor_name || d.actor} ${decisionLabels[d.decision]}`).join('，') }}）</template>
         · 执行：{{ executionLabels[approval.execution] || approval.execution }}
+        <template v-if="lifecycleLabels[approval.lifecycle]"> · {{ lifecycleLabels[approval.lifecycle] }}</template>
       </p>
       <ul v-if="approval.results?.length" class="approval-steps">
         <li v-for="step in approval.results" :key="step.operation_id">
@@ -37,13 +38,7 @@
           <template v-if="step.error"> · {{ step.error }}</template>
         </li>
       </ul>
-      <template v-if="approval.status === 'pending' && canDecide">
-        <button :disabled="busy" @click="$emit('action', 'approved')">批准</button>
-        <button :disabled="busy" @click="$emit('action', 'rejected')">拒绝</button>
-      </template>
-      <p v-else-if="approval.status === 'pending'" class="muted">等待审批人处理；申请人不能审批自己的申请。</p>
-      <button v-if="canReconcile && needsReview" :disabled="busy" @click="$emit('action', 'reconcile')">回查目标系统并对账</button>
-      <button v-if="approval.status !== 'pending'" class="text-button" :disabled="busy" @click="$emit('action')">刷新状态</button>
+      <ApprovalActions :approval="approval" :identity="identity" :busy="busy" :allow-clarification="allowClarification" @action="$emit('action', $event)" />
       <details v-if="approval.results?.length">
         <summary>查看执行凭据</summary>
         <pre>{{ JSON.stringify(approval.results, null, 2) }}</pre>
@@ -55,26 +50,26 @@
 
 <script setup>
 import { computed } from 'vue'
+import { resourceState } from '../lib/stateMachine.js'
+import ApprovalActions from './ApprovalActions.vue'
 
 const props = defineProps({
   approval: { type: Object, default: null },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
   identity: { type: Object, default: null },
+  allowClarification: { type: Boolean, default: false },
 })
 defineEmits(['action'])
 
-const roles = computed(() => props.identity?.roles || [])
-// 只用于隐藏按钮；职责分离由服务端强制执行。
-const canDecide = computed(() => roles.value.some(r => r === 'approver' || r === 'it_admin') && props.approval?.requester !== props.identity?.subject)
-const canReconcile = computed(() => roles.value.includes('it_admin'))
-const needsReview = computed(() => [...(props.approval?.results || []), ...(props.approval?.revocations || [])].some(s => ['manual_review', 'unknown'].includes(s.status)))
+const viewState = computed(() => resourceState({ pending: props.busy, error: props.error, loaded: !!props.approval }))
 
 const actionLabels = { request_access: '申请权限', reset_password: '重置密码', unlock_account: '解锁账号', create_ticket: '创建工单', revoke_access: '回收权限' }
 const fieldLabels = { employee_id: '工号', system: '系统', role: '角色', reason: '理由', title: '标题', description: '描述', priority: '优先级', duration_hours: '有效期（小时）' }
 const statusLabels = { pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', superseded: '已被替代', invalidated: '策略变更已失效' }
 const decisionLabels = { approved: '批准', rejected: '拒绝' }
-const executionLabels = { not_executed: '尚未执行', queued: '排队中', executing: '执行中', succeeded: '执行成功', failed: '执行失败（已补偿）', manual_review: '需人工复核' }
+const executionLabels = { not_executed: '尚未执行', queued: '排队中', executing: '执行中', succeeded: '执行成功', failed: '执行失败（请查看回收状态）', manual_review: '需人工复核' }
+const lifecycleLabels = { compensating: '正在补偿回收', active_until_revocation: '权限生效中，已安排回收', revoking: '正在回收权限', manual_review: '业务流程需人工复核', expiry_due: '已到期，等待过期扫描' }
 const actionStatus = { queued: '排队中', executing: '执行中', unknown: '结果未知，待回查', succeeded: '成功', failed: '失败', cancelled: '已取消', manual_review: '需人工复核' }
 
 function formatTime(iso) {

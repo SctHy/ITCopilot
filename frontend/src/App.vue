@@ -103,6 +103,7 @@
                       {{ item.meta }}
                     </span>
                     <p>{{ formatBody(item.content) }}</p>
+                    <p v-if="item.taskReferences?.length">参考的本人事项：<button v-for="source in item.taskReferences" :key="source.id" class="quiet-button" @click="openTask(source.id)">{{ source.title }} · 打开原流程</button></p>
                     <ApprovalCard
                       v-if="item.approvalId"
                       :approval="item.approval"
@@ -192,6 +193,7 @@
                 </button>
               </div>
               <p class="composer-note">AI 生成的内容可能不准确，请结合业务规则核实。</p>
+              <TaskHistoryPanel v-if="identity" :key="`${currentBackend.baseUrl}:${settings.accessToken}`" :client="taskHistoryClient" @open="openTask" />
             </div>
           </section>
           <aside v-if="messages.length" class="inspector-desktop" aria-label="请求追踪与运行状态">
@@ -203,6 +205,7 @@
           </aside>
         </div>
       </section>
+      <TaskWorkspace v-else-if="activeView === 'tasks'" :key="`${currentBackend.baseUrl}:${settings.accessToken}`" :settings="settings" :identity="identity" />
       <section v-else-if="activeView === 'knowledge'" class="page page-knowledge">
         <div class="page-heading">
           <div class="heading-copy">
@@ -506,7 +509,6 @@ import {
   backendMeta,
   createInitialSettings,
   reloadSkills,
-  requestChat,
   requestChatStream,
   requestHealth,
   requestApproval,
@@ -527,18 +529,33 @@ import {
 
 import AppIcon from './components/AppIcon.vue'
 import ApprovalCard from './components/ApprovalCard.vue'
+import TaskWorkspace from './components/TaskWorkspace.vue'
+import TaskHistoryPanel from './components/TaskHistoryPanel.vue'
+import { createTaskClient } from './lib/taskClient.js'
 import { completeOidcLogin, oidcLogout, startOidcLogin, storeToken } from './lib/auth.js'
 import RequestInspector from './components/RequestInspector.vue'
 
+import { ACTIVITY, transition, createPolling } from './lib/stateMachine.js'
 import { createRequestState } from './lib/requestState'
 import { createAnswerDraft } from './lib/answerDraft.js'
 
 const settings = reactive(createInitialSettings())
 const requestState = createRequestState(settings)
-const activeView = ref('chat')
+const activeView = ref(new URL(window.location.href).searchParams.has('task') ? 'tasks' : 'chat')
 const messages = ref([])
+const taskHistoryClient = computed(() => createTaskClient(settings))
+function openTask(id) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('task', id)
+  window.history.replaceState({}, '', url)
+  activeView.value = 'tasks'
+}
 const draft = ref('')
-const busy = ref(false)
+const actionPhase = ref('idle')
+const busy = computed({
+  get: () => actionPhase.value === 'busy',
+  set: value => { actionPhase.value = transition(ACTIVITY, actionPhase.value, value ? 'start' : 'settle') }
+})
 const healthOk = ref(false)
 const healthLabel = ref('未检查')
 const statusText = ref('')
@@ -564,6 +581,7 @@ const streamStatus = ref('')
 const searched = ref(false)
 const views = [
   { id: 'chat', label: '对话', icon: 'chat' },
+  { id: 'tasks', label: '共享事项', icon: 'chat' },
   { id: 'knowledge', label: '知识库', icon: 'book' },
   { id: 'approvals', label: '审批', icon: 'shield' },
   { id: 'evaluation', label: '运行与评测', icon: 'chart' }
@@ -588,7 +606,7 @@ const serviceStatus = computed(() => ({
   degraded: { label: '降级', className: 'warning' },
   critical: { label: '严重', className: 'danger' }
 }[monitorSummary.value.status] || { label: monitorData.value.loaded ? '未知' : '未连接', className: '' }))
-let operationsTimer
+const operationsPolling = createPolling(loadOperations, 15000)
 const toast = ref('')
 let toastTimer
 let messageSequence = 0
@@ -599,11 +617,11 @@ const userInitial = computed(() => (identity.value?.username || '?').slice(0, 1)
 
 watch(() => settings.conversationId, persist)
 watch(activeView, view => {
-  clearInterval(operationsTimer)
+  operationsPolling.stop()
   if (view === 'approvals') loadApprovals()
   if (view !== 'evaluation') return
   loadOperations()
-  operationsTimer = setInterval(loadOperations, 15000)
+  operationsPolling.start()
 })
 onMounted(async () => {
   await initAuth()
@@ -612,7 +630,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   requestState.invalidate()
   clearTimeout(toastTimer)
-  clearInterval(operationsTimer)
+  operationsPolling.stop()
 })
 
 function persist() { saveSettings(settings) }
@@ -638,10 +656,14 @@ async function initAuth() {
 
 async function loadIdentity() {
   if (!settings.accessToken) { identity.value = null; return }
+  const request = requestState.begin('identity')
   try {
-    identity.value = await requestMe(settings.backend, settings)
+    const loaded = await requestMe(request.backend, request.settings)
+    if (!request.isCurrent()) return
+    identity.value = loaded
     devUser.value = identity.value.username
   } catch {
+    if (!request.isCurrent()) return
     identity.value = null
     settings.accessToken = ''
     storeToken('')
@@ -649,7 +671,9 @@ async function loadIdentity() {
 }
 
 async function loginAs(username, { quiet = false } = {}) {
-  const { access_token: token } = await requestDevToken(settings.backend, settings, username)
+  const request = requestState.begin('login')
+  const { access_token: token } = await requestDevToken(request.backend, request.settings, username)
+  if (!request.isCurrent()) return
   settings.accessToken = token
   storeToken(token)
   // 换身份即换会话：避免把上一个人的对话与审批卡片展示给新身份。
@@ -664,10 +688,13 @@ function logoutOidc() { oidcLogout(authConfig.value) }
 
 async function loadApprovals() {
   if (!settings.accessToken) return
+  const request = requestState.begin('approvals')
   try {
-    const body = await listApprovals(settings.backend, settings, approvalFilter.value)
-    approvalInbox.value = body.items.map(approval => ({ approvalId: approval.approval_id, approval, approvalBackend: settings.backend, approvalSettings: { ...settings } }))
+    const body = await listApprovals(request.backend, request.settings, approvalFilter.value)
+    if (!request.isCurrent()) return
+    approvalInbox.value = body.items.map(approval => ({ approvalId: approval.approval_id, approval, approvalBackend: request.backend, approvalSettings: request.settings }))
   } catch (error) {
+    if (!request.isCurrent()) return
     showToast(`审批列表加载失败：${error.message}`)
   }
 }
@@ -815,7 +842,8 @@ async function sendMessage() {
     }
     const response = await requestChatStream(request.backend, { ...request.settings, conversationId: settings.conversationId }, content, (event, data) => {
       // 执行过程中实时到达的事件（不是完成后回放）。
-      if (request.isCurrent() && answerDraft.onEvent(event, data)) return
+      if (!request.isCurrent()) return
+      if (answerDraft.onEvent(event, data)) return
       const labels = {
         status: '已受理，正在识别问题', intent: `已识别：${data.intent}`, routed: `交给 ${(data.agent_types || []).join(' + ')} 处理`,
         plan: '已生成处理计划', step_started: `步骤开始：${data.title || data.step_id}`, step_finished: `步骤完成：${data.step_id}`,
@@ -844,7 +872,7 @@ async function sendMessage() {
     const approvalMeta = response.approvalRequired ? `待审批 · ${response.approvalId || ''}` : ''
     const meta = [intentMeta, clarificationMeta, planMeta, approvalMeta, response.primaryAgent || response.agentType, response.knowledgeUsed ? 'RAG' : '', response.escalated ? '转人工' : ''].filter(Boolean).join(' · ')
     messages.value.push({ id: createMessageId(), role: 'assistant', content: response.response, meta, trace: lastTrace.value?.trace || null,
-      approvalId: response.approvalId, approvalSettings: request.settings, approvalBackend: request.backend })
+      taskReferences: response.taskReferences, approvalId: response.approvalId, approvalSettings: request.settings, approvalBackend: request.backend })
     await loadMonitor()
   } catch (error) {
     if (!request.isCurrent()) return
@@ -885,6 +913,7 @@ async function handleApproval(item, decision) {
 function clearConversation() {
   requestState.invalidate()
   busy.value = false
+  streamStatus.value = ''
   messages.value = []
   lastResponse.value = null
   lastTrace.value = null

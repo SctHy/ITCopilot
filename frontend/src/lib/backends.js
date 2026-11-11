@@ -1,4 +1,5 @@
 import { storedToken } from './auth.js'
+import { STREAM, machine } from './stateMachine.js'
 
 const DEFAULT_BACKENDS = {
   python: {
@@ -56,6 +57,28 @@ export async function listApprovals(type, settings, status = 'pending') {
   return requestFor(type, settings, `/approvals?status=${encodeURIComponent(status)}`)
 }
 
+export async function requestTaskInbox(type, settings, params = {}) {
+  return requestFor(type, settings, '/task-inbox?' + new URLSearchParams(params))
+}
+
+export async function requestTaskHistory(type, settings, params = {}) {
+  return requestFor(type, settings, '/task-history?' + new URLSearchParams(params))
+}
+
+export async function continueTask(type, settings, id, payload) {
+  return requestFor(type, settings, `/task-history/${encodeURIComponent(id)}/continue`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  })
+}
+
+// Shared rooms use server-side transcripts and durable request keys, not private chat memory.
+export async function requestTasks(type, settings, taskId = '', suffix = '', payload = undefined) {
+  const path = `/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ''}${suffix}`
+  return requestFor(type, settings, path, payload === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  })
+}
+
 export async function requestAuthConfig(type, settings) {
   return requestFor(type, settings, '/auth/config')
 }
@@ -93,13 +116,15 @@ export async function requestEvaluationReports(type, settings) {
 
 export async function requestSearch(type, settings, query, topK = 5) {
   const params = new URLSearchParams({ query, top_k: String(topK) })
-  return requestFor(type, settings, `/search?${params}`, { method: 'POST' })
+  const data = await requestFor(type, settings, `/search?${params}`, { method: 'POST' })
+  if (data?.error) throw new Error(data.error)
+  return { results: Array.isArray(data) ? data : (data?.results || data?.items || []) }
 }
 
 export async function requestChat(type, settings, message) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
-  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.conversationId, message])
+  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.accessToken, settings.conversationId, message])
   if (!chatAttempts.has(attemptKey)) {
     if (chatAttempts.size > 100) chatAttempts.clear()
     chatAttempts.set(attemptKey, crypto.randomUUID())
@@ -116,40 +141,67 @@ export async function requestChat(type, settings, message) {
 
 // 实时事件流：每个 SSE 事件带 id；连接中断时用 Last-Event-ID 续读同一请求，服务端不会重复执行。
 // 生命周期：连接 → 读事件 →（断线且已拿到 request_id：续读，最多 maxResumes 次）→ completed | error。
-// 服务端判定执行已中断（stream_abandoned）时丢弃 client_request_id，重新发送会开始一次新的执行。
+// 订阅超时不证明执行已停止；retry_same_request 时保留幂等键，重新发送续接原执行。
 export async function requestChatStream(type, settings, message, onEvent = () => {}, { maxResumes = 3 } = {}) {
   const meta = backendMeta(type, settings)
   const payload = buildChatPayload(type, settings, message)
-  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.conversationId, message])
+  const attemptKey = JSON.stringify([type, meta.baseUrl, settings.accessToken, settings.conversationId, message])
   if (!chatAttempts.has(attemptKey)) chatAttempts.set(attemptKey, crypto.randomUUID())
   payload.client_request_id = chatAttempts.get(attemptKey)
-  const headers = authHeaders(settings, { 'Content-Type': 'application/json', Accept: 'text/event-stream' })
+  const flow = machine(STREAM, 'opening')
   const state = { requestId: '', lastEventId: '', completed: null, failed: null }
-  let response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream`, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(180000) })
-  for (let resumes = 0; ; resumes++) {
-    if (!response.ok || !response.body) { chatAttempts.delete(attemptKey); throw new Error(`${response.status} ${response.statusText}`) }
-    try {
-      await readEventStream(response.body, (id, event, data) => {
-        if (id) state.lastEventId = id
-        if (event === 'status' && data.request_id) state.requestId = data.request_id
-        if (event === 'completed') state.completed = data
-        if (event === 'error') state.failed = data
-        onEvent(event, data)
-      })
-    } catch (error) {
-      if (!state.requestId || resumes >= maxResumes) throw error
-    }
-    if (state.completed || state.failed || !state.requestId || resumes >= maxResumes) break
-    onEvent('resumed', { request_id: state.requestId, last_event_id: state.lastEventId })
-    response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream/${encodeURIComponent(state.requestId)}`, {
-      headers: authHeaders(settings, { Accept: 'text/event-stream', 'Last-Event-ID': state.lastEventId }), signal: AbortSignal.timeout(180000)
+  try {
+    let response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream`, {
+      method: 'POST', headers: authHeaders(settings, { 'Content-Type': 'application/json', Accept: 'text/event-stream' }),
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(180000)
     })
+    for (let resumes = 0; ; resumes++) {
+      if (!response.ok) {
+        // A server rejection is definitive; a broken transport is not.
+        flow.send('fail')
+        chatAttempts.delete(attemptKey)
+        throw new Error(`${response.status} ${response.statusText}`)
+      }
+      if (!response.body) throw new Error('响应体缺失；再次发送将续接原请求')
+      flow.send('connected')
+      try {
+        await readEventStream(response.body, (id, event, data) => {
+          if (id) state.lastEventId = id
+          if (event === 'status' && data.request_id) state.requestId = data.request_id
+          if (event === 'completed') state.completed = data
+          if (event === 'error') state.failed = data
+          onEvent(event, data)
+          return !state.completed && !state.failed
+        })
+      } catch (error) {
+        if (!state.requestId || resumes >= maxResumes) throw error
+      }
+      if (state.completed) {
+        flow.send('complete')
+        chatAttempts.delete(attemptKey)
+        return normalizeChatResponse(type, state.completed)
+      }
+      if (state.failed) {
+        const interrupted = state.failed.retry_same_request === true
+        flow.send(interrupted ? 'interrupt' : 'fail')
+        if (!interrupted) chatAttempts.delete(attemptKey)
+        if (state.failed.detail === 'stream_abandoned') {
+          throw new Error(interrupted ? '等待响应超时，服务端结果尚未确认；再次发送将续接原请求' : '服务端处理中断，请重新发送')
+        }
+        throw new Error(`${state.failed.status_code || ''} ${state.failed.detail || '请求失败'}`.trim())
+      }
+      if (!state.requestId || resumes >= maxResumes) throw new Error('流式响应未完成；再次发送将续接原请求')
+      flow.send('resume')
+      onEvent('resumed', { request_id: state.requestId, last_event_id: state.lastEventId })
+      response = await fetch(`${normalizeBaseUrl(meta.baseUrl)}/chat/stream/${encodeURIComponent(state.requestId)}`, {
+        headers: authHeaders(settings, { Accept: 'text/event-stream', 'Last-Event-ID': state.lastEventId }), signal: AbortSignal.timeout(180000)
+      })
+    }
+  } catch (error) {
+    if (['opening', 'reading', 'resuming'].includes(flow.state)) flow.send('interrupt')
+    // Keep the idempotency key for every ambiguous transport outcome.
+    throw error
   }
-  chatAttempts.delete(attemptKey)
-  if (state.failed?.detail === 'stream_abandoned') throw new Error('服务端处理中断，请重新发送')
-  if (state.failed) throw new Error(`${state.failed.status_code || ''} ${state.failed.detail || '请求失败'}`.trim())
-  if (!state.completed) throw new Error('流式响应未完成')
-  return normalizeChatResponse(type, state.completed)
 }
 
 export async function readEventStream(body, onEvent) {
@@ -166,17 +218,23 @@ export async function readEventStream(body, onEvent) {
     if (!data) return  // 心跳注释行
     let parsed
     try { parsed = JSON.parse(data) } catch { parsed = { raw: data } }
-    onEvent(id, event, parsed)
+    return onEvent(id, event, parsed)
   }
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const blocks = buffer.split('\n\n')
-    buffer = blocks.pop() || ''
-    blocks.forEach(dispatch)
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() || ''
+      for (const block of blocks) {
+        if (dispatch(block) === false) { await reader.cancel(); return }
+      }
+    }
+    if (buffer.trim()) dispatch(buffer)
+  } finally {
+    reader.releaseLock()
   }
-  if (buffer.trim()) dispatch(buffer)
 }
 
 export async function requestToolTrace(type, settings, requestId) {
@@ -214,6 +272,7 @@ function authHeaders(settings, extra = {}) {
 
 function normalizeChatResponse(type, raw) {
   return {
+    taskReferences: raw.task_references || [],
     backend: type,
     conversationId: raw.conversation_id || raw.conversationId || raw.conv_id || '',
     requestId: raw.request_id || raw.requestId || '',
@@ -301,4 +360,16 @@ function readSettings() {
 function runtimeConfig() {
   if (typeof window === 'undefined') return {}
   return window.__IT_COPILOT_CONFIG__ || {}
+}
+
+export async function uploadTaskFile(type, settings, id, file, requestId) {
+  const path = `/tasks/${encodeURIComponent(id)}/files?` + new URLSearchParams({ name: file.name, client_request_id: requestId })
+  return requestFor(type, settings, path, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } })
+}
+export async function downloadTaskFile(type, settings, id, fileId) {
+  const response = await fetch(backendMeta(type, settings).baseUrl + `/tasks/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, {
+    headers: authHeaders(settings), signal: AbortSignal.timeout(30000)
+  })
+  if (!response.ok) throw new Error('下载失败，请检查事项访问权限')
+  return response.blob()
 }
