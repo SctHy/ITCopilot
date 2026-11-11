@@ -16,7 +16,6 @@ import hashlib
 import json
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -31,6 +30,7 @@ from pydantic_ai.settings import ModelSettings
 from redis.exceptions import WatchError
 
 from core.concurrency import KeyedLocks, redis_lease
+from memory.states import profile_phase, COMPRESSION, MAINTENANCE
 from core.llm import build_model, close_model, complete_text
 from core.states import Machine
 from core.vector_store import VectorStore
@@ -226,21 +226,27 @@ class MemoryManager:
         return [json.loads(row) for row in rows if row]
 
     async def maintain(self, user_id, conv_id):
+        flow = MAINTENANCE.start()
+        await self._flush_archives(user_id, conv_id)
         # _compress 的快照与 WATCH 提交已保护一致性；生成摘要不占聊天锁。
         # 先判断是否该提炼画像：压缩会把工作记忆截短，之后再数就会漏掉这批消息。
         due_at = await self._profile_due(user_id, conv_id)
+        flow.send("compress")
         await asyncio.wait_for(self._compress(user_id, conv_id), 30)
         # 提炼成功才推进计数；失败（超时、拿不到租约）时这批消息下一轮还会再试。
-        if due_at is not None and await self.update_profile(user_id, conv_id):
+        if due_at is None:
+            return flow.send("skip")
+        flow.send("extract")
+        if await self.update_profile(user_id, conv_id):
             await self._redis.set(self._profile_mark_key(user_id, conv_id), due_at, ex=86400)
+            return flow.send("commit")
+        return flow.send("defer")
 
     async def _profile_due(self, user_id: str, conv_id: str) -> Optional[int]:
         """画像提炼要调一次 LLM：本会话新增够 PROFILE_EVERY_MESSAGES 条消息才做。到期时返回当前条数，否则 None。"""
         count = await self._redis.llen(self._wm_key(user_id, conv_id))
         mark = int(await self._redis.get(self._profile_mark_key(user_id, conv_id)) or 0)
-        if count < mark:  # 压缩后工作记忆变短，重新计数
-            mark = 0
-        return count if count - mark >= self.PROFILE_EVERY_MESSAGES else None
+        return count if profile_phase(count, mark, self.PROFILE_EVERY_MESSAGES) == "due" else None
 
     async def update_profile(self, user_id: str, conv_id: str) -> bool:
         digest = hashlib.sha256(self._safe_text(user_id).encode()).hexdigest()
@@ -416,6 +422,7 @@ class MemoryManager:
           3. 旧消息存入情景记忆供跨会话检索
           4. 工作记忆只保留最近 5 条
         """
+        flow = COMPRESSION.start()
         key = self._wm_key(user_id, conv_id)
         skey = self._summary_key(user_id, conv_id)
         # 必须读取完整快照，不能只压缩最近 WORKING_MAX 条后删除整段列表。
@@ -424,7 +431,8 @@ class MemoryManager:
             pipe.get(skey)
             snapshot, old_summary = await pipe.execute()
         if len(snapshot) < self.COMPRESS_AT:
-            return
+            return flow.send("skip")
+        flow.send("summarize")
         old_summary = old_summary or ""
         messages = self._messages_from_raw(snapshot)
         to_compress = messages[:-5]
@@ -435,12 +443,15 @@ class MemoryManager:
             summary = self._safe_text(resp.text).strip()
             if not summary or resp.truncated:
                 logger.warning("摘要为空或被截断，保留原始会话消息")
-                return
+                return flow.send("defer")
         except Exception as ex:
             logger.warning("摘要生成失败，保留原始会话消息: %s", type(ex).__name__)
-            return
+            return flow.send("defer")
 
         new_summary = await self._merge_summary(old_summary, summary)
+        flow.send("validate")
+        archive_id = hashlib.sha256(json.dumps([user_id, conv_id, text, summary]).encode()).hexdigest()
+        archive_key = self._archive_key(user_id, conv_id)
         # WATCH/MULTI 同时保护列表和摘要；并发新增的消息保留在列表头部。
         for _ in range(3):
             async with self._redis.pipeline(transaction=True) as pipe:
@@ -449,19 +460,24 @@ class MemoryManager:
                     current = await pipe.lrange(key, 0, -1)
                     current_summary = await pipe.get(skey) or ""
                     if len(current) < len(snapshot) or current[-len(snapshot):] != snapshot or current_summary != old_summary:
-                        return  # 其他压缩任务已更新快照，不再覆盖它。
+                        return flow.send("defer")  # snapshot replaced by another compressor
                     keep_count = len(current) - len(snapshot) + 5
                     pipe.multi()
                     pipe.set(skey, new_summary, ex=86400)
+                    pipe.hset(archive_key, archive_id, json.dumps({"text": text, "summary": summary, "user_id": user_id, "conv_id": conv_id}))
+                    pipe.sadd(self.ARCHIVE_INDEX, archive_key)
                     pipe.ltrim(key, 0, keep_count - 1)
                     pipe.expire(key, 86400)
                     await pipe.execute()
+                    flow.send("commit")
                     logger.info("工作记忆压缩完成: %s/%s", user_id, conv_id)
-                    await self._store_episodic(user_id, conv_id, text, summary)
-                    return
+                    archived = await self._flush_archives(user_id, conv_id)
+                    return flow.send("archive" if archived else "defer")
                 except WatchError:
+                    flow.send("conflict")
                     continue
         logger.info("会话持续并发写入，本次压缩延期")
+        return flow.send("defer")
 
     @staticmethod
     def _messages_from_raw(raws: List[str]) -> List[Message]:
@@ -496,23 +512,80 @@ class MemoryManager:
             logger.warning(f"情景记忆检索失败: {ex}")
             return []
 
-    async def _store_episodic(self, user_id: str, conv_id: str, text: str, summary: str) -> None:
+    def _archive_key(self, user_id, conv_id):
+        return "memory:archives:" + self._conversation_id(user_id, conv_id)
+
+    ARCHIVE_INDEX = "memory:archives:pending"  # set of archive hashes that still hold unflushed items
+
+    async def flush_pending_archives(self, batch=64):
+        """Replay archives whose vector write failed, including conversations with no new messages.
+
+        Reads the pending index instead of SCANning the keyspace. Archives written before the
+        index existed are migrated by one SCAN pass that stops for good once it wraps around.
+        """
+        if not getattr(self, "_archive_scan_done", False):
+            cursor, keys = await self._redis.scan(getattr(self, "_archive_cursor", 0), match="memory:archives:*", count=1000)
+            self._archive_cursor = cursor
+            keys = [k for k in keys if k != self.ARCHIVE_INDEX]
+            if keys:
+                await self._redis.sadd(self.ARCHIVE_INDEX, *keys)
+            self._archive_scan_done = cursor == 0
+        for key in await self._redis.srandmember(self.ARCHIVE_INDEX, batch) or []:
+            pending = await self._redis.hgetall(key)
+            if not pending:
+                await self._unindex_archive(key)
+                continue
+            item = json.loads(next(iter(pending.values())))
+            try:
+                await self._flush_archives(item["user_id"], item["conv_id"])
+            except Exception:
+                logger.warning("pending memory archive replay failed", exc_info=True)
+
+    async def _flush_archives(self, user_id, conv_id):
+        """Redis outbox survives compression commits; deterministic vector IDs make replay safe."""
+        key = self._archive_key(user_id, conv_id)
+        pending = await self._redis.hgetall(key)
+        for archive_id, raw in pending.items():
+            item = json.loads(raw)
+            if await self._store_episodic(user_id, conv_id, item["text"], item["summary"]) is False:
+                return False
+            await self._redis.hdel(key, archive_id)
+        if pending:
+            await self._unindex_archive(key)
+        return True
+
+    async def _unindex_archive(self, key):
+        # WATCH: a compression committing a new item meanwhile keeps the key indexed.
+        async with self._redis.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.hlen(key):
+                    return
+                pipe.multi()
+                pipe.srem(self.ARCHIVE_INDEX, key)
+                await pipe.execute()
+            except WatchError:
+                pass
+
+    async def _store_episodic(self, user_id: str, conv_id: str, text: str, summary: str) -> bool:
         """将压缩后的对话片段存入情景记忆。"""
         try:
             user_id = self._safe_text(user_id)
             conv_id = self._safe_text(conv_id)
             text = self._safe_text(text)
             summary = self._safe_text(summary)
-            doc_id = hashlib.md5(f"{user_id}{conv_id}{time.time()}".encode()).hexdigest()
+            doc_id = hashlib.sha256(json.dumps([user_id, conv_id, text, summary]).encode()).hexdigest()
             await asyncio.to_thread(
-                self._episodic.add,
+                self._episodic.upsert,
                 ids=[doc_id],
                 documents=[summary],
                 metadatas=[{"user_id": user_id, "conv_id": conv_id,
                             "ts": datetime.now().isoformat(), "full_text": self._safe_text(text[:500])}],
             )
+            return True
         except Exception as ex:
             logger.warning(f"存储情景记忆失败: {ex}")
+            return False
 
     async def store_episodic_turn(self, user_id: str, conv_id: str, request_id: str, message: str, response: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Phase 2：每轮将非敏感对话摘要写入情景记忆，支持跨会话语义召回。"""
