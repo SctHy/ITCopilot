@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from core.protocols import CacheState, cache_state
+
 import json
 import logging
 import threading
@@ -22,6 +24,7 @@ from sqlalchemy.dialects import postgresql, sqlite
 from core.db import Embedding, read, shared_engine
 from core.db import vector_documents as T
 from core.embedding import Embedder
+from core.protocols import MIGRATION
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +91,17 @@ class VectorCollection:
             count, latest = db.execute(select(func.count(), func.max(T.c.updated_at)).where(T.c.collection == self.name)).one()
         return count or 0, latest or 0.0
 
-    def upsert(self, ids: Sequence[str], documents: Sequence[str], metadatas: Optional[Sequence[Optional[Dict[str, Any]]]] = None) -> None:
+    def upsert(self, ids: Sequence[str], documents: Sequence[str], metadatas: Optional[Sequence[Optional[Dict[str, Any]]]] = None, *, delete_ids: Iterable[str] = ()) -> None:
+        if len(ids) != len(documents) or (metadatas is not None and len(metadatas) != len(ids)):
+            raise ValueError("ids、documents 和 metadatas 必须等长")
         if not ids:
             return
         if len(set(ids)) != len(ids):
             raise ValueError("同一批写入的 id 不能重复")
-        metadatas = metadatas or [None] * len(ids)
+        metadatas = metadatas if metadatas is not None else [None] * len(ids)
         vectors = self._embedder.embed_documents([str(doc) for doc in documents])
+        if len(vectors) != len(ids):
+            raise ValueError("embedding 返回数量与文档数量不一致")
         now = time.time()
         rows = [{"collection": self.name, "id": i, "document": str(doc), "meta": dict(meta or {}), "embedding": vec, "model": self.model, "updated_at": now}
                 for i, doc, meta, vec in zip(ids, documents, metadatas, vectors)]
@@ -105,6 +112,9 @@ class VectorCollection:
         )
         with self._engine.begin() as db:
             db.execute(statement, rows)
+            stale = set(delete_ids) - set(ids)
+            if stale:
+                db.execute(delete(T).where(T.c.collection == self.name, T.c.id.in_(stale)))
 
     add = upsert
 
@@ -150,7 +160,7 @@ class VectorCollection:
         version = self.version()
         with self._cache_lock:
             cached = self._matrix_cache.get(cache_key)
-        if cached and cached[0] == version:
+        if cache_state(cached is not None, version_matches=cached is not None and cached[0] == version) == CacheState.FRESH:
             return cached[1], cached[2]
         with read(self._engine) as db:
             # 按 id 排序：重复片段的向量相同，距离打平时的先后不随查询计划变化。
@@ -178,19 +188,31 @@ class VectorCollection:
 
     def reembed_stale(self) -> int:
         """把其他模型生成的向量按当前模型重算；换模型后第一次打开集合时执行。"""
-        stale = select(T.c.id, T.c.document).where(T.c.collection == self.name, T.c.model != self.model).limit(REEMBED_BATCH)
+        flow = MIGRATION.start()
+        stale = select(T.c.id, T.c.document, T.c.model).where(T.c.collection == self.name, T.c.model != self.model).limit(REEMBED_BATCH)
         total = 0
-        while True:
-            with read(self._engine) as db:
-                rows = db.execute(stale).all()
-            if not rows:
-                break
-            vectors = self._embedder.embed_documents([r.document for r in rows])
-            with self._engine.begin() as db:
-                for row, vec in zip(rows, vectors):
-                    # 同时刷新 updated_at：集合版本随之变化，进程内的向量矩阵缓存才会失效。
-                    db.execute(update(T).where(T.c.collection == self.name, T.c.id == row.id).values(embedding=vec, model=self.model, updated_at=time.time()))
-            total += len(rows)
+        try:
+            while True:
+                with read(self._engine) as db:
+                    rows = db.execute(stale).all()
+                if not rows:
+                    flow.send("finish")
+                    break
+                flow.send("batch")
+                vectors = self._embedder.embed_documents([r.document for r in rows])
+                if len(vectors) != len(rows):
+                    raise ValueError("embedding 返回数量与待迁移文档数量不一致")
+                flow.send("write")
+                with self._engine.begin() as db:
+                    for row, vec in zip(rows, vectors):
+                        # Do not overwrite a document edited while embedding outside the transaction.
+                        total += db.execute(update(T).where(T.c.collection == self.name, T.c.id == row.id,
+                            T.c.document == row.document, T.c.model == row.model).values(
+                            embedding=vec, model=self.model, updated_at=time.time())).rowcount
+                flow.send("commit")
+        except Exception:
+            flow.send("fail")
+            raise
         if total:
             logger.info("集合 %s 已按 %s 重新向量化 %d 条", self.name, self.model, total)
         return total

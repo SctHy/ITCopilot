@@ -22,6 +22,7 @@ from typing import Any, Dict, FrozenSet, Iterable, Optional
 
 import jwt
 import yaml
+from core.scopes import identity_scope
 
 ROLE_EMPLOYEE = "employee"
 ROLE_APPROVER = "approver"
@@ -50,6 +51,10 @@ class Principal:
     employee_id: Optional[str] = None
     tenant: str = "default"
 
+    @property
+    def scope_key(self) -> str:
+        return identity_scope(self.tenant, self.subject)
+
     def has_any(self, *roles: str) -> bool:
         return bool(self.roles.intersection(roles))
 
@@ -71,6 +76,11 @@ class Principal:
 
 def auth_mode() -> str:
     return os.getenv("IT_COPILOT_AUTH_MODE", "dev").strip().lower()
+
+
+def principal_from_record(data):
+    """Restore a server-stored verified identity snapshot, never a client request body."""
+    return Principal(**{**data, "roles": frozenset(data["roles"])})
 
 
 def _dev_secret() -> str:

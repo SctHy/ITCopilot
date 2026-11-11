@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
+from core.protocols import SNAPSHOT
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class SkillManager:
         self.max_prompt_chars = max_prompt_chars
         self._skills: List[Skill] = []
         self._errors: List[str] = []
+        self.lifecycle = SNAPSHOT.start()
 
     @property
     def skills(self) -> List[Skill]:
@@ -74,6 +76,15 @@ class SkillManager:
 
     def load(self) -> List[Skill]:
         """重新扫描目录并加载 Skills；单个文件失败不会影响其他 Skill 生效。"""
+        self.lifecycle.send("load")
+        try:
+            return self._load_snapshot()
+        except Exception:
+            if self.lifecycle.state == "loading":
+                self.lifecycle.send("fail")
+            raise
+
+    def _load_snapshot(self) -> List[Skill]:
         loaded: List[Skill] = []
         errors: List[str] = []
 
@@ -81,6 +92,7 @@ class SkillManager:
             logger.info(f"Skill 目录不存在，跳过加载: {self.root_dir}")
             self._skills = []
             self._errors = []
+            self.lifecycle.send("publish")
             return []
 
         for path in self._discover_files(self.root_dir):
@@ -95,6 +107,7 @@ class SkillManager:
 
         self._skills = loaded
         self._errors = errors
+        self.lifecycle.send("partial" if errors else "publish")
         self._log_loaded_skills()
         return self.skills
 
@@ -125,6 +138,7 @@ class SkillManager:
     def summary(self) -> Dict[str, Any]:
         """返回 Skill 管理器状态，用于 /skills 接口和排障。"""
         return {
+            "phase": self.lifecycle.state,
             "root_dir": str(self.root_dir),
             "count": len(self._skills),
             "skills": [skill.to_summary() for skill in self._skills],

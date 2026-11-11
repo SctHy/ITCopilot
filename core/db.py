@@ -38,6 +38,70 @@ from sqlalchemy.types import TypeDecorator
 
 metadata = MetaData()
 
+# Shared service rooms own durable inputs and bounded Agent runs. Private chat memory
+# is never used as their transcript. Approval/action tables retain execution authority.
+service_tasks = Table(
+    "service_tasks", metadata,
+    Column("id", String(64), primary_key=True),
+    Column("title", String(200), nullable=False),
+    Column("requester", String(200), nullable=False),
+    Column("principal", JSON, nullable=False),
+    Column("tenant", String(80), nullable=False),
+    Column("department", String(80), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+task_events = Table(
+    "task_events", metadata,
+    Column("id", String(64), primary_key=True),
+    Column("task_id", String(64), nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("kind", String(30), nullable=False),
+    Column("actor", String(200), nullable=False),
+    Column("actor_name", String(200), nullable=False),
+    Column("text", Text, nullable=False),
+    Column("data", JSON, nullable=False),
+    Column("created_at", Float, nullable=False),
+    UniqueConstraint("task_id", "seq", name="uq_task_event_seq"),
+)
+task_runs = Table(
+    "task_runs", metadata,
+    Column("id", String(64), primary_key=True),
+    Column("task_id", String(64), nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("not_before", Float, nullable=False),
+    Column("lease_until", Float),
+    Column("error", Text),
+)
+Index("ix_task_runs_due", task_runs.c.status, task_runs.c.not_before)
+Index("ix_task_runs_order", task_runs.c.task_id, task_runs.c.seq)
+Index("ix_service_tasks_access", service_tasks.c.tenant, service_tasks.c.department)
+
+from core.task_extensions import define_tables
+
+task_progress, task_todos, task_timers, task_reads, task_budgets, task_attempts = define_tables(metadata)
+
+from core.task_product_schema import define_tables as define_product_tables
+
+task_identities, task_members, task_reviewers, task_archives, task_files, task_suggestions, task_subscriptions, task_notification_cursors, task_deliveries = define_product_tables(metadata)
+
+from core.task_execution_schema import define_tables as define_execution_tables
+
+task_checkpoints, task_goals, task_verifications = define_execution_tables(metadata)
+
+from core.task_history_schema import define_tables as define_history_tables
+
+task_links = define_history_tables(metadata)
+
+from core.memory_scope_schema import define_table as define_memory_scope_table
+
+memory_scope_bindings = define_memory_scope_table(metadata)
+
 approvals = Table(
     "approvals", metadata,
     Column("id", String(200), primary_key=True),

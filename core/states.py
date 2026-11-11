@@ -25,7 +25,7 @@ class Machine:
         self.terminal = frozenset(s for s, targets in self.edges.items() if not targets)
 
     def allows(self, old: str, new: str) -> bool:
-        return old == new or new in self.edges[old]
+        return old in self.edges and new in self.edges and (old == new or new in self.edges[old])
 
     def check(self, old: str, new: str) -> str:
         if not self.allows(old, new):
@@ -35,3 +35,32 @@ class Machine:
     def sources(self, target: str) -> Tuple[str, ...]:
         """States that may move to ``target``; a WHERE guard for bulk updates."""
         return tuple(sorted(s for s, targets in self.edges.items() if s == target or target in targets))
+
+
+class Protocol:
+    """Event-labelled transitions for transient protocols; no second copy of durable rows.
+
+    Unlike Machine's idempotent row writes, an event must be explicitly declared even
+    for a self-loop. A Flow belongs to one operation, never a global singleton.
+    """
+
+    def __init__(self, name, initial, transitions):
+        self.name, self.initial = name, initial
+        self.transitions = transitions
+        self.states = frozenset({initial, *transitions, *(v for row in transitions.values() for v in row.values())})
+
+    def start(self):
+        return Flow(self)
+
+
+class Flow:
+    def __init__(self, protocol):
+        self.protocol = protocol
+        self.state = protocol.initial
+
+    def send(self, event):
+        target = self.protocol.transitions.get(self.state, {}).get(event)
+        if target is None:
+            raise IllegalTransition(f"{self.protocol.name}: {self.state} + {event} is not declared")
+        self.state = target
+        return target
