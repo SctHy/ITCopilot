@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import os
+import statistics
+from datetime import datetime, timezone
 import json
 import pathlib
 import sys
@@ -25,7 +29,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 from core.model_router import ModelRouter
 from evaluation.application import application, auth  # noqa: E402
-from evaluation.reporting import write_report  # noqa: E402
+from evaluation.reporting import percentile, write_report  # noqa: E402
 
 # 每轮：(用户消息, 探针关键词)。探针为 None 表示不判分；否则是“任一组全部命中”的关键词组列表（不区分大小写）。
 SESSIONS = [
@@ -175,76 +179,210 @@ def knowledge_docs():
 
 
 async def drain_maintenance(state, timeout=60):
-    """等后台记忆维护（压缩/画像）做完：真人两轮之间通常有十几秒，足够它跑完。"""
-    updater = getattr(state, "profile_updater", None)
-    queue = getattr(updater, "_queue", None)
-    if queue is None:
-        return
+    """完成队列才推进下一轮；超时会使报告失去严格串行对照资格。"""
+    if state.profile_updater is None:
+        return True
     try:
-        await asyncio.wait_for(queue.join(), timeout)
-    except asyncio.TimeoutError:
-        pass
+        await asyncio.wait_for(state.profile_updater._queue.join(), timeout)
+    except TimeoutError:
+        return False
+    return True
 
 
-async def run(output: str, only: set):
+def source_fingerprint():
+    digest = hashlib.sha256()
+    for folder in ("api", "agents", "core", "intake", "memory", "tooling", "workflow", "evaluation", "config", "skills", "knowledge"):
+        for file in sorted((ROOT / folder).rglob("*")):
+            if file.is_file() and "reports" not in file.relative_to(ROOT).parts and file.suffix in {".py", ".json", ".yaml", ".md"}:
+                digest.update(str(file.relative_to(ROOT)).encode() + file.read_bytes())
+    digest.update(pathlib.Path(__file__).read_bytes())
+    return digest.hexdigest()
+
+
+def durable_turn(state, request_id):
+    from sqlalchemy import select
+    from core.db import read, turn_records
+    from core.tenant_context import tenant_scope
+    columns = ("request_id", "agent_spec", "agent_version", "build_sha", "model", "route", "route_reason",
+               "model_requests", "cost_usd", "input_tokens", "output_tokens", "cache_read_tokens", "intent_source", "intent_group")
+    with tenant_scope("default"), read(state.workflow.engine) as db:
+        row = db.execute(select(*(turn_records.c[column] for column in columns)).where(
+            turn_records.c.request_id == request_id, turn_records.c.tenant == "default")).mappings().one()
+    return dict(row)
+
+
+async def run(output: str, only: set, *, mode=None, agent_spec=None):
     load_dotenv(ROOT / ".env")
-    from api import state as app_state
+    if mode is not None:
+        os.environ["IT_COPILOT_MEMORY_MODE"] = mode
+    unknown = only - {session["id"] for session in SESSIONS}
+    if unknown:
+        raise ValueError(f"unknown sessions: {unknown}")
+    from agents.registry import default_spec
+    from core.scopes import identity_scope
     from evaluation.token_audit import TokenAudit, summarize
-    audit = TokenAudit().__enter__()
+    spec = default_spec()
+    selected_spec = (spec.name, spec.version) if agent_spec is None else agent_spec
+    before_code = source_fingerprint()
+    started_at = datetime.now(timezone.utc).isoformat()
+    started = time.monotonic()
     sessions = []
-    async with application(redis_url=None, documents=knowledge_docs(), maintenance=True) as (http, _):
+    mode_observed = None
+    with TokenAudit() as audit:
         for session in SESSIONS:
             if only and session["id"] not in only:
                 continue
-            unique = uuid.uuid4().hex
-            headers = auth("alice", subject=f"long:{unique}", employee_id="1001", department="engineering")
-            app_state.workflow.reset_directory(["1001"])
-            row = {"id": session["id"], "title": session["title"], "turns": []}
-            session_start = len(audit.records)
-            for index, (message, probe) in enumerate(session["turns"]):
-                before = len(audit.records)
-                started = time.monotonic()
-                resp = await http.post("/chat", json={"message": message, "conv_id": unique, "client_request_id": f"{unique}-{index}"}, headers=headers)
-                latency = time.monotonic() - started
-                body = resp.json() if resp.status_code == 200 else {"response": resp.text, "status": f"http_{resp.status_code}"}
-                agent_part = summarize([r for r in audit.records[before:] if r["role"] in ("agent", "intent")])
-                await drain_maintenance(app_state)
-                turn = {"index": index + 1, "user": message, "reply": body.get("response", ""), "status": body.get("status"),
-                        "tools_used": body.get("tools_used"), "approval_required": body.get("approval_required"),
-                        "latency_s": round(latency, 2), "usage": agent_part,
+            session_started = time.monotonic()
+            # Same employee id may appear in another session; its grants and pending actions cannot share a database.
+            async with application(redis_url=None, documents=knowledge_docs(), maintenance=True,
+                                   agent_spec=selected_spec) as (http, app_state):
+                mode_observed = app_state.memory.context_mode
+                unique = uuid.uuid4().hex
+                subject = f"long:{unique}"
+                scope = identity_scope("default", subject)
+                headers = auth("alice", subject=subject, employee_id="1001", department="engineering")
+                # Platform version metadata is a control, never a remembered business fact.
+                pin = {"agent_spec": selected_spec[0], "agent_version": selected_spec[1]}
+                await app_state.memory._redis.set(app_state.memory._state_key(scope, unique), json.dumps(pin), ex=86400)
+                row = {"id": session["id"], "title": session["title"], "turns": []}
+                session_start = len(audit.records)
+                for index, (message, probe) in enumerate(session["turns"]):
+                    before = len(audit.records)
+                    turn_started = time.monotonic()
+                    resp = await http.post("/chat", json={"message": message, "conv_id": unique,
+                        "client_request_id": f"{unique}-{index}"}, headers=headers)
+                    latency = time.monotonic() - turn_started
+                    body = resp.json() if resp.status_code == 200 else {"response": resp.text, "status": f"http_{resp.status_code}"}
+                    agent_part = summarize([r for r in audit.records[before:] if r["role"] in ("agent", "intent")])
+                    maintenance_started = time.monotonic()
+                    maintenance_done = await drain_maintenance(app_state)
+                    maintenance_wait = time.monotonic() - maintenance_started
+                    persisted = await app_state.memory.get_state(scope, unique)
+                    versions = await asyncio.to_thread(durable_turn, app_state, body["request_id"]) if resp.status_code == 200 else None
+                    turn = {"index": index + 1, "user": message, "reply": body.get("response", ""),
+                        "status": body.get("status"), "tools_used": body.get("tools_used"),
+                        "approval_required": body.get("approval_required"), "awaiting_confirmation": body.get("awaiting_confirmation"),
+                        "latency_s": latency, "usage": agent_part, "versions": versions,
+                        "maintenance_done": maintenance_done, "maintenance_wait_s": maintenance_wait,
+                        "stored_agent_pin": {key: persisted[key] for key in pin if key in persisted},
                         "maintenance": summarize([r for r in audit.records[before:] if r["role"].startswith("memory_")])}
-                if probe:
-                    turn["probe"] = probe
-                    turn["probe_passed"] = probe_passed(turn["reply"], probe)
-                row["turns"].append(turn)
-                agent = agent_part["by_role"].get("agent", {})
-                print(f"{session['id']}.{index + 1:02d} {latency:5.1f}s prompt={agent.get('usage', {}).get('prompt', 0)} "
-                      f"hit={agent.get('cache_hit_rate', 0)} out={agent.get('usage', {}).get('output', 0)}"
-                      + (f" probe={'PASS' if turn['probe_passed'] else 'FAIL'}" if probe else ""), flush=True)
-            approvals = (await http.get("/approvals", params={"status": "pending"}, headers=headers)).json()["items"]
-            ok, actual = writes_check(approvals, session["expect_writes"])
-            probes = [t for t in row["turns"] if "probe" in t]
-            stored = await asyncio.to_thread(app_state.memory._profile.get, where={"conv_id": unique})
-            row["profile"] = json.loads(stored["documents"][-1]) if stored.get("documents") else {}
-            row.update(writes_passed=ok, writes_actual=actual, writes_expected=session["expect_writes"],
-                       probes_passed=sum(t["probe_passed"] for t in probes), probes_total=len(probes),
-                       usage=summarize(audit.records[session_start:]))
-            print(f"{session['id']} writes={'PASS' if ok else 'FAIL'} {actual} probes={row['probes_passed']}/{row['probes_total']} "
-                  f"cost=${row['usage']['cost_usd_off_peak']}", flush=True)
-            sessions.append(row)
-            write_report(output.replace(".json", "_partial.json"), {"sessions": sessions}, echo=False)
-    audit.__exit__()
-    write_report(output, {"suite": "long-dialogue", "agent_thinking": ModelRouter().config.routes["agent_write"].thinking,
-                          "sessions": sessions, "token_audit": audit.summary(),
-                          "limitations": "Scripted user turns (no simulator), product KB, one run; maintenance drained between turns."}, echo=False)
+                    if probe:
+                        turn["probe"] = probe
+                        turn["probe_passed"] = resp.status_code == 200 and body["status"] == "success" and probe_passed(turn["reply"], probe)
+                    row["turns"].append(turn)
+                    print(f"{mode_observed} {session['id']}.{index + 1:02d} {latency:.2f}s "
+                          f"maintenance={'done' if maintenance_done else 'TIMEOUT'}"
+                          + (f" probe={'PASS' if turn['probe_passed'] else 'FAIL'}" if probe else ""), flush=True)
+                approvals = (await http.get("/approvals", params={"status": "pending"}, headers=headers)).json()["items"]
+                drafts = (await http.get("/approvals", params={"status": "draft"}, headers=headers)).json()["items"]
+                ok, actual = writes_check(approvals, session["expect_writes"])
+                probes = [turn for turn in row["turns"] if "probe" in turn]
+                row["profile"] = await app_state.memory._get_profile(scope)
+                row.update(writes_passed=ok, writes_actual=actual, writes_expected=session["expect_writes"],
+                    draft_ids=[draft["approval_id"] for draft in drafts],
+                    probes_passed=sum(turn["probe_passed"] for turn in probes), probes_total=len(probes),
+                    usage=summarize(audit.records[session_start:]), wall_s=time.monotonic() - session_started)
+                print(f"{mode_observed} {session['id']} writes={ok} probes={row['probes_passed']}/{row['probes_total']}", flush=True)
+                sessions.append(row)
+                write_report(output.replace(".json", "_partial.json"), {"status": "running", "mode": mode_observed, "sessions": sessions}, echo=False)
+        token_audit = audit.summary()
+    elapsed = time.monotonic() - started
+    turns = [turn for session in sessions for turn in session["turns"]]
+    after_code = source_fingerprint()
+    serial_ok = all(turn["maintenance_done"] for turn in turns)
+    pin_ok = all(turn["stored_agent_pin"] == {"agent_spec": selected_spec[0], "agent_version": selected_spec[1]}
+                 for turn in turns)
+    report = {"suite": "long-dialogue-memory-ablation", "status": "complete" if serial_ok and pin_ok and before_code == after_code else "invalid",
+        "started_at": started_at, "mode": mode_observed, "source_sha256": before_code, "source_sha256_after": after_code,
+        "dataset_sha256": hashlib.sha256(json.dumps(SESSIONS, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
+        "agent_spec": selected_spec[0], "agent_version": selected_spec[1],
+        "route_settings": ModelRouter().config.model_dump(), "sessions": sessions, "token_audit": token_audit,
+        "summary": {"sessions": len(sessions), "turns": len(turns), "repeats": 1,
+            "probes_passed": sum(session["probes_passed"] for session in sessions),
+            "probes_total": sum(session["probes_total"] for session in sessions),
+            "write_sessions_passed": sum(session["writes_passed"] for session in sessions),
+            "failed_or_partial_turns": sum(turn["status"] != "success" for turn in turns),
+            "maintenance_timeouts": sum(not turn["maintenance_done"] for turn in turns),
+            "wall_s": elapsed, "turns_per_s": len(turns) / elapsed,
+            "output_tokens_per_wall_s": token_audit["usage"]["output"] / elapsed,
+            "chat_p50_s": statistics.median(turn["latency_s"] for turn in turns),
+            "chat_p95_s": percentile([turn["latency_s"] for turn in turns], .95),
+            "cost_usd_peak": token_audit["cost_usd_peak"], "cost_usd_off_peak": token_audit["cost_usd_off_peak"]},
+        "controls": {"session_database_isolation": True, "fixed_spec": list(selected_spec),
+            "initial_state": "only platform agent_spec/agent_version metadata, equal for all modes", "maintenance_drained": serial_ok,
+            "platform_pin_preserved": pin_ok},
+        "limitations": "Four authored sessions, one repeat per mode, fixed keyword probes on successful HTTP turns and the original pending-only write oracle. working still includes conversation summaries; state adds business slots; full adds profile/episodic retrieval. All modes retain current maintenance calls. These are within-conversation probes; no same-owner cross-conversation episode is seeded. First-token latency is not measured by the synchronous /chat path. Costs are configured peak/off-peak estimates. Historical unmatched reports are context, not an A/B baseline."}
+    write_report(output, report, echo=False)
+    return report
+
+
+async def run_ablation(output: str, only: set, *, agent_spec=None):
+    reports = []
+    paths = []
+    for mode in ("working", "state", "full"):
+        mode_output = str(pathlib.Path(output).with_name(f"memory_ablation_{mode}_20261112.json"))
+        reports.append(await run(mode_output, only, mode=mode, agent_spec=agent_spec))
+        paths.append(mode_output)
+    same_source = len({report["source_sha256"] for report in reports}) == 1
+    same_data = len({report["dataset_sha256"] for report in reports}) == 1
+    same_runtime = len({json.dumps([report["agent_spec"], report["agent_version"], report["route_settings"]], sort_keys=True)
+                        for report in reports}) == 1
+    rows = [{"mode": report["mode"], "path": path, **report["summary"],
+             "by_session": [{"id": session["id"], "probes_passed": session["probes_passed"],
+                             "probes_total": session["probes_total"], "writes_passed": session["writes_passed"]}
+                            for session in report["sessions"]]}
+            for report, path in zip(reports, paths)]
+    for row in rows:
+        row["probe_rate"] = row["probes_passed"] / row["probes_total"]
+    historical = []
+    from evaluation.reporting import REPORTS_DIR
+    fixture_path = REPORTS_DIR / "memory_ablation_v2.json"
+    if fixture_path.exists():
+        fixtures = json.loads(fixture_path.read_text())
+        historical.append({"path": str(fixture_path), "kind": "controlled_context_fixtures",
+            "model_calls": fixtures["model_calls"], "fixtures_per_mode": fixtures["fixtures_per_mode"],
+            "comparison_allowed": False, "reason": "No real model dialogue and different assertions; not an A/B baseline."})
+    older_path = REPORTS_DIR / "deep_20261112/long/long_base.json"
+    if older_path.exists():
+        older = json.loads(older_path.read_text())
+        historical.append({"path": str(older_path), "kind": "earlier_long_dialogue",
+            "probes_passed": sum(session["probes_passed"] for session in older["sessions"]),
+            "probes_total": sum(session["probes_total"] for session in older["sessions"]),
+            "comparison_allowed": False, "reason": "Unmatched source/model/version metadata; historical context only."})
+    all_complete = all(report["status"] == "complete" for report in reports)
+    combined = {"suite": "memory-ablation-matched-long-dialogue", "status": "complete" if all_complete and same_source and same_data and same_runtime else "invalid",
+        "mode_order": ["working", "state", "full"], "matched_source": same_source, "matched_data": same_data,
+        "matched_runtime": same_runtime, "source_sha256": reports[0]["source_sha256"],
+        "dataset_sha256": reports[0]["dataset_sha256"], "results": rows,
+        "total_turns": sum(row["turns"] for row in rows), "total_probes": sum(row["probes_total"] for row in rows),
+        "within_current_run": {"full_minus_working_probe_rate": rows[2]["probe_rate"] - rows[0]["probe_rate"],
+                               "full_minus_state_probe_rate": rows[2]["probe_rate"] - rows[1]["probe_rate"]},
+        "historical_context": historical,
+        "limitations": "One real-model run of four correlated sessions per mode, no randomized mode order. Provider cache/traffic and stochastic responses may affect latency/cost and probes. No inference of pre/post-governance improvement from unmatched historical reports. Keyword probe success is not semantic correctness; pending-only writes are reported separately. Same immutable AgentSpec and platform-only initial pin control versions. working retains summaries; all modes run the same maintenance. No cross-conversation recall trial is included."}
+    write_report(output, combined, echo=False)
+    print(json.dumps({"status": combined["status"], "results": rows}, ensure_ascii=False), flush=True)
+    return combined
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--output", default="deep_20261112/long/long_base.json")
     p.add_argument("--sessions", default="", help="comma-separated session ids")
+    p.add_argument("--memory-mode", choices=("working", "state", "full"))
+    p.add_argument("--ablation", action="store_true", help="run all fixed sessions in working/state/full serially; --output is the aggregate report")
+    p.add_argument("--agent-spec")
+    p.add_argument("--agent-version")
     args = p.parse_args()
-    asyncio.run(run(args.output, set(filter(None, args.sessions.split(",")))))
+    if bool(args.agent_spec) != bool(args.agent_version):
+        p.error("--agent-spec and --agent-version must be used together")
+    fixed = (args.agent_spec, args.agent_version) if args.agent_spec else None
+    only = set(filter(None, args.sessions.split(",")))
+    if args.ablation:
+        if args.memory_mode:
+            p.error("--ablation cannot be combined with --memory-mode")
+        asyncio.run(run_ablation(args.output, only, agent_spec=fixed))
+    else:
+        asyncio.run(run(args.output, only, mode=args.memory_mode, agent_spec=fixed))
 
 
 if __name__ == "__main__":

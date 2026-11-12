@@ -28,4 +28,4 @@
 .venv/bin/python scripts/redact_existing_memory.py --database-url sqlite:///data/it_copilot.sqlite3
 ```
 
-确定性治理评测已运行：20 段对话、20/20 通过（FunctionModel + fakeredis，真实 SQLite/向量存储），报告仅证明写入/准入/画像治理断言。真实模型的 `scripts/evaluate_long_dialogue.py` memory ablation **未运行**，因此不宣称召回收益不劣。PostgreSQL 契约测试由完整工作包验收另行记录。
+确定性治理评测已运行：20 段对话、20/20 通过（FunctionModel + fakeredis，真实 SQLite/向量存储），报告仅证明写入/准入/画像治理断言。2026-11-13 已运行真实模型 memory ablation：working/state/full 各 4 个固定会话、84 轮，三种模式均通过 19/19 回忆探针、3/4 写操作会话断言。未观察到本轮回忆探针收益下降，但单次相关会话与关键词判分不证明生产效果或治理前后因果改善。报告见 `evaluation/reports/acceptance_2026-11-13/memory_ablation.json`。SQLite/PostgreSQL 完整契约结果见 `docs/improvement-acceptance.md`。
