@@ -24,7 +24,7 @@ NOT_A_CLAIM = re.compile(r"未|没有|没能|尚未|无法|不能|失败|拒绝|
 # 复述用户自己做过的事（“你上周已提交的工单”）不是 Agent 的声明。
 USER_SUBJECT = re.compile(r"(?:你|您)(?:上周|之前|此前|刚才|昨天)?$")
 # 用户在消息里贴出的密码/验证码：取引导词后的一段可打印 ASCII（不含中文，避免把“密码重置流程”当成密码）。
-from core.redaction import USER_SECRET, redact_text
+from core.redaction import redact_text, user_secrets
 # 回答已经如实说明了失败（“没有提交成功”“未能提交”“被拒绝”）。
 FAILURE_ACK = re.compile(r"(?:没有|没|未|未能|没能)[^。！？\n]{0,6}?成功|失败|拒绝|(?:没有|未|尚未)提交")
 # 记忆在历史回答后追加的执行记录（memory/conversation_memory.py）；模型偶尔照抄格式伪造一条。
@@ -186,7 +186,7 @@ def unbacked_write_claim(content: str, deps: AgentRunDeps, req: Request) -> bool
 
 def redact_user_secrets(content: str, message: str) -> str:
     """用户本轮贴出的密码/验证码不出现在回答里（模型偶尔会在“请立即修改 xxx”里原样复述）。"""
-    for secret in {m.group(1) for m in USER_SECRET.finditer(message or "")}:
+    for secret in user_secrets(message or ""):
         content = content.replace(secret, "******")
     return redact_text(content)
 

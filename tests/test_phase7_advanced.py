@@ -37,7 +37,7 @@ def test_memory_token_budget(texts, budget, expected):
 
 
 def test_memory_sensitive_profile_is_redacted():
-    profile = MemoryManager._normalize_profile({"work": "password=secret", "environment": "token abc"})
+    profile = MemoryManager._normalize_profile({"work": "password=secret", "environment": "token abc123"})
     assert profile["work"] == "password=[REDACTED]" and profile["environment"] == "token [REDACTED]"
 
 

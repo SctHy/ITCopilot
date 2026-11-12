@@ -33,6 +33,18 @@ def test_redaction_secrets_and_business_identifiers(secret):
     assert redact_text("订单1234567890123") == "订单1234567890123"
 
 
+@pytest.mark.parametrize("text", ["Change your password at https://id.corp.example", "I forgot my password and cannot login",
+    "Use the otp app on your phone", "token expired yesterday", "your password is expired", "pwd 命令显示当前目录"])
+def test_ordinary_words_after_secret_keywords_are_kept(text):
+    assert redact_text(text) == text
+
+
+@pytest.mark.parametrize("text,secret", [("my password is Hunter2", "Hunter2"), ("password Abc123! 刚改的", "Abc123!"),
+    ("otp 738192", "738192"), ("口令：hello", "hello")])
+def test_secret_values_after_keywords_are_removed(text, secret):
+    assert secret not in redact_text(text)
+
+
 def intent():
     return IntentResult(intent=IntentCategory.VPN_ISSUE, confidence=.9, intent_group="network", urgency=UrgencyLevel.NORMAL)
 

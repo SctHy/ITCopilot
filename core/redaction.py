@@ -2,11 +2,21 @@
 import re
 
 REDACTED = "[REDACTED]"
+_SECRET_WORD = r"(?:密码|口令|验证码|恢复码|password|passwd|pwd|otp|token|secret|private_key)"
+_SECRET_END = r"[`'\"”]?(?=[\s，,。；;！？?.]|$)"
+# 显式赋值（“密码是…”“password=…”）之后的值一律视为秘密；只隔空格或 is 时，正常英文里关键词后面跟的是普通单词
+# （"password at"、"otp app"），要求至少 4 个字符且含数字或符号才算秘密。全字母的口令在这种写法下会漏掉。
 USER_SECRET = re.compile(
-    r"(?:密码|口令|验证码|恢复码|password|passwd|pwd|otp|token|secret|private_key)"
-    r"\s*(?:是|为|:|：|is|=|\s)\s*[`'\"“]?([!-~]{1,128}?)[`'\"”]?(?=[\s，,。；;！？?.]|$)",
+    _SECRET_WORD + r"\s*(?:是|为|:|：|=)\s*[`'\"“]?([!-~]{1,128}?)" + _SECRET_END
+    + r"|" + _SECRET_WORD + r"\s+(?:is\s+)?[`'\"“]?((?=[A-Za-z]*[\d!-/:-@\[-`{-~])[!-~]{4,128}?)" + _SECRET_END,
     re.I,
 )
+
+
+def user_secrets(text: str) -> set:
+    return {match.group(1) or match.group(2) for match in USER_SECRET.finditer(text)}
+
+
 _MOBILE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
 _ID = re.compile(r"(?<![\dA-Za-z])\d{17}[\dXx](?![\dA-Za-z])")
 _CARD = re.compile(r"(?<!\d)\d{13,19}(?!\d)")
@@ -20,7 +30,7 @@ def _card_replacement(match: re.Match) -> str:
 
 
 def redact_text(text: str) -> str:
-    text = USER_SECRET.sub(lambda match: match.group().replace(match.group(1), REDACTED), text)
+    text = USER_SECRET.sub(lambda match: match.group().replace(match.group(1) or match.group(2), REDACTED), text)
     text = re.sub(r'\bsk-[A-Za-z0-9_-]{12,}\b', REDACTED, text)
     text = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/-]+=*', 'Bearer ' + REDACTED, text)
     text = _ID.sub(REDACTED, text)
