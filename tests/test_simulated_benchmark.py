@@ -39,6 +39,18 @@ def test_grading_is_on_state_and_a_do_nothing_agent_fails():
     assert not silent["refusal_explained"]
 
 
+def test_listing_own_assets_counts_as_looking_up_the_target_asset():
+    task = next(t for t in generate_tasks() if t["atoms"] == ["asset"])
+    _, arg, dev = task["expect"]["tools"][0]
+    state = {"grants": [], "tickets": [], "password_version": 0, "locked": 1}
+    call = lambda args: [{"tool_name": "lookup_asset", "input": args, "success": True}]
+    assert grade(task, state, call({arg: dev}), "", [])["tool_lookup_asset"]
+    assert grade(task, state, call({}), "", [])["tool_lookup_asset"]  # 不带参数时只列出本人设备，目标是本人的
+    assert not grade(task, state, call({arg: "DEV-9999"}), "", [])["tool_lookup_asset"]
+    other = {**task, "employee_id": "9999"}
+    assert not grade(other, state, call({}), "", [])["tool_lookup_asset"]
+
+
 def test_simulator_flags_off_script_requests():
     task = next(t for t in generate_tasks() if t["atoms"] == ["kb"])
     transcript = [{"role": "user", "content": task["opening"]}, {"role": "assistant", "content": "…"},

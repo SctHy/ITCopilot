@@ -95,6 +95,8 @@ async def main():
     parser.add_argument("--tasks", default="", help="comma-separated task ids (debug subset)")
     parser.add_argument("--max-turns", type=int, default=8)
     parser.add_argument("--output", default="simulated_v4.json")
+    parser.add_argument("--user-model", default=os.getenv("SIM_USER_MODEL", ""),
+                        help="模拟用户使用的模型（同一 OpenAI-compatible 服务）；默认与被测 Agent 相同")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     if not DATASET.exists():
@@ -103,7 +105,8 @@ async def main():
     if args.tasks:
         wanted = set(args.tasks.split(","))
         tasks = [t for t in tasks if t["id"] in wanted]
-    user_llm = build_model(os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), os.getenv("OPENAI_MODEL", "deepseek-chat"))
+    user_model = args.user_model or os.getenv("OPENAI_MODEL", "deepseek-chat")
+    user_llm = build_model(os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), user_model)
     from scripts.evaluate_application import upstream_model
 
     rows = []
@@ -121,12 +124,12 @@ async def main():
     summary = {"trials": len(rows), "passed": sum(r["passed"] for r in rows), "success_rate": round(sum(r["passed"] for r in rows) / max(1, len(rows)), 3)}
     write_report(args.output, {
         "suite": "simulated-v4", "status": "complete", "started_at": datetime.now(timezone.utc).isoformat(),
-        "upstream": upstream_model(), "dataset": DATASET.name, "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest()[:16], "max_turns": args.max_turns,
+        "upstream": upstream_model(), "user_model": user_model, "dataset": DATASET.name, "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest()[:16], "max_turns": args.max_turns,
         # Identifies the simulator instructions: runs are only comparable under the same prompt.
         "simulator_prompt_sha256": hashlib.sha256(user_prompt(json.loads(DATASET.read_text())[0], []).encode()).hexdigest()[:16],
         "summary": summary, "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"),
         "token_audit": audit.summary(), "trials": rows,
-        "limitations": "Authored compositional tasks and simulator prompts in the style of τ-bench; same model plays the user; local sandbox state.",
+        "limitations": "Authored compositional tasks and simulator prompts in the style of τ-bench; " + ("same model plays the user" if user_model == os.getenv("OPENAI_MODEL") else f"user simulated by {user_model}") + "; local sandbox state.",
     }, echo=False)
     print(json.dumps(summary, ensure_ascii=False))
 

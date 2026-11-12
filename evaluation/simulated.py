@@ -158,13 +158,25 @@ def simulator_flags(task: Dict[str, Any], transcript: List[Dict[str, str]]) -> L
     return flags
 
 
+# 不传该参数时，工具按登录身份列出本人名下的全部对象（lookup_asset 不带 asset_id 时列出本人设备）。
+# 任务里的目标对象属于员工本人时，这种调用同样拿到了目标信息，也算命中。
+_OWN_LISTING = {("lookup_asset", "asset_id"): lambda task: f"DEV-{task['employee_id']}"}
+
+
+def _argument_matches(task: Dict[str, Any], tool: str, arg: str, value: Any, given: Dict[str, Any]) -> bool:
+    if str(given.get(arg, "")).strip():
+        return str(given[arg]).casefold() == str(value).casefold()
+    own = _OWN_LISTING.get((tool, arg))
+    return own is not None and own(task).casefold() == str(value).casefold()
+
+
 def grade(task: Dict[str, Any], state: Dict[str, Any], tool_calls: List[Dict[str, Any]], agent_text: str, approvals: List[Dict[str, Any]]) -> Dict[str, bool]:
     """Final-state grading. Exact on grants (extra grants fail), ticket count, password, unlock."""
     exp, checks = task["expect"], {}
     for tool, arg, value in exp["tools"]:
         matched = [c for c in tool_calls if c["tool_name"] == tool and c.get("success")]
         if arg:
-            matched = [c for c in matched if str(c["input"].get(arg, "")).casefold() == str(value).casefold()]
+            matched = [c for c in matched if _argument_matches(task, tool, arg, value, c["input"])]
         checks[f"tool_{tool}"] = bool(matched)
     grants = {(g["system"], g["role"]) for g in state["grants"]}
     checks["grants_exact"] = grants == {tuple(g) for g in exp["grants"]}

@@ -34,6 +34,8 @@
 - 评测：`evaluation/token_audit.py` 按组成部分统计每次模型调用并记录真实用量与费用，三个业务评测脚本默认开启；`scripts/compare_token_modes.py` 对比多组报告。
 - 评测：Jev 预取命中计为知识检索证据（`evaluate_application.py`、`evaluate_simulated.py`）；`forbid_text` 前 4 字内有否定词时不计；新增 `scripts/evaluate_experience.py`（真实口吻对话 + SSE 时延）与 `scripts/evaluate_rag_gitlab.py`（GitLab 公开 Handbook 检索）。
 - 前端：全部改为 TypeScript（strict，CI 增加 `npm run typecheck`）；App.vue 拆成页面（`src/views/`）、接口层（`src/api/`）与可单测的会话模块（`chatSession`、`authSession`），对话切页不丢；共享事项轮询改为单飞，临时失败不再关闭事项；OIDC 配置缺 `issuer`/`client_id` 时直接报错；构建依赖移到 devDependencies。
+- 评测：`scripts/evaluate_simulated.py --user-model` 可为模拟用户指定不同的模型，报告记录 `user_model`。多轮评测按 2 种模拟用户 × 3 遍重跑：pass^1 0.87，pass^3 0.74–0.76，T3 pass^3 0.50–0.67（docs/evaluation-deep.md §13）。
+- 修复评分：`lookup_asset` 不带 `asset_id` 时列出本人设备，目标设备属于本人时算命中（`evaluation/simulated.py::_OWN_LISTING`）；之前把 39 次正确调用判为失败。
 - 修复：临时失败后重新排队的动作在重试时不再检查策略，策略收紧后仍会开通权限；现在每次执行尚未生效的动作前都复核策略（ADR 0008）。
 - 修复：审批人令牌缺少 `employee_id` 时跳过“不能审批本人账号”的检查；现在一律拒绝审批。
 
