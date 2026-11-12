@@ -36,6 +36,7 @@
 - 前端：全部改为 TypeScript（strict，CI 增加 `npm run typecheck`）；App.vue 拆成页面（`src/views/`）、接口层（`src/api/`）与可单测的会话模块（`chatSession`、`authSession`），对话切页不丢；共享事项轮询改为单飞，临时失败不再关闭事项；OIDC 配置缺 `issuer`/`client_id` 时直接报错；构建依赖移到 devDependencies。
 - 评测：`scripts/evaluate_simulated.py --user-model` 可为模拟用户指定不同的模型，报告记录 `user_model`。多轮评测按 2 种模拟用户 × 3 遍重跑：pass^1 0.87，pass^3 0.74–0.76，T3 pass^3 0.50–0.67（docs/evaluation-deep.md §13）。
 - 修复评分：`lookup_asset` 不带 `asset_id` 时列出本人设备，目标设备属于本人时算命中（`evaluation/simulated.py::_OWN_LISTING`）；之前把 39 次正确调用判为失败。
+- 审批：新申请只覆盖旧单中的部分动作时，也替代旧单，未覆盖的动作另存为一张“余下部分”的申请（沿用原冻结参数、状态与期限，审批人数重新计算，已投的票不带过去；审计记录 `remainder` / `carried_from`；回复说明保留了哪些事项）。修复一轮捆绑多个写操作、之后补充其中一个时产生的重复工单和重复重置（ADR 0007 修订）。多轮评测重跑：重复执行 7 → 0，T3 pass^3 0.50–0.67 → 0.58–0.75（p = 0.14，不显著）。
 - 修复：临时失败后重新排队的动作在重试时不再检查策略，策略收紧后仍会开通权限；现在每次执行尚未生效的动作前都复核策略（ADR 0008）。
 - 修复：审批人令牌缺少 `employee_id` 时跳过“不能审批本人账号”的检查；现在一律拒绝审批。
 

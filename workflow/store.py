@@ -226,6 +226,7 @@ class WorkflowStore:
         # re-check on-behalf requests when the policy changes (ADR 0008).
         payload = {**(summary or {}), "action_requests": frozen_actions, "requester_roles": sorted(principal.roles)}
         superseded: List[str] = []
+        carried: List[str] = []
         try:
             with (nullcontext(connection) if connection is not None else self.engine.begin()) as db:
                 existing = db.execute(select(approvals.c.payload_hash).where(approvals.c.id == approval_id)).scalar()
@@ -246,7 +247,7 @@ class WorkflowStore:
                     # A new draft only replaces older drafts: a pending request stays until the
                     # requester confirms its replacement, so walking away from a draft loses nothing.
                     superseded = self._supersede(db, approval_id, conv_id, principal.subject, principal.tenant, frozen_actions, now,
-                                                 statuses=(ApprovalStatus.DRAFT,) if draft else tuple(OPEN))
+                                                 statuses=(ApprovalStatus.DRAFT,) if draft else tuple(OPEN), carried=carried)
                 row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
                 decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
                 rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
@@ -258,32 +259,72 @@ class WorkflowStore:
             existing = body["payload_hash"]
         if existing is not None and existing != digest:
             raise ApprovalConflict("同一审批 ID 的参数不可修改；请创建新申请")
-        return {**body, "superseded": superseded}
+        return {**body, "superseded": superseded, "carried_over": carried}
 
-    def _supersede(self, db, approval_id, conv_id, requester, tenant, frozen_actions, now, statuses=(ApprovalStatus.PENDING,)) -> List[str]:
+    def _supersede(self, db, approval_id, conv_id, requester, tenant, frozen_actions, now, statuses=(ApprovalStatus.PENDING,),
+                   carried: Optional[List[str]] = None) -> List[str]:
         """A requester who amends a request in the same conversation (adds details, says
         "confirm" again) replaces the still-pending one instead of queueing a duplicate.
-        Only approvals whose every action is covered by the new one are replaced, so
-        unrelated pending requests in the conversation are left alone."""
+
+        Every older request that shares an action with the new one is replaced. One turn can
+        file several actions in a single request ({access, ticket}); when a later request
+        amends only some of them, the rest is carried into a new request with the same frozen
+        arguments, status and deadline (``_carry_over``), so nothing the requester still wants is
+        dropped and nothing is filed twice. Requests about other things are left alone."""
         if not conv_id:
             return []
         keys = {_action_key(a) for a in frozen_actions}
         rows = db.execute(select(approvals).where(approvals.c.conv_id == conv_id, approvals.c.requester == requester, approvals.c.tenant == tenant,
-                                                  approvals.c.status.in_(statuses), approvals.c.id != approval_id)).mappings().all()
+                                                  approvals.c.status.in_(statuses), approvals.c.id != approval_id)
+                          .order_by(approvals.c.created_at, approvals.c.id)).mappings().all()
         replaced = []
         for row in rows:
-            if {_action_key(a) for a in row["payload"]["action_requests"]} <= keys:
-                # Version-guarded: an approver deciding concurrently wins and the row is left as decided.
-                done = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"],
-                                                          approvals.c.status == row["status"])
-                                  .values(status=ApprovalStatus.SUPERSEDED, decided_at=now, version=row["version"] + 1)).rowcount
-                if not done:
-                    continue
-                self._audit(db, row["id"], "superseded", requester, detail={"by": approval_id})
-                replaced.append(row["id"])
+            old_actions = row["payload"]["action_requests"]
+            rest = [a for a in old_actions if _action_key(a) not in keys]
+            if len(rest) == len(old_actions):
+                continue
+            # Version-guarded: an approver deciding concurrently wins and the row is left as decided.
+            done = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"],
+                                                      approvals.c.status == row["status"])
+                              .values(status=ApprovalStatus.SUPERSEDED, decided_at=now, version=row["version"] + 1)).rowcount
+            if not done:
+                continue
+            detail = {"by": approval_id}
+            if rest:
+                detail["remainder"] = self._carry_over(db, row, rest, approval_id, now)
+                if carried is not None:
+                    carried.append(detail["remainder"])
+            self._audit(db, row["id"], "superseded", requester, detail=detail)
+            replaced.append(row["id"])
         if replaced:
             self._audit(db, approval_id, "supersedes", requester, detail={"approvals": replaced})
         return replaced
+
+    def _carry_over(self, db, row, rest: List[Dict[str, Any]], by: str, now: float) -> str:
+        """The part of a replaced request the new one did not amend, as its own request.
+
+        Same requester, conversation, policy version, status and deadline as the original; the
+        actions are the original frozen ones, so the requester has nothing new to confirm. Votes
+        are not carried over: they were cast on the original hash."""
+        rest_id = "carry-" + hashlib.sha256(f"{row['id']}:{by}".encode()).hexdigest()[:32]
+        frozen = {"request_id": row["request_id"], "requester": row["requester"], "tenant": row["tenant"], "conv_id": row["conv_id"],
+                  "action_requests": rest, "policy_version": row["policy_version"]}
+        tools = [a["tool_name"] for a in rest]
+        payload = {**row["payload"], "action_requests": rest, "carried_from": row["id"]}
+        if "actions" in payload:
+            payload["actions"] = tools
+            payload["summary"] = f"请求执行 {', '.join(tools)}；当前仅生成 dry-run，需人工审批后执行。"
+        db.execute(insert(approvals).values(
+            id=rest_id, request_id=row["request_id"], conv_id=row["conv_id"], requester=row["requester"], requester_name=row["requester_name"],
+            requester_employee_id=row["requester_employee_id"], department=row["department"], tenant=row["tenant"],
+            status=row["status"], execution=Execution.NOT_EXECUTED,
+            payload_hash=hashlib.sha256(canonical(frozen).encode()).hexdigest(), policy_version=row["policy_version"],
+            approvals_required=max(self.policy.requirement(a).approvals for a in rest), payload=payload, version=0,
+            created_at=now, expires_at=row["expires_at"], confirmed_at=row["confirmed_at"],
+        ))
+        self._audit(db, rest_id, "created", row["requester"], detail={"carried_from": row["id"], "by": by,
+                                                                        "policy_version": row["policy_version"]})
+        return rest_id
 
     def get(self, approval_id: str) -> Optional[Dict[str, Any]]:
         with schema.read(self.engine) as db:

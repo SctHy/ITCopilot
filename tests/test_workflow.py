@@ -271,14 +271,41 @@ def test_amended_request_supersedes_the_pending_duplicate_in_the_same_conversati
     # Different system or different conversation: separate requests, nothing replaced.
     assert create(store, "g1", actions=[access()])["superseded"] == []
     assert store.create("t3", request_id="r-t3", conv_id="other", principal=ALICE, action_requests=[ticket("另一件事")])["superseded"] == []
-    # A narrower request never drops a broader pending one.
+    # One turn filed {ticket, VPN access}; a later ticket-only amendment replaces the bundle and
+    # carries the VPN access over unchanged, instead of leaving a second ticket in the queue.
     both = create(store, "b1", actions=[ticket("合并"), access(system="VPN")])
-    assert set(both["superseded"]) == {"t2"} and create(store, "t4", actions=[ticket("只建单")])["superseded"] == []
-    for approval_id in ("b1", "t4", "j1", "g1", "t3"):
+    assert set(both["superseded"]) == {"t2"}
+    narrower = create(store, "t4", actions=[ticket("只建单")])
+    assert narrower["superseded"] == ["b1"] and len(narrower["carried_over"]) == 1
+    rest = store.get(narrower["carried_over"][0])
+    assert rest["status"] == "pending" and [a["tool_name"] for a in rest["action_requests"]] == ["request_access"]
+    assert rest["action_requests"] == [a for a in store.get("b1")["action_requests"] if a["tool_name"] == "request_access"]
+    assert store.get("b1")["status"] == "superseded"
+    for approval_id in ("t4", rest["approval_id"], "j1", "g1", "t3"):
         store.decide(approval_id, "approved", BOB, store.get(approval_id)["payload_hash"])
     run(worker)
-    assert len(store.employee("1001")["tickets"]) == 3  # b1, t4, t3 — t1/t2 never executed
+    assert len(store.employee("1001")["tickets"]) == 2  # t4, t3 — t1/t2/b1 never executed
+    assert any(e["event"] == "superseded" and e["detail"]["remainder"] == rest["approval_id"] for e in store.audit("b1"))
+    assert store.audit(rest["approval_id"])[0]["detail"]["carried_from"] == "b1"
     assert [e["event"] for e in store.audit("t1")][-1] == "superseded"
+
+
+def test_carried_over_part_keeps_its_own_approval_rule_and_votes_start_over(env):
+    store, worker, _ = env
+    reset = {"tool_name": "reset_password", "arguments": {"employee_id": "1001"}}
+    bundle = create(store, "b", actions=[access(role="developer"), reset])  # developer needs two approvers
+    assert bundle["approvals_required"] == 2
+    store.decide("b", "approved", BOB, bundle["payload_hash"])  # one vote cast on the bundle
+    amended = create(store, "r", actions=[reset])  # the requester re-files only the reset
+    rest = store.get(amended["carried_over"][0])
+    assert rest["approvals_required"] == 2 and rest["expires_at"] == store.get("b")["expires_at"]
+    assert rest["decisions"] == []  # BOB's vote was on the old hash
+    for approval_id in ("r", rest["approval_id"]):
+        store.decide(approval_id, "approved", BOB, store.get(approval_id)["payload_hash"])
+    store.decide(rest["approval_id"], "approved", CAROL, rest["payload_hash"])
+    run(worker)
+    assert store.employee("1001")["password_version"] == 1  # reset once, not twice
+    assert asyncio.run(worker.registry.local.current_level("1001", "gitlab")) == "developer"
 
 
 def test_an_approver_without_an_employee_id_cannot_approve(env):

@@ -270,6 +270,8 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
                 metrics.APPROVALS.labels(event="superseded").inc(len(created["superseded"]))
                 replaced = "本会话中尚未确认的草稿" if draft else "本会话中尚未审批的申请"
                 reply += f"\n\n（本次申请已替代{replaced}：{', '.join(created['superseded'])}）"
+                if created.get("carried_over"):
+                    reply += f"\n\n（被替代的申请里本次没有改动的事项已保留为单独的申请，仍按原内容等待{'确认' if draft else '审批'}：{', '.join(created['carried_over'])}）"
             if draft:
                 awaiting = True
                 if emit:
