@@ -59,7 +59,7 @@ def test_buckets_are_stable_and_cover_expected_proportion():
     assert .18 < sum(bucket < 20 for bucket in buckets) / len(buckets) < .22
 
 
-def test_canary_is_sticky_and_rollback_only_changes_new_conversations(tmp_path, db_url):
+def test_canary_is_sticky_while_served_and_rollback_moves_pinned_conversations_back(tmp_path, db_url):
     reg = registry(tmp_path, extra=[{"version": "1.1.0"}])
     gate(tmp_path, reg.get("it_copilot", "1.1.0"))
     service = AgentRollouts(shared_engine(db_url), reg, cache_ttl_s=0, reports=tmp_path)
@@ -68,7 +68,8 @@ def test_canary_is_sticky_and_rollback_only_changes_new_conversations(tmp_path, 
     assert service.choose("default", "network", "default:user", state).version == "1.1.0"
     assert service.choose("other", "network", "other:user", {}).version == "1.0.0"
     service.change("it_copilot", "rollback", "admin", tenant="default")
-    assert service.choose("default", "network", "default:user", state).version == "1.1.0"
+    assert service.choose("default", "network", "default:user", state).version == "1.0.0"
+    assert state["agent_version"] == "1.0.0"
     assert service.choose("default", "network", "default:user", {}).version == "1.0.0"
     with system_scope(), service.engine.connect() as db:
         from core.db import admin_audit, change_events
@@ -77,6 +78,23 @@ def test_canary_is_sticky_and_rollback_only_changes_new_conversations(tmp_path, 
         assert len(db.execute(select(change_events)).all()) == 2
         assert set(db.execute(select(admin_audit.c.tenant)).scalars()) == {"*"}
         assert set(db.execute(select(change_events.c.tenant)).scalars()) == {None}
+
+
+def test_pins_survive_a_shrinking_canary_and_follow_a_promotion(tmp_path, db_url):
+    reg = registry(tmp_path, extra=[{"version": "1.1.0"}])
+    gate(tmp_path, reg.get("it_copilot", "1.1.0"))
+    service = AgentRollouts(shared_engine(db_url), reg, cache_ttl_s=0, reports=tmp_path)
+    stable_pin = {}
+    assert service.choose("default", "network", "default:a", stable_pin).version == "1.0.0"
+    service.change("it_copilot", "canary", "admin", tenant="default", version="1.1.0", percent=100, tenants=None)
+    canary_pin = {}
+    assert service.choose("default", "network", "default:b", canary_pin).version == "1.1.0"
+    assert service.choose("default", "network", "default:a", stable_pin).version == "1.0.0"
+    service.change("it_copilot", "canary", "admin", tenant="default", version="1.1.0", percent=0, tenants=None)
+    assert service.choose("default", "network", "default:b", canary_pin).version == "1.1.0"
+    service.change("it_copilot", "promote", "admin", tenant="default")
+    assert service.choose("default", "network", "default:a", stable_pin).version == "1.1.0"
+    assert service.choose("default", "network", "default:b", canary_pin).version == "1.1.0"
 
 
 def test_canary_without_release_report_is_rejected(tmp_path, db_url):

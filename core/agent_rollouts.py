@@ -66,7 +66,11 @@ class AgentRollouts:
 
     def choose(self, tenant, intent_group, scope_key, state):
         if "agent_version" in state:
-            return self.registry.get(state["agent_spec"], state["agent_version"])
+            # A pin only holds while its version is still served; rolled-back or replaced versions re-resolve.
+            pinned = self.get(state["agent_spec"])
+            live = {pinned["stable_version"]} | ({pinned["canary_version"]} if pinned["status"] == "canarying" else set())
+            if state["agent_version"] in live:
+                return self.registry.get(state["agent_spec"], state["agent_version"])
         name = self.registry.resolve(tenant, intent_group)
         rollout = self.get(name)
         eligible = rollout["canary_tenants"] is None or tenant in rollout["canary_tenants"]

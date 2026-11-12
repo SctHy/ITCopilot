@@ -10,7 +10,7 @@
 
 `config/agents/*.yaml` 定义不可变的 `(name, version)` 规格。加载时验证工具、路由、技能路径与能力歧义，规范化内容计算 sha256。默认 1.0.0 保持原提示词、工具和技能正文；不拆成多个 Agent。编排器按规格 fingerprint 缓存运行实例，能力路由优先显式意图组，再优先显式租户。
 
-`agent_rollouts` 保存 stable/canary 状态，用 Machine 校验迁移。`sha256(spec_name + scope_key) % 100` 决定分桶；租户名单额外限制灰度。第一轮的版本保存在会话状态，事项创建时保存到初始事件；迁移一次性回填旧事项。回滚只影响新会话，已有会话和事项有意保持原版本，避免中途改变处理规则。每个 API 进程最多缓存 5 秒。
+`agent_rollouts` 保存 stable/canary 状态，用 Machine 校验迁移。`sha256(spec_name + scope_key) % 100` 决定分桶；租户名单额外限制灰度。第一轮的版本保存在会话状态，事项创建时保存到初始事件；迁移一次性回填旧事项。粘住的版本只在仍被服务时沿用：等于当前 stable，或灰度进行中（`canarying`）的 canary。灰度比例下调时已粘住的会话保持原版本，避免中途改变处理规则；回滚或推广后，粘在已撤下版本上的会话和事项在下一轮重新分桶，不再继续使用被判定退化的版本（修订：最初设计是回滚只影响新会话，那样自动回滚对已有会话和长期事项无效）。每个 API 进程最多缓存 5 秒。
 
 同名规格各版本的租户与能力范围必须一致；扩大范围使用新的规格名，避免未上线版本提前影响 stable 路由。启动时校验持久 stable/canary 引用仍存在，旧版本不能随意移除。技能加载受规格根目录约束；工作记忆消融模式仍保留平台版本粘性字段。确认提交走已粘住的规格记录观测，模型调用记为 none。
 
@@ -30,7 +30,7 @@
 
 `.venv/bin/pytest -q tests/test_agent_registry.py tests/test_task_execution.py tests/test_turn_records.py tests/test_monitor.py`。
 
-覆盖分桶稳定性和比例、能力优先级与歧义拒绝、默认指令与工具不漂移、租户名单、粘性、回滚后新旧会话差异、发布报告拒绝、管理权限、MCP 断开和合成失败版本自动回滚。PostgreSQL 使用 `IT_COPILOT_TEST_DATABASE_URL=...` 运行同一套存储测试。
+覆盖分桶稳定性和比例、能力优先级与歧义拒绝、默认指令与工具不漂移、租户名单、粘性、灰度缩量时的粘性、回滚与推广后已粘住会话的重新分桶、发布报告拒绝、管理权限、MCP 断开和合成失败版本自动回滚。PostgreSQL 使用 `IT_COPILOT_TEST_DATABASE_URL=...` 运行同一套存储测试。
 
 创建共享事项时先通过已装配的意图识别端口获得实际 intent_group，再在写入初始事件的同一事务中冻结所选规格版本；首次 worker 回合复用识别缓存。发布离线回归通过 pytest 的 --agent-spec/--agent-version 参数运行并断言 trace 版本，避免候选门禁误跑默认规格。
 

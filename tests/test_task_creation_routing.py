@@ -28,7 +28,7 @@ def release_gate(directory, spec):
         "version": spec.version, "status": "passed", "fingerprint": spec.fingerprint}))
 
 
-def test_http_creation_routes_actual_intent_reuses_cache_and_preserves_pinned_version(tmp_path):
+def test_http_creation_routes_actual_intent_reuses_cache_and_rolls_pinned_version_back(tmp_path):
     classifications = []
 
     async def reply(messages, info):
@@ -61,8 +61,9 @@ def test_http_creation_routes_actual_intent_reuses_cache_and_preserves_pinned_ve
             assert slots["agent_version"] == "1.1.0" and req.intent_group == "network"
             assert len(classifications) == 1
             result = await state.orchestrator._execute(req)
+            # The creation record keeps 1.1.0 as history; execution after the rollback moves back to stable.
             assert result.success and result.observability["agent_spec"] == "network_support"
-            assert result.observability["agent_version"] == "1.1.0"
+            assert result.observability["agent_version"] == "1.0.0"
             replay = await http.post("/tasks", json=payload)
             assert replay.status_code == 201 and replay.json()["id"] == first_id
             initial = replay.json()["events"][0]["data"]
