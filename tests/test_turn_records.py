@@ -1,4 +1,5 @@
 """Durable settlement and fingerprints use the same stores as application requests."""
+import os
 import asyncio
 
 import pytest
@@ -57,7 +58,7 @@ def test_chat_settles_body_free_record_with_complete_versions(store, monkeypatch
     assert row["model_requests"] == 2
     assert row["tools"] == [{"name": "diagnose", "outcome": "success", "error_class": "success", "latency_ms": row["tools"][0]["latency_ms"]}]
     assert all(len(row[k]) == 64 for k in ("prompt_fp", "tools_fp", "skill_fp"))
-    assert row["agent_version"] == "1.0.0" and row["build_sha"] == "test-build" and row["policy_version"] == store.policy.version
+    assert row["agent_version"] == "1.0.0" and row["build_sha"] == os.environ["IT_COPILOT_BUILD_SHA"] and row["policy_version"] == store.policy.version
     assert "VPN-691" not in str(dict(row))
     assert row["latency_ms"] > 0 and row["first_token_ms"] is None
     streamed = http.post("/chat/stream", json={"message": "VPN报错VPN-691", "conv_id": "streamed"})
