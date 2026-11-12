@@ -19,7 +19,7 @@ def test_episodic_recall_skips_the_current_conversation():
     async def run():
         with tempfile.TemporaryDirectory() as path:
             m = manager(path)
-            meta = {"intent": "vpn_issue", "intent_group": "network", "agent_type": "generalist", "entities": {}}
+            meta = {"intent": "vpn_issue", "intent_group": "network", "entities": {}}
             await m.store_episodic_turn("u", "now", "r1", "VPN 报错 691", "检查账号锁定", meta)
             await m.store_episodic_turn("u", "last-week", "r2", "VPN 报错 691 怎么办", "上周是证书过期", meta)
             await m.store_episodic_turn("someone-else", "x", "r3", "VPN 报错 691", "别人的记录", meta)

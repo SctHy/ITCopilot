@@ -113,11 +113,11 @@ class KnowledgeBase:
         return count
 
     def _upsert_document(self, identity: str, doc: Dict[str, Any]) -> int:
-        title, content, explicit_id = doc["title"], doc["content"], doc.get("document_id")
+        title, content = doc["title"], doc["content"]
         document_id = hashlib.sha256(identity.encode()).hexdigest()
         chunks = self._chunk_text(content, chunk_size=500)
         ids = [f"{document_id}:{i}" for i in range(len(chunks))]
-        stale = self._existing_chunk_ids(document_id, title, explicit_id) - set(ids)
+        stale = set(self._collection.get(where={"document_id": document_id})["ids"]) - set(ids)
         # 元数据显式写全：混合检索据此做部门隔离，并生成可追溯的 citation。
         base = {
             "title": title, "document_id": document_id, "version": hashlib.sha256(content.encode()).hexdigest(),
@@ -126,20 +126,6 @@ class KnowledgeBase:
         }
         self._collection.upsert(ids=ids, documents=chunks, metadatas=[{**base, "chunk_index": i, "chunk_id": chunk_id} for i, chunk_id in enumerate(ids)], delete_ids=stale)
         return len(chunks)
-
-    def _existing_chunk_ids(self, document_id: str, title: str, explicit_id: Optional[str]) -> set:
-        """同一文档已有的片段 ID（含旧版 ID 方案写入的片段），用于替换时清理过期片段。"""
-        existing = set(self._collection.get(where={"document_id": document_id})["ids"])
-        # 仅迁移归属可验证的旧身份；旧显式 ID 与 title: 前缀冲突时保留旧记录供核验。
-        if not explicit_id or not explicit_id.startswith("title:"):
-            legacy_id = hashlib.sha256((explicit_id or f"title:{title}").encode()).hexdigest()
-            previous = self._collection.get(where={"document_id": legacy_id})
-            existing.update(i for i, meta in zip(previous["ids"], previous["metadatas"]) if (meta or {}).get("title") == title)
-        if not explicit_id:
-            # 兼容旧版只有 title/chunk_index 元数据的片段。
-            legacy = self._collection.get(where={"title": title})
-            existing.update(i for i, meta in zip(legacy["ids"], legacy["metadatas"]) if not (meta or {}).get("document_id"))
-        return existing
 
     def list_documents(self, department: Optional[str] = None) -> List[Dict[str, Any]]:
         """按文档聚合片段，供管理员核对知识库内容；department 为 None 时列出全部部门。"""
@@ -386,18 +372,8 @@ class KnowledgeBase:
             self.add_documents(stale)
             logger.info("已导入默认知识库: %s/%s 篇文档有新增或更新", len(stale), len(docs))
 
-    # 旧版内置演示文档（source 为标题）的内容哈希：只有这些可以被 knowledge/ 下的同名文件替换。
-    _LEGACY_DEMO_VERSIONS = frozenset({
-        "beceea6bf36e03bf53f9bea23dd46f2070ef85669f5e33af53b509636abba919",  # VPN 连接排障 SOP
-        "8509e2372913c5c58e682a734384cbc749689050f858b588d28c949a6a79b097",  # 密码重置与 MFA
-        "62ab9686bba110061da7543921788d00e827da9172012a5d7ae5cdb06bd6d1d7",  # 权限申请流程
-        "c89408d5f53446ed1883601fa1600862c3e3aedff96e433e38d8ed8243d021b6",  # Wi-Fi 与网络排障
-        "89ba23c7d7534f79668439e4ca68a4b35a39d4b1fdf9480395aa0ecada3c0bc3",  # 软件安装与许可证
-        "133ccbb09436d7fcb434a4ff45552f21128ccd289aae83cb9c8b99c9ce405aa9",  # 工单优先级与 SLA
-    })
-
     def _seed_state(self, doc: Dict[str, str]) -> str:
-        """current：已是最新；stale：缺失或是演示种子的旧版本；foreign：同名文档来自管理员等其他来源，保留不动。"""
+        """current：已是最新；stale：缺失或演示种子已更新；foreign：同名文档来自管理员等其他来源，保留不动。"""
         document_id = hashlib.sha256(json.dumps(["title", doc["title"]], ensure_ascii=True).encode()).hexdigest()
         version = hashlib.sha256(doc["content"].encode()).hexdigest()
         metadatas = [meta or {} for meta in self._collection.get(where={"document_id": document_id})["metadatas"]]
@@ -405,7 +381,7 @@ class KnowledgeBase:
             return "stale"
         if all(meta.get("version") == version and meta.get("source") == doc["source"] for meta in metadatas):
             return "current"
-        if all(meta.get("source") == doc["source"] or meta.get("version") in self._LEGACY_DEMO_VERSIONS for meta in metadatas):
+        if all(meta.get("source") == doc["source"] for meta in metadatas):
             return "stale"
         logger.info("跳过演示文档《%s》：知识库中已有非演示来源的同名文档", doc["title"])
         return "foreign"

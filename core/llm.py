@@ -31,19 +31,32 @@ def _thinking_settings() -> Optional[ModelSettings]:
     return ModelSettings(extra_body={"thinking": {"type": thinking}})
 
 
+AGENT_THINKING_LEVELS = ("disabled", "low", "high", "max")
+
+
+def agent_thinking_settings(profile) -> dict:
+    """Agent 这一路的思考档位（IT_COPILOT_AGENT_THINKING）：disabled / low / high / max，默认 disabled。
+
+    只用于 Agent：意图识别等结构化输出依赖指定函数的 tool_choice，DeepSeek 思考模式会拒绝，模型级默认仍是关闭。
+    思考 token 计入输出上限，开启时把 max_tokens 提到 IT_COPILOT_AGENT_THINKING_MAX_TOKENS（默认 16000），
+    只按实际用量计费；思考模式不支持 temperature（不报错但无效），不再传。
+    """
+    level = (os.getenv("IT_COPILOT_AGENT_THINKING") or "disabled").strip().lower()
+    if level not in AGENT_THINKING_LEVELS:
+        raise ValueError(f"IT_COPILOT_AGENT_THINKING must be one of {AGENT_THINKING_LEVELS}")
+    if level == "disabled":
+        return {"max_tokens": profile.max_tokens, "temperature": profile.temperature,
+                **({"extra_body": {"thinking": {"type": "disabled"}}} if os.getenv("OPENAI_THINKING_TYPE") else {})}
+    return {"max_tokens": int(os.getenv("IT_COPILOT_AGENT_THINKING_MAX_TOKENS") or 16000),
+            "extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": level}}
+
+
 def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = "") -> Model:
     """构造 PydanticAI Model；参数为空时取 OPENAI_* 环境变量。构造过程不发起网络请求。"""
     name = model or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
     # 本地无鉴权服务不需要 key；空 key 时给占位值，避免 SDK 在构造期报错。
     provider = OpenAIProvider(base_url=base_url or os.getenv("OPENAI_BASE_URL") or None, api_key=api_key or os.getenv("OPENAI_API_KEY") or "sk-local")
     return OpenAIChatModel(name, provider=provider, settings=_thinking_settings())
-
-
-def model_base_url(model: Any) -> str:
-    try:
-        return str(getattr(model, "base_url", "") or "")
-    except Exception:
-        return ""
 
 
 async def close_model(model: Any) -> None:

@@ -37,6 +37,14 @@ from monitor import metrics
 
 logger = logging.getLogger(__name__)
 
+# 重排候选数：WixQA 评测用的就是 hybrid 前 20 个片段。
+RERANK_CANDIDATES = 20
+
+
+def _flag(name: str) -> bool:
+    return os.getenv(name, "false").lower() in {"1", "true", "yes"}
+
+
 # 结构化输出代替“从文本中截取 JSON 数组”；retries=0 保持原有“失败即降级”的时延边界。
 _REWRITE_AGENT = Agent(output_type=ToolOutput(List[str], name="return_sub_queries", description="返回多角度检索子查询"), retries=0, name="query_rewriter")
 _RERANK_AGENT = Agent(output_type=ToolOutput(List[int], name="return_ranking", description="返回按相关性降序排列的结果索引"), retries=0, name="result_reranker")
@@ -198,7 +206,7 @@ class MCPToolManager:
     ) -> ToolResult:
         """
         调用工具，完整执行链：参数校验 → 缓存检查 → 熔断检查 → 执行（含超时）→ 缓存写入。
-        每次调用都记录结果分类、执行耗时与熔断状态指标。重排只在 search_with_rewrite 里对合并结果做。
+        每次调用都记录结果分类、执行耗时与熔断状态指标。重排只在 enhanced_search 里对合并结果做。
         """
         result = await self._call(name, params, context, use_cache=use_cache)
         metrics.TOOL_CALLS.labels(tool=name, outcome=result.outcome).inc()
@@ -359,48 +367,53 @@ class MCPToolManager:
         department: Optional[str] = None,
     ) -> ToolResult:
         """
-        Agent 检索入口：默认一次 hybrid 检索；IT_COPILOT_RAG_REWRITE=true 时走改写 + 重排。
+        Agent 检索入口：默认一次 hybrid 检索。两个增强可分别开启：
 
-        中文 embedding 下 rag-v2 40 条查询的 hybrid 已接近满分，改写重排每次多两次 LLM 调用、约 2 秒，
-        收益见 docs/design-tradeoffs.md，因此默认关闭。
+        - IT_COPILOT_RAG_RERANK=true：先召回 RERANK_CANDIDATES 个候选，再用 LLM / Jev 重排取前 top_k。
+          WixQA（6,221 篇）上 ExpertWritten Recall@5 0.57 → 0.77（LLM，+1.1 s）/ 0.68（Jev，+0.3 s）。
+        - IT_COPILOT_RAG_REWRITE=true：LLM 把查询改写成多个子查询并行召回、去重合并；多一次模型调用，
+          大语料上的单独收益未测。
+
+        演示知识库只有几十篇，普通 hybrid 已接近满分，两者默认关闭。
         """
-        if os.getenv("IT_COPILOT_RAG_REWRITE", "false").lower() in {"1", "true", "yes"}:
-            return await self.search_with_rewrite(tool_name, query, top_k=top_k, context=context, department=department)
         if invalid := self._invalid_search(tool_name, query, top_k):
             return invalid
+        rewrite, rerank = _flag("IT_COPILOT_RAG_REWRITE"), _flag("IT_COPILOT_RAG_RERANK")
+        if rewrite or rerank:
+            return await self.enhanced_search(tool_name, query, top_k=top_k, context=context, department=department,
+                                              rewrite=rewrite, rerank=rerank)
         result = await self.call(tool_name, {"query": query, "top_k": top_k, "department": department, "mode": "hybrid"}, context, use_cache=True)
         if result.success and not result.data:
             return ToolResult(False, [], tool_name, error="检索无可用结果", outcome="empty")
         return result
 
-    async def search_with_rewrite(
+    async def enhanced_search(
         self,
         tool_name: str,
         query: str,
         top_k: int = 5,
         context: Optional[Dict[str, Any]] = None,
         department: Optional[str] = None,
+        *,
+        rewrite: bool = True,
+        rerank: bool = True,
     ) -> ToolResult:
-        """
-        完整的检索优化链路：查询改写 → 并行召回 → 去重 → 重排 → Top-K
-
-        这是解决"检索不全、召回不好"的完整方案。
-        """
+        """（可选查询改写 →）并行召回 → 去重 →（可选重排 →）Top-K。"""
         if invalid := self._invalid_search(tool_name, query, top_k):
             return invalid
-        # 1. 查询改写：生成多角度子查询
-        sub_queries = await self.rewrite_query(query, n=3)
-        logger.info(f"查询改写: {query!r} → {sub_queries}")
+        sub_queries = await self.rewrite_query(query, n=3) if rewrite else [query]
+        if rewrite:
+            logger.info(f"查询改写: {query!r} → {sub_queries}")
 
-        # 2. 并行召回：所有子查询同时检索
-        recall_k = max(top_k, 5)
+        # 重排时多召回一些候选，给重排留出挑选空间；只改写时每路召回 top_k（至少 5）。
+        recall_k = min(20, max(top_k, RERANK_CANDIDATES)) if rerank else max(top_k, 5)
         tasks = [
             self.call(tool_name, {"query": q, "top_k": recall_k, "department": department, "mode": "hybrid"}, context, use_cache=True)
             for q in sub_queries
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 3. 合并去重（按内容哈希去重）
+        # 合并去重（按内容哈希去重），保持召回顺序
         seen, merged = set(), []
         for r in results:
             if isinstance(r, ToolResult) and r.success and isinstance(r.data, list):
@@ -417,7 +430,8 @@ class MCPToolManager:
             failed = any(not isinstance(r, ToolResult) or not r.success for r in results)
             return ToolResult(success=False, data=[], tool_name=tool_name, error="检索无可用结果：" + "; ".join(errors), outcome="error" if failed else "empty")
 
-        # 4. 重排：用 LLM 对合并结果按相关性打分，取 Top-K
+        if not rerank:
+            return ToolResult(success=True, data=merged[:top_k], tool_name=tool_name)
         data, reranked = await self._rerank_with_status(query, merged, top_k)
         return ToolResult(success=True, data=data, tool_name=tool_name, reranked=reranked)
 

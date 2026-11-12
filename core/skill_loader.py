@@ -5,6 +5,7 @@ Skill 是一段可热加载的业务能力说明，用来补充 Agent 的 system
 它适合放置企业话术、处理流程、合规边界、排障 SOP 等需要运营侧快速调整的规则。
 """
 import json
+import os
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,8 +25,10 @@ class Skill:
     content: str
     path: str
     keywords: List[str] = field(default_factory=list)
-    agents: List[str] = field(default_factory=list)
     enabled: bool = True
+    # 渐进式披露时据此挑选：本轮意图分组命中、或用户要求了其中的写操作即附上正文。
+    intent_groups: List[str] = field(default_factory=list)
+    write_tools: List[str] = field(default_factory=list)
 
     def to_prompt_block(self, max_chars: int = 3200) -> str:
         """格式化为可直接拼入 system prompt 的文本块，并限制单个 Skill 长度。"""
@@ -42,7 +45,6 @@ class Skill:
             "description": self.description,
             "path": self.path,
             "keywords": self.keywords,
-            "agents": self.agents,
             "enabled": self.enabled,
             "content_chars": len(self.content),
         }
@@ -115,16 +117,16 @@ class SkillManager:
         """运行时热加载入口，供 API 调用。"""
         return self.load()
 
-    def prompt_for(self, agent_type: Optional[str] = None) -> str:
-        """某个 Agent 适用的全部 Skill，按总长度截断；agent_type 为 None（通用 Agent）时取全部。
+    def prompt(self) -> str:
+        """全部启用的 Skill，按总长度截断。
 
-        不再按消息关键词挑选：结果对每个 Agent 固定，可放进 system prompt（可信位置、前缀缓存稳定），
+        不按消息关键词挑选：结果固定，可放进 system prompt（可信位置、前缀缓存稳定），
         也不会因为关键词没命中而漏掉该遵守的规范。keywords 只作元数据保留。
         """
         blocks: List[str] = []
         remaining = self.max_prompt_chars
         for skill in self._skills:
-            if not skill.enabled or (agent_type and skill.agents and agent_type.lower() not in skill.agents):
+            if not skill.enabled:
                 continue
             block = skill.to_prompt_block()
             if len(block) > remaining:
@@ -134,6 +136,37 @@ class SkillManager:
             if remaining <= 0:
                 break
         return "\n\n".join(blocks)
+
+    def disclosure(self) -> str:
+        """技能披露方式（IT_COPILOT_SKILL_DISCLOSURE）：full / progressive / auto，默认 auto。
+
+        full：全部正文放进 system。system 是固定前缀，命中缓存后按命中价计费（deepseek-flash 为未命中的 1/50）。
+        progressive：system 只放目录，本轮相关的正文放进本轮消息；本轮消息不命中缓存，按未命中价计费。
+        auto：技能总长不超过 IT_COPILOT_SKILL_FULL_MAX_CHARS（默认 6000）时用 full，超过时用 progressive。
+        技能少时 full 更省钱也不会漏规范；技能多到全量放不下或稀释注意力时，再按需披露。
+        """
+        mode = (os.getenv("IT_COPILOT_SKILL_DISCLOSURE") or "auto").strip().lower()
+        if mode not in {"full", "progressive", "auto"}:
+            raise ValueError("IT_COPILOT_SKILL_DISCLOSURE must be full, progressive or auto")
+        if mode != "auto":
+            return mode
+        total = sum(len(skill.to_prompt_block()) for skill in self._skills if skill.enabled)
+        return "full" if total <= int(os.getenv("IT_COPILOT_SKILL_FULL_MAX_CHARS") or 6000) else "progressive"
+
+    def index(self) -> str:
+        """渐进式披露时放进 system 的目录：名称与一句描述，固定不变，可命中前缀缓存。"""
+        return "\n".join(f"- {s.name}：{s.description}" for s in self._skills if s.enabled)
+
+    def select(self, message: str = "", intent_group: Optional[str] = None, writes=()) -> List[Skill]:
+        """本轮相关的技能：意图分组命中、用户要求了它负责的写操作、或消息含它的关键词。"""
+        text = (message or "").lower()
+        writes = set(writes or ())
+        return [s for s in self._skills if s.enabled and (
+            (intent_group and intent_group in s.intent_groups) or writes & set(s.write_tools)
+            or any(k.lower() in text for k in s.keywords))]
+
+    def selected_prompt(self, message: str = "", intent_group: Optional[str] = None, writes=()) -> str:
+        return "\n\n".join(s.to_prompt_block() for s in self.select(message, intent_group, writes))
 
     def summary(self) -> Dict[str, Any]:
         """返回 Skill 管理器状态，用于 /skills 接口和排障。"""
@@ -156,13 +189,11 @@ class SkillManager:
 
         if self._skills:
             for index, skill in enumerate(self._skills, start=1):
-                agents = ", ".join(skill.agents) if skill.agents else "all"
                 keywords = ", ".join(skill.keywords[:8]) if skill.keywords else "all"
                 if len(skill.keywords) > 8:
                     keywords += ", ..."
                 lines.extend([
                     f"{index}. {skill.name}",
-                    f"   agents: {agents}",
                     f"   keywords: {keywords}",
                     f"   path: {skill.path}",
                 ])
@@ -212,8 +243,9 @@ class SkillManager:
             content=content,
             path=str(path),
             keywords=self._as_list(raw.get("keywords")),
-            agents=[item.lower() for item in self._as_list(raw.get("agents"))],
             enabled=self._as_bool(raw.get("enabled"), default=True),
+            intent_groups=self._as_list(raw.get("intent_groups")),
+            write_tools=self._as_list(raw.get("write_tools")),
         )
 
     def _load_text(self, path: Path) -> Optional[Skill]:
@@ -235,8 +267,9 @@ class SkillManager:
             content=body,
             path=str(path),
             keywords=self._as_list(meta.get("keywords")),
-            agents=[item.lower() for item in self._as_list(meta.get("agents"))],
             enabled=self._as_bool(meta.get("enabled"), default=True),
+            intent_groups=self._as_list(meta.get("intent_groups")),
+            write_tools=self._as_list(meta.get("write_tools")),
         )
 
     def _split_front_matter(self, raw: str) -> tuple[Dict[str, Any], str]:

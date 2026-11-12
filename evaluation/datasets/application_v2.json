@@ -16,7 +16,7 @@
     ],
     "outcome": "tools",
     "tools": [
-      "lookup_error_code"
+      "search_knowledge_base"
     ]
   },
   {
@@ -115,16 +115,6 @@
     ]
   },
   {
-    "id": "status",
-    "turns": [
-      "请查一下corporate-vpn服务状态。"
-    ],
-    "outcome": "tools",
-    "tools": [
-      "check_service_status"
-    ]
-  },
-  {
     "id": "access-other-system",
     "turns": [
       "工号1002，申请VPN只读权限，理由是查看远程接入配置。"
@@ -170,7 +160,7 @@
     ],
     "outcome": "tools",
     "tools": [
-      "lookup_error_code"
+      "search_knowledge_base"
     ]
   },
   {

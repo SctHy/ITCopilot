@@ -1,6 +1,6 @@
-"""Offline observability tests: agent degradation state machine, Prometheus metrics, OpenTelemetry spans."""
+"""Offline observability tests: agent stats window, Prometheus metrics, OpenTelemetry spans."""
 import asyncio
-import time
+from types import SimpleNamespace
 
 from prometheus_client import REGISTRY
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
@@ -9,8 +9,9 @@ from pydantic_ai.usage import RequestUsage
 
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.agent_stats import AgentStats
-from agents.types import AgentType, Request
+from agents.types import Request
 from tooling.tool_manager import MCPToolManager, Tool
+from tests.conftest import with_read_tool
 
 
 def sample(name, **labels):
@@ -24,46 +25,19 @@ def reply(text="好的"):
 
 
 def orchestrator_with(model):
-    orchestrator = AgentOrchestrator("sk-local")
-    for agents in orchestrator._pool.values():
-        for agent in agents:
-            agent._llm = model
+    orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
+    orchestrator.agent._llm = model
     return orchestrator
 
 
-# ── 降级状态机 ────────────────────────────────────────────────────────────────
+# ── 统计窗口 ──────────────────────────────────────────────────────────────────
 
-def test_agent_stats_state_machine_allows_single_probe():
+def test_agent_stats_window_tracks_recent_success_and_latency():
     stats = AgentStats()
-    assert stats.state() == "healthy" and stats.try_acquire("r0")
-    stats.set_penalty(.8)
-    assert stats.state() == "cooling" and not stats.try_acquire("r1")
-    stats.retry_at = time.monotonic() - 1
-    assert stats.state() == "half_open"
-    assert stats.try_acquire("probe") and stats.state() == "probing"
-    assert not stats.try_acquire("other")
-    stats.record(True, 10, "probe")
-    assert stats.state() == "healthy" and stats.monitor_penalty == 0
-
-
-def test_failed_probe_returns_to_cooling():
-    stats = AgentStats(retry_at=time.monotonic() - 1)
-    assert stats.try_acquire("probe")
-    stats.record(False, 10, "probe")
-    assert stats.state() == "cooling"
-
-
-def test_degraded_specialist_falls_back_to_triage():
-    async def run():
-        orchestrator = orchestrator_with(reply("Triage 已接手"))
-        network = orchestrator._pool[AgentType.NETWORK_SOFTWARE][0]
-        network.stats.set_penalty(.9)
-        busy_before = sample("it_copilot_agent_failures_total", agent="network_software", reason="busy")
-        response = await orchestrator._execute(Request("VPN 连不上"), AgentType.NETWORK_SOFTWARE)
-        assert response.agent_type == AgentType.TRIAGE and response.success and response.content == "Triage 已接手"
-        assert network.stats.total == 0
-        assert sample("it_copilot_agent_failures_total", agent="network_software", reason="busy") == busy_before + 1
-    asyncio.run(run())
+    assert stats.recent() == (0, 1., 0.)
+    stats.record(True, 100)
+    stats.record(False, 300)
+    assert stats.recent() == (2, .5, 200.)
 
 
 # ── Prometheus 指标 ───────────────────────────────────────────────────────────
@@ -71,31 +45,32 @@ def test_degraded_specialist_falls_back_to_triage():
 def test_agent_metrics_record_status_tokens_and_tool_calls():
     async def respond(messages, info):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
-            return ModelResponse(parts=[ToolCallPart("lookup_asset", {"asset_id": "PC-1"})], usage=RequestUsage(input_tokens=5, output_tokens=2))
+            return ModelResponse(parts=[ToolCallPart("lookup_asset", {"asset_id": "DEV-1001"})], usage=RequestUsage(input_tokens=5, output_tokens=2))
         return ModelResponse(parts=[TextPart("资产正常")], usage=RequestUsage(input_tokens=6, output_tokens=4))
 
     async def run():
         orchestrator = orchestrator_with(FunctionModel(respond))
-        labels = {"agent": "endpoint", "status": "success", "error_code": "none"}
-        before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", agent="endpoint", model="deepseek-chat", direction="input"),
-                  sample("it_copilot_agent_tool_calls_total", agent="endpoint", tool="lookup_asset", outcome="success"))
-        await orchestrator._execute(Request("查一下资产 PC-1"), AgentType.ENDPOINT)
+        orchestrator.directory = SimpleNamespace(employee=lambda eid: {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}], "tickets": []})
+        labels = {"status": "success", "error_code": "none"}
+        before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input"),
+                  sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success"))
+        await orchestrator._execute(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001")))
         assert sample("it_copilot_agent_requests_total", **labels) == before[0] + 1
-        assert sample("it_copilot_llm_tokens_total", agent="endpoint", model="deepseek-chat", direction="input") == before[1] + 11
-        assert sample("it_copilot_agent_tool_calls_total", agent="endpoint", tool="lookup_asset", outcome="success") == before[2] + 1
+        assert sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input") == before[1] + 11
+        assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success") == before[2] + 1
     asyncio.run(run())
 
 
 def test_agent_failure_reason_is_classified():
     async def loop_forever(messages, info):
-        return ModelResponse(parts=[ToolCallPart("check_service_status", {"service": "vpn"})])
+        return ModelResponse(parts=[ToolCallPart("diagnose", {"code": "vpn"})])
 
     async def run():
         orchestrator = orchestrator_with(FunctionModel(loop_forever))
-        before = sample("it_copilot_agent_failures_total", agent="network_software", reason="round_limit")
-        response = await orchestrator._execute(Request("VPN 状态"), AgentType.NETWORK_SOFTWARE)
+        before = sample("it_copilot_agent_failures_total", reason="round_limit")
+        response = await orchestrator._execute(Request("VPN 状态"))
         assert response.error_code == "agent_failed"
-        assert sample("it_copilot_agent_failures_total", agent="network_software", reason="round_limit") == before + 1
+        assert sample("it_copilot_agent_failures_total", reason="round_limit") == before + 1
     asyncio.run(run())
 
 
@@ -151,13 +126,13 @@ def test_tracing_nests_agent_spans_under_chat_without_content():
 
     async def respond(messages, info):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
-            return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"error_code": "VPN-691"})])
+            return ModelResponse(parts=[ToolCallPart("diagnose", {"code": "VPN-691"})])
         return ModelResponse(parts=[TextPart("认证失败")])
 
     async def run():
         orchestrator = orchestrator_with(FunctionModel(respond))
         with telemetry.chat_span("trace-1"):
-            await orchestrator._execute(Request("我的员工号 E1001，VPN-691"), AgentType.NETWORK_SOFTWARE)
+            await orchestrator._execute(Request("我的员工号 E1001，VPN-691"))
 
     exporter = InMemorySpanExporter()
     provider = telemetry.setup_tracing(exporter)
@@ -170,5 +145,5 @@ def test_tracing_nests_agent_spans_under_chat_without_content():
     assert root.attributes["it_copilot.request_id"] == "trace-1"
     children = [s for s in spans if s is not root]
     assert children and all(s.context.trace_id == root.context.trace_id for s in children)
-    assert any("lookup_error_code" in s.name for s in children)
+    assert any("diagnose" in s.name for s in children)
     assert not any("E1001" in str(value) for s in spans for value in s.attributes.values())

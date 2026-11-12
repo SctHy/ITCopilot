@@ -234,6 +234,7 @@ def main() -> int:
         "by_category": by_category, "duration_s": round(time.time() - started, 2), "cases": cases,
         "status": "passed" if all(c["passed"] for c in cases) else "failed",
     }
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: report[k] for k in ("total", "passed", "unauthorized_writes", "unauthorized_reads", "by_category", "status")}, ensure_ascii=False, indent=2))
     for case in cases:

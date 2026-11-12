@@ -35,19 +35,9 @@
 | embeddinggemma-300m | 向量 | 0.28 | 0.67 | 0.50 | 0.24 | 0.63 | 0.43 | 24 ms |
 | embeddinggemma-300m | 混合 | 0.33 | 0.62 | 0.51 | 0.22 | 0.57 | 0.40 | 27 ms |
 
-报告：`evaluation/reports/rag_wixqa_<模型>.json`，如 [rag_wixqa_jina-embeddings-v2-base-zh.json](../evaluation/reports/rag_wixqa_jina-embeddings-v2-base-zh.json)、[rag_wixqa_bge-small-zh-v1.5.json](../evaluation/reports/rag_wixqa_bge-small-zh-v1.5.json)。
+报告：`evaluation/reports/rag_wixqa_<模型>.json`，如 `evaluation/reports/rag_wixqa_jina-embeddings-v2-base-zh.json`、`evaluation/reports/rag_wixqa_bge-small-zh-v1.5.json`。
 
-同时在自写中文 rag-v2（60 篇 / 40 查询）上对比（`scripts/evaluate_rag_ablation.py --embedding-model ...`，报告 `rag_ablation_v2[_<模型>].json`）。中文集上几个双语模型都到顶，区分度有限：
-
-| embedding | 体积 | 向量 Recall@3 / MRR | 混合 Recall@3 / MRR | 向量查询延迟 |
-|---|---|---|---|---|
-| bge-small-zh（原默认） | 0.09 GB | 0.925 / 0.850 | 0.975 / 0.900 | 5 ms |
-| jina-v2-base-zh（默认） | 0.64 GB | 1.0 / 0.988 | 1.0 / 0.958 | 11 ms |
-| multilingual-mpnet | 1.0 GB | 1.0 / 0.963 | 1.0 / 0.958 | 8 ms |
-| embeddinggemma-300m | 1.24 GB | 1.0 / 0.971 | 1.0 / 0.933 | 10 ms |
-| Qwen3-Embedding-0.6B-Q | 1.12 GB | 1.0 / 0.938 | 1.0 / 0.933 | 193 ms |
-
-默认改用 jina-v2-base-zh：中文最好，英文与英文专用模型持平，Apache-2.0。embeddinggemma-300m 在英文上最好，但体积约 2 倍、权重用 Gemma 使用条款，要随镜像分发，留作可选；Qwen3 查询延迟太高。三个双语候选在记忆评测（memory-v1、memory-ablation-v2）上与 bge-small-zh 结果一致。
+默认用 jina-v2-base-zh：中英双语，英文与英文专用模型持平，Apache-2.0。embeddinggemma-300m 在英文上最好，但体积约 2 倍、权重用 Gemma 使用条款，要随镜像分发，留作可选。
 
 ### 这个基准暴露的问题与修复
 
@@ -57,7 +47,7 @@
 |---|---|---|---|---|
 | BM25 | 约 290 ms | 每次查询遍历全部片段，逐个数词频 | 重建索引时建倒排表（numpy 数组），打分只碰含查询词的片段并按数组运算；只展开词法排名前 `top_k*4` 的片段 | 4 ms |
 | SQLite 向量 | 170–240 ms | 每次查询从库里反序列化全部向量 | 向量矩阵按（集合版本，过滤条件）缓存在进程内，只为 top-n 取正文；矩阵按 id 排序，重复片段距离打平时结果确定 | 10–12 ms |
-| 集合版本检查 | 27 ms × 2 | `count(*)` 与 `max(updated_at)` 扫描含向量的整行 | 迁移 0005 加 `(collection, updated_at)` 覆盖索引 | 1 ms |
+| 集合版本检查 | 27 ms × 2 | `count(*)` 与 `max(updated_at)` 扫描含向量的整行 | 加 `(collection, updated_at)` 覆盖索引 | 1 ms |
 
 截断展开不改变结果：只出现在词法一路、排名在 `top_k*4` 之后的片段，前面至少有 `top_k` 个 RRF 分更高的片段，进不了结果；同时出现在向量一路的片段仍按完整词法排名加分。在 400 条查询 × 3 种模式 × `top_k` 1/5/20 上与全量展开的旧算法逐条对照，3,600 组结果顺序全部一致；`tests/test_knowledge_base.py` 用小语料固定了这一点和 BM25 公式。
 
@@ -66,7 +56,7 @@
 - 分词把句末标点粘在词上（`domain.` 与 `domain` 是两个词）。现在去掉词首尾的 `.`、`/`、`-`，`vpn-691`、`10.0.0.1` 这类内部符号保留。BM25 Expert R@5 0.41→0.45。
 - 切片只按中文句号切，并把换行替换成句号。现在中文按 。！？；和换行、英文按 .!?; 后接空白切，片段保留原文字符，超长单句按长度硬切。
 
-改动后自写 rag_v2（60 篇 / 40 查询）的 Recall@3 与 MRR 与之前完全一致（BM25 0.95、向量 0.925、混合 0.975），说明对中文短文档没有影响。PostgreSQL 路径（pgvector 在库内计算距离）没有改。
+PostgreSQL 路径（pgvector 在库内计算距离）没有改。
 
 ### 结论
 
@@ -95,7 +85,7 @@
 | slack | 20/21 | 70/105 | 82 | 0/84 | 0/21 | 27 |
 | 合计 | 81/97（0.84） | 757/949（0.80） | 411 | 0/908 | 15/41（15） | 56 |
 
-报告：[evaluation/reports/agentdojo/](../evaluation/reports/agentdojo/)，每个组合保留工具调用序列、写调用和回答。
+报告：`evaluation/reports/agentdojo/`，每个组合保留工具调用序列、写调用和回答。
 
 ### 结论
 

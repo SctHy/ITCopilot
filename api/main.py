@@ -139,6 +139,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
             # 审批与执行状态的唯一来源是应用数据库，不放在 Redis 里。
             state.workflow = await asyncio.to_thread(WorkflowStore, db_url)
+            state.orchestrator.directory = state.workflow
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)
             for adapter in state.registry.all():

@@ -1,46 +1,36 @@
 """Agent-side serialization and execution adapter; no database or workflow imports."""
 from dataclasses import asdict
-from agents.types import AgentResponse, AgentType, OrchestratorResult
+from agents.types import AgentResponse, OrchestratorResult
 from agents.intent.taxonomy import IntentCategory
 
 
 def encode(value):
     data = asdict(value)
-    for name in ('agent_type', 'primary_agent', 'intent'):
-        if data.get(name) is not None:
-            data[name] = data[name].value
-    for name in ('agent_types', 'supporting_agents'):
-        if name in data:
-            data[name] = [v.value for v in data[name]]
+    if data.get('intent') is not None:
+        data['intent'] = data['intent'].value
     return data
 
 
 def decode(data, cls=AgentResponse):
     data = dict(data)
-    for name in ('agent_type', 'primary_agent'):
-        if data.get(name) is not None:
-            data[name] = AgentType(data[name])
     if data.get('intent') is not None:
         data['intent'] = IntentCategory(data['intent'])
-    for name in ('agent_types', 'supporting_agents'):
-        if name in data:
-            data[name] = [AgentType(v) for v in data[name]]
     return cls(**data)
 
 
-async def execute_step(execute, req, agent_type, name):
+async def execute_step(execute, req, name):
     checkpoint = req.checkpoints
     if not checkpoint:
-        return await execute(req, agent_type)
+        return await execute(req)
     inputs = dict(message=req.message, context=req.context, history=req.history, entities=req.entities,
         step_outputs=req.step_outputs, principal=req.principal.public(),
         allowed_writes=sorted(req.allowed_writes) if req.allowed_writes is not None else None,
-        hidden_tools=sorted(req.hidden_tools), agent_type=agent_type.value)
+        hidden_tools=sorted(req.hidden_tools))
     old = await checkpoint.read(name, inputs)
     if old is not None:
         await req.publish('step_restored', {'step_id': name})
         return decode(old)
-    result = await execute(req, agent_type)
+    result = await execute(req)
     if result.success:
         await checkpoint.save(name, inputs, encode(result), result.token_usage)
     else:
@@ -57,6 +47,6 @@ async def execute_run(orchestrator, req):
         return decode(old, OrchestratorResult)
     result = await orchestrator.run(req)
     if result.status == 'success':
-        # Specialist checkpoints already accounted for their usage.
+        # The agent step checkpoint already accounted for its usage.
         await req.checkpoints.save('result', inputs, encode(result))
     return result

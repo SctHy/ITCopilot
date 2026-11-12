@@ -30,7 +30,6 @@
 | I02 | 回合与回执 | `TURN`：new → running → approval/responding → committed → finished；已有回执 → replayed | [chat.py](../api/routes/chat.py) |
 | I03 | 本轮写工具防重 | `OnceState`：available → consumed；先消费本轮名额再 await，失败不自动释放；`TOOL_CALL` 检查调用阶段 | [base_agent.py](../agents/base_agent.py) |
 | I04 | 模型与工具循环 | `MODEL_RUN`：generating → correcting/completed/partial/failed/cancelled；纠正仅一次，轮数预算沿用原限制 | [agents/states.py](../agents/states.py)、[base_agent.py](../agents/base_agent.py) |
-| I05 | 计划整体执行 | `PLAN_RUN`：waiting ↔ running → completed/failed/cancelled；单步仍使用 `STEP`；未能继续的步骤收束为 blocked | [agent_orchestrator.py](../agents/agent_orchestrator.py) |
 | I06 | 服务端 SSE | `StreamState / STREAM`：running → completed/error；终态后拒绝追加任何事件 | [events.py](../core/events.py) |
 | I07 | 浏览器 SSE | `STREAM`：opening → reading ↔ resuming → completed/failed/interrupted；不确定失败保留请求键 | [backends.js](../frontend/src/lib/backends.js) |
 | I08 | 回答草稿 | `DRAFT`：absent → writing ↔ empty → removed；移除后忽略迟到增量 | [answerDraft.js](../frontend/src/lib/answerDraft.js) |
@@ -53,16 +52,14 @@
 | I25 | 文档、索引与 embedding 版本 | `DOCUMENT_UPDATE` prepared → writing → committed → indexed；`MIGRATION` scanning → embedding → writing → scanning/completed | [knowledge_base.py](../tooling/knowledge_base.py)、[vector_store.py](../core/vector_store.py) |
 | I26 | 告警迟滞 | `AlertPhase / ALERT_PHASE` firing ↔ clearing → resolved；在监控读模型中公开 phase，持久含义仍用 `ALERT` | [performance_monitor.py](../monitor/performance_monitor.py) |
 | I27 | 应用与资源生命周期 | `APPLICATION` starting → ready/degraded → stopping → closed；`SERVICE` 管理 worker/monitor；`AsyncExitStack` 在启动失败时也释放已获取资源 | [main.py](../api/main.py)、[protocols.py](../core/protocols.py) |
-| I28 | 技能候选与晋升 | `CANDIDATE` proposed → validated → dev → holdout_safety → accepted/rejected；`PROMOTION` checking → staged → writing → completed/failed | [evaluation/states.py](../evaluation/states.py)、[improvement.py](../evaluation/improvement.py) |
-| I29 | 评测会话与 Judge | `TRIAL` dialogue → user_stop/max_turns → approving → grading → completed/failed；`JUDGE` requesting → backoff/requesting/completed/failed/cancelled | [evaluate_simulated.py](../scripts/evaluate_simulated.py)、[evaluator.py](../evaluation/evaluator.py) |
-| H01 | Agent 健康恢复 | `HEALTH` healthy → cooling → half_open → probing → healthy/cooling；取消回到 half_open，探针所有者不变 | [agent_stats.py](../agents/agent_stats.py) |
+| I29 | 评测会话 | `TRIAL` dialogue → user_stop/max_turns → approving → grading → completed/failed | [evaluate_simulated.py](../scripts/evaluate_simulated.py) |
 | H02 | 工具熔断 | `CIRCUIT` closed → open → half_open → closed/open；取消与迟到回调受 generation 限制 | [tool_manager.py](../tooling/tool_manager.py)、[executor.py](../tooling/executor.py) |
 
-原状态建模保留十张转换表：`APPROVAL`、`EXECUTION`、`ACTION`、`GRANT`、`INBOX`、`OUTBOX`、`STEP`、`CONNECTION`、`ALERT`、`FACT`。后续共享事项迁移另外引入持久回合和核验记录，边界见下文及相应 ADR。
+原状态建模保留九张转换表：`APPROVAL`、`EXECUTION`、`ACTION`、`GRANT`、`INBOX`、`OUTBOX`、`CONNECTION`、`ALERT`、`FACT`。后续共享事项迁移另外引入持久回合和核验记录，边界见下文及相应 ADR。
 
-共享事项的核验队列：`queued → running → passed / failed / unknown`；运行租约到期可重新领取，最多三次。排队或运行中的检查可因目标变更、停止或新检查而进入 `stale / cancelled`。结果提交同时检查租约、目标版本、进度版本及当前任务运行状态；旧结果不能唤醒重规划。只有 `failed` 可以在目标预算内唤醒最多两轮只读计划，`unknown` 转人工。
+共享事项的核验队列：`queued → running → passed / failed / unknown`；运行租约到期可重新领取，最多三次。排队或运行中的检查可因目标变更、停止或新检查而进入 `stale / cancelled`。结果提交同时检查租约、目标版本、进度版本及当前任务运行状态；旧结果不能唤醒重规划。只有 `failed` 可以在目标预算内唤醒最多两轮只读跟进，`unknown` 转人工。
 
-共享事项的计划恢复已由 [检查点服务](../workflow/task_checkpoints.py) 持久化到步骤边界；`PLAN_RUN` 本身依然只描述进程内阶段。详细恢复与验收契约见 [ADR 0015](adr/0015-task-execution-verification.md)。
+共享事项回合的恢复由 [检查点服务](../workflow/task_checkpoints.py) 持久化到冻结输入、Agent 调用、聚合结果和进度建议四个边界。详细恢复与验收契约见 [ADR 0015](adr/0015-task-execution-verification.md)。
 
 ## 关键恢复路径
 

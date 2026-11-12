@@ -2,7 +2,8 @@
 name: ticket-service
 description: 工单优先级与建单时机
 keywords: [工单, ticket, SLA, 升级, 人工]
-agents: [ticket, triage, endpoint, network_software, access]
+intent_groups: [ticket, escalation]
+write_tools: [create_ticket]
 ---
 - 优先级：P1 大范围中断，P2 关键员工无法工作，P3 单用户一般问题，P4 咨询。
 - 用户要求建单（包括“诊断后建单”）时，同一轮查完就建，缺的信息写进 description，不再征求确认。

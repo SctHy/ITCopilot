@@ -4,8 +4,6 @@ from enum import StrEnum
 
 import pytest
 
-from agents.agent_stats import AgentHealth, AgentStats
-from agents.planner import STEP, ExecutionPlan, PlanStep, StepStatus
 from api import state
 from api.routes import chat as chat_routes
 from core.events import InMemoryEventBus
@@ -33,7 +31,7 @@ def test_machine_rejects_undeclared_edges_and_allows_staying():
         Machine(Light, "a -> missing")
 
 
-@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, INBOX, OUTBOX, STEP, CONNECTION, ALERT, FACT])
+@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, INBOX, OUTBOX, CONNECTION, ALERT, FACT])
 def test_every_state_is_reachable_from_the_initial_one(machine):
     initial = next(iter(machine.edges))
     seen, frontier = {initial}, [initial]
@@ -66,13 +64,6 @@ def test_store_cas_refuses_an_undeclared_transition(tmp_path):
         store.close()
 
 
-def test_plan_dict_reports_executed_step_status():
-    plan = ExecutionPlan("p", "goal", [PlanStep("s1", "诊断", "network_software", []), PlanStep("s2", "建单", "ticket", ["s1"])])
-    steps = plan.to_dict({"s1": StepStatus.FAILED, "s2": StepStatus.BLOCKED})["steps"]
-    assert [s["status"] for s in steps] == ["failed", "blocked"]
-    assert [s["status"] for s in plan.to_dict()["steps"]] == ["pending", "pending"]
-
-
 def test_stream_without_terminal_event_is_reported_abandoned(monkeypatch):
     monkeypatch.setenv("IT_COPILOT_SSE_HEARTBEAT_S", "0.01")
     monkeypatch.setenv("IT_COPILOT_SSE_IDLE_TIMEOUT_S", "0.05")
@@ -87,19 +78,6 @@ def test_stream_without_terminal_event_is_reported_abandoned(monkeypatch):
     chunks = asyncio.run(run())
     assert chunks[0].startswith("id:") and "event: status" in chunks[0]
     assert "event: error" in chunks[-1] and "stream_abandoned" in chunks[-1]
-
-
-def test_cancelled_probe_returns_agent_to_half_open(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_MONITOR_COOLDOWN_SECONDS", "1")
-    stats = AgentStats()
-    stats.set_penalty(.9)
-    assert stats.state() == AgentHealth.COOLING
-    stats.retry_at -= 5
-    assert stats.try_acquire("probe") and stats.state() == AgentHealth.PROBING and not stats.try_acquire("other")
-    stats.abandon_probe("other")  # not the probe owner: no effect
-    assert stats.state() == AgentHealth.PROBING
-    stats.abandon_probe("probe")
-    assert stats.state() == AgentHealth.HALF_OPEN and stats.try_acquire("next")
 
 
 def test_alert_resolves_only_after_clean_ticks():

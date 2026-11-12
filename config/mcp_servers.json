@@ -5,8 +5,10 @@
       "enabled": true,
       "transport": "streamable_http",
       "url": "https://learn.microsoft.com/api/mcp",
-      "allowed_tools": ["microsoft_docs_search", "microsoft_docs_fetch"],
-      "agents": ["triage", "endpoint", "access", "network_software"],
+      "allowed_tools": [
+        "microsoft_docs_search",
+        "microsoft_docs_fetch"
+      ],
       "read_only": true,
       "timeout_s": 25,
       "cache_ttl": 300,

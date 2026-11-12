@@ -15,6 +15,6 @@ v2 的 `/chat/stream` 先 `await chat()`，再回放计划、工具与正文分�
 
 ## 后果
 
-- 首事件时延改为由意图识别决定（实测见 docs/evaluation-v3.md）。
+- 首事件时延改为由意图识别决定（实测见 docs/evaluation.md）。
 - 进程内 ASGI 传输会缓冲整个响应，测不出流式；时延基准与回归测试都走真实 uvicorn + TCP。
 - 尚未实现模型 token 级流式（需要在工具循环中区分中间轮与最终轮）。

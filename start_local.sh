@@ -20,13 +20,12 @@ export IT_COPILOT_PORT="${IT_COPILOT_PORT:-8001}"
 export IT_COPILOT_FRONTEND_PORT="${IT_COPILOT_FRONTEND_PORT:-5173}"
 export NO_PROXY="127.0.0.1,localhost"; export no_proxy="$NO_PROXY"
 
-# 优先使用项目虚拟环境，其次使用本机已有的工作虚拟环境；绝不优先使用系统 Python。
+# 优先使用项目虚拟环境；没有时才退回系统 Python。
 resolve_python() {
   local candidate
   local candidates=(
     "${IT_COPILOT_PYTHON:-}"
     "$HERE/.venv/bin/python"
-    "$HERE/work/venv/bin/python"
   )
   for candidate in "${candidates[@]}"; do
     [[ -n "$candidate" && -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
@@ -44,7 +43,7 @@ if [[ "$PYTHON_BIN" == "$(command -v python3 2>/dev/null || true)" && ! -x "$HER
   echo "警告：未发现项目虚拟环境，将使用系统 Python：$PYTHON_BIN" >&2
 fi
 
-# 首次运行时创建项目虚拟环境（优先 uv + Python 3.14）；已有 work/venv 会直接复用。
+# 首次运行时创建项目虚拟环境（优先 uv + Python 3.14）。
 if [[ "$PYTHON_BIN" == "$(command -v python3 2>/dev/null || true)" && ! -d "$HERE/.venv" ]]; then
   echo "创建项目虚拟环境 $HERE/.venv ..."
   if command -v uv >/dev/null 2>&1; then
@@ -114,7 +113,6 @@ ensure_redis
 free_port "$IT_COPILOT_PORT"
 free_port "$IT_COPILOT_FRONTEND_PORT"
 
-export IT_COPILOT_PYTHON="$PYTHON_BIN"
 export PYTHONPATH="$HERE"
 export REDIS_URL="${REDIS_URL:-redis://:it-copilot123@127.0.0.1:6379/0}"
 export IT_COPILOT_DATA_DIR="${IT_COPILOT_DATA_DIR:-$HERE/data}"
@@ -133,7 +131,8 @@ trap cleanup INT TERM EXIT
 [[ -n "${OPENAI_BASE_URL:-}" && -n "${OPENAI_API_KEY:-}" ]] || { echo "错误：请在 .env 中配置 OPENAI_BASE_URL 和 OPENAI_API_KEY（见 .env.example）。" >&2; exit 1; }
 echo "模型：${OPENAI_MODEL:-deepseek-chat} @ ${OPENAI_BASE_URL}"
 
-IT_COPILOT_PYTHON="$PYTHON_BIN" "$HERE/run_local.sh" >"$HERE/logs/api.log" 2>&1 & API_PID=$!
+export APP_ENV="${APP_ENV:-development}"
+(cd "$HERE" && exec "$PYTHON_BIN" -m uvicorn api.main:app --host 127.0.0.1 --port "$IT_COPILOT_PORT") >"$HERE/logs/api.log" 2>&1 & API_PID=$!
 
 NPM_CACHE="$HERE/.npm-cache"
 mkdir -p "$NPM_CACHE"

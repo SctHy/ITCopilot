@@ -55,18 +55,12 @@ IT_COPILOT_SMTP_PASSWORD=replace-via-secret-store
 
 事件扫描使用持久化游标；新订阅不补发历史。事件、收件人与渠道组成幂等投递 ID。worker 独立于 Agent worker，认领租约 60 秒，最多尝试 5 次；失败退避并记录状态，重启后继续。发送前复查订阅、最新已知身份和事项访问权；已关闭的待办不再发送逾期提醒。SMTP 用固定 Message-ID、飞书用固定 uuid，但外部系统不保证 exactly-once，超时后可能重复；已提交给外部服务的消息不能撤回。已入队的审批临期事件可能在投票后送达，链接内状态以服务端为准。
 
-## 迁移和验证
-
-迁移 0009 新增扩展表，不重写既有事件或审批。API 启动会顺序执行迁移。
+## 验证
 
 ```bash
 .venv/bin/python -m pytest -o addopts='' -q tests/test_task_product.py
 # PostgreSQL：在隔离测试库配置 IT_COPILOT_TEST_DATABASE_URL 后执行同一命令。
 .venv/bin/python scripts/evaluate_shared_tasks.py --live --cases approve,clarification,acceptance --repeats 1 --output /tmp/task-product-live.json
-# 隔离网页服务；前端另起 5199 端口并指向 8127：
-.venv/bin/python -m uvicorn evaluation.task_browser_app:app --host 127.0.0.1 --port 8127
 ```
 
-产品测试覆盖两条审批入口、跨租户拒绝、观察者/移除权限、附件证据、103 个事项分页、建议版本冲突/并发采纳、通知重试/升级/退订/权限撤销/租约到期。测试不向真实邮箱或飞书投递。从此版本开始，真实模型评测额外检查建议入库；旧 30/30 报告仅代表原场景契约。
-
-2026-11-11 验证：后端 462 passed / 3 skipped，PostgreSQL 相关 57 passed，前端 43 passed，生产构建和 Ruff 通过。真实模型新增断言 3/3；浏览器使用独立 alice/bob 登录验证创建事项、共同讨论、补充答复、附件上传、聊天同意不投票、正式审批及本地执行回显。生产 IdP 和真实通知投递未验证。完整范围见 [验证记录](../../evaluation/reports/task_product_validation_20261111.json) 和 [真实模型报告](../../evaluation/reports/task_product_live_20261111.json)。
+产品测试覆盖两条审批入口、跨租户拒绝、观察者/移除权限、附件证据、103 个事项分页、建议版本冲突/并发采纳、通知重试/升级/退订/权限撤销/租约到期。测试不向真实邮箱或飞书投递。真实模型评测额外检查建议入库。

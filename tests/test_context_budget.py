@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic_ai.messages import ModelRequest, ModelResponse
 
-from agents.base_agent import GeneralistAgent
+from agents.base_agent import BaseAgent
 from agents.prompting import history_messages, turn_prompt
 from agents.tools import slim_hit
 from agents.types import Request
@@ -39,7 +39,7 @@ def test_history_messages_alternate_and_end_with_assistant():
 
 
 def test_turn_prompt_carries_dynamic_context_and_system_prompt_stays_fixed():
-    agent = GeneralistAgent(None, "test")
+    agent = BaseAgent(None, "test")
     req = Request("申请 GitLab 权限", context="[会话摘要]\n之前问过 VPN", entities={"system": ["GitLab"]},
                   conversation_state={"missing_fields": ["employee_id"]})
     turn = turn_prompt(req)
@@ -101,3 +101,33 @@ def test_history_keeps_a_short_record_of_tools_and_approvals():
     turns = ctx.history_turns()
     assert turns[1]["content"] == "已提交工单审批。\n[本轮工具：search_knowledge_base、create_ticket；已生成待审批 r1:approval]"
     assert turns[3]["content"] == "不客气。"
+
+
+def test_english_message_gets_an_explicit_reply_language_hint():
+    """深度评测 E16：英文提问被用中文回答；纯英文消息在本轮提示里明确要求英文回复，中英混杂不加。"""
+    assert "Reply in English" in turn_prompt(Request("How do I set up MFA on my new phone? I switched to iPhone."))
+    assert "Reply in English" not in turn_prompt(Request("outlook一直弹password prompt，咋整"))
+
+
+def test_prefetched_knowledge_is_compact_text_with_citations():
+    """预取结果在本轮消息里（不命中缓存）：紧凑文本，citation 原样保留，标题不重复。"""
+    from agents.prompting import knowledge_text
+    hits = [{"title": "常见错误码速查", "content": "- 401 认证失败\n- 403 权限不足", "updated_at": "2026-11-12", "citation": "常见错误码速查 · 3c963d59:0"}]
+    text = knowledge_text(hits)
+    assert text == "【1】citation: 常见错误码速查 · 3c963d59:0（更新 2026-11-12）\n- 401 认证失败\n- 403 权限不足"
+
+
+def test_agent_thinking_levels_map_to_deepseek_parameters(monkeypatch):
+    """Agent 单独设思考档位：关闭时保留 temperature；开启时传 thinking + reasoning_effort，并放宽输出上限。"""
+    import pytest
+    from agents.types import AgentProfile
+    from core.llm import agent_thinking_settings
+    profile = AgentProfile()
+    monkeypatch.delenv("IT_COPILOT_AGENT_THINKING", raising=False)
+    monkeypatch.setenv("OPENAI_THINKING_TYPE", "disabled")
+    assert agent_thinking_settings(profile) == {"max_tokens": 3000, "temperature": .2, "extra_body": {"thinking": {"type": "disabled"}}}
+    monkeypatch.setenv("IT_COPILOT_AGENT_THINKING", "max")
+    assert agent_thinking_settings(profile) == {"max_tokens": 16000, "extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}}
+    monkeypatch.setenv("IT_COPILOT_AGENT_THINKING", "medium")
+    with pytest.raises(ValueError):
+        agent_thinking_settings(profile)

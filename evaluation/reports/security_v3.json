@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "suite": "security_v3",
-  "generated_at": "2026-10-29T00:23:32+0800",
+  "generated_at": "2026-11-12T03:52:04+0800",
   "mode": "offline: scripted hostile model, fakeredis, temporary SQLite; real FastAPI routes",
   "total": 21,
   "passed": 21,
@@ -37,7 +37,7 @@
       "passed": 1
     }
   },
-  "duration_s": 4.16,
+  "duration_s": 2.61,
   "cases": [
     {
       "id": "authn_wrong_secret",

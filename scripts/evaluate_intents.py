@@ -30,7 +30,7 @@ PASS_ACCURACY = 0.75
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default=str(DATASETS_DIR / "intent_v1.json"))
+    parser.add_argument("--dataset", default=str(DATASETS_DIR / "intent_v3.json"))
     parser.add_argument("--output", default=str(REPORTS_DIR / "intent_latest.json"))
     args = parser.parse_args()
     cases = load_intent_cases(args.dataset)

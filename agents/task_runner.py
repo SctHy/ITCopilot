@@ -57,7 +57,6 @@ class TaskAgentRunner:
             current = await asyncio.to_thread(self.read_task_state, task['id'])
             req.context += '\n[续接时重新读取的当前事项状态，历史结论不代表当前执行结果]\n' + json.dumps(current, ensure_ascii=False)
 
-        req.planning_mode = 'bounded' if event['kind'] == 'verification' else getattr(self.orchestrator, 'planning_mode', None)
         return req, slots, progress
 
     async def __call__(self, task, event, transcript):
@@ -78,7 +77,7 @@ class TaskAgentRunner:
             req, slots, progress = await self._prepare(task, event, transcript)
             if checkpoint:
                 names = ('message', 'user_id', 'conv_id', 'context', 'history', 'entities', 'intent_group',
-                         'intent_confidence', 'department', 'request_id', 'conversation_state', 'step_outputs', 'planning_mode')
+                         'intent_confidence', 'department', 'request_id', 'conversation_state', 'step_outputs')
                 fields = {name: getattr(req, name) for name in names}
                 fields.update(intent=req.intent.value, urgency=req.urgency.value if req.urgency else None,
                               allowed_writes=sorted(req.allowed_writes) if req.allowed_writes is not None else None,
@@ -92,7 +91,7 @@ class TaskAgentRunner:
 
         req.before_unsafe_tool = before_unsafe_tool
         result = await execute_run(self.orchestrator, req)
-        if result.status == "failed" or (checkpoint and result.status == 'partial' and result.retryable):
+        if result.status == "failed":
             raise RuntimeError("Agent 暂时不可用")
         proposal = approval_from_traces(result.tool_traces, event["text"]) if requester_turn else None
         reply = result.response

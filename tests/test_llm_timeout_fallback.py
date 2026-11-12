@@ -4,8 +4,8 @@ import asyncio
 import pytest
 from pydantic_ai.models.function import FunctionModel
 
-from agents.base_agent import AccessAgent
-from agents.types import AgentType, ModelUnavailableError, Request
+from agents.base_agent import BaseAgent
+from agents.types import ModelUnavailableError, Request
 
 
 def _raising_model(exc: Exception):
@@ -16,9 +16,7 @@ def _raising_model(exc: Exception):
 
 
 def _agent(exc: Exception):
-    agent = AccessAgent(_raising_model(exc), model="test")
-    agent.agent_type = AgentType.ACCESS
-    return agent
+    return BaseAgent(_raising_model(exc), model="test")
 
 
 def test_timeout_error_is_classified_as_model_unavailable():

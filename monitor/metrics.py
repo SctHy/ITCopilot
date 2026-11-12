@@ -15,13 +15,13 @@ CHAT_LATENCY = Histogram("it_copilot_chat_latency_seconds", "IT-Copilot chat lat
 CHAT_STAGE_LATENCY = Histogram("it_copilot_chat_stage_seconds", "一轮对话各阶段耗时", ["stage"], buckets=LATENCY_BUCKETS)
 
 # ── Agent 与 LLM ──────────────────────────────────────────────────────────────
-AGENT_REQUESTS = Counter("it_copilot_agent_requests_total", "Agent 处理次数", ["agent", "status", "error_code"])
-AGENT_LATENCY = Histogram("it_copilot_agent_latency_seconds", "Agent 单次处理耗时", ["agent"], buckets=LATENCY_BUCKETS)
-AGENT_FAILURES = Counter("it_copilot_agent_failures_total", "Agent 失败原因", ["agent", "reason"])
-AGENT_DEGRADED = Gauge("it_copilot_agent_degraded", "Agent 是否处于降级冷却（1=降级）", ["agent"])
-LLM_TOKENS = Counter("it_copilot_llm_tokens_total", "LLM token 消耗（direction=cache_read 为命中模型服务前缀缓存的输入）", ["agent", "model", "direction"])
+AGENT_REQUESTS = Counter("it_copilot_agent_requests_total", "Agent 处理次数", ["status", "error_code"])
+AGENT_LATENCY = Histogram("it_copilot_agent_latency_seconds", "Agent 单次处理耗时", buckets=LATENCY_BUCKETS)
+AGENT_FAILURES = Counter("it_copilot_agent_failures_total", "Agent 失败原因", ["reason"])
+AGENT_CLAIM_CHECKS = Counter("it_copilot_agent_claim_checks_total", "回答与本轮写操作结果不一致的处理：corrected 让模型纠正一次，noted 纠正后仍不一致、追加说明", ["outcome"])
+LLM_TOKENS = Counter("it_copilot_llm_tokens_total", "LLM token 消耗（direction=cache_read 为命中模型服务前缀缓存的输入）", ["model", "direction"])
 CACHE_LOOKUPS = Counter("it_copilot_cache_lookups_total", "应用内缓存查询（进程内，多进程不共享）", ["cache", "result"])
-AGENT_TOOL_CALLS = Counter("it_copilot_agent_tool_calls_total", "Agent 发起的工具调用", ["agent", "tool", "outcome"])
+AGENT_TOOL_CALLS = Counter("it_copilot_agent_tool_calls_total", "Agent 发起的工具调用", ["tool", "outcome"])
 
 # ── 工具治理层（MCPToolManager） ─────────────────────────────────────────────
 TOOL_CALLS = Counter("it_copilot_tool_calls_total", "治理层工具调用结果", ["tool", "outcome"])

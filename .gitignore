@@ -36,5 +36,6 @@ logs/
 .DS_Store
 Thumbs.db
 
-# 自改进候选技能目录（接受的修改见 ledger 与报告中的 diff）
-evaluation/improvement/runs/
+
+# 评测报告：本地生成，不入库
+evaluation/reports/

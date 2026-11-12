@@ -36,3 +36,13 @@ def db_url(tmp_path):
     with admin.begin() as db:
         db.execute(text(f"DROP SCHEMA {schema} CASCADE"))
     admin.dispose()
+
+
+def with_read_tool(orchestrator):
+    """给编排器加一个测试专用的只读工具 diagnose：总是成功，不依赖台账或外部服务。"""
+    from tooling.tool_spec import make_tool
+
+    tool = make_tool("diagnose", "测试用只读诊断。", {"code": {"type": "string"}},
+                     lambda req, args: {"code": args.get("code", ""), "meaning": "测试诊断结果"}, required=["code"])
+    orchestrator.set_shared_tools({**orchestrator._shared_tools, "diagnose": tool})
+    return orchestrator

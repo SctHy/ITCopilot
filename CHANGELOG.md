@@ -1,5 +1,35 @@
 # Changelog
 
+## 未发布 — 回答与业务状态一致性（深度评测驱动）
+
+由全流程深度评测（[docs/evaluation-deep.md](docs/evaluation-deep.md)）发现的问题驱动。
+
+- 声称核对：`agents/prompting.py::claim_problems` 取代单条正则 `unbacked_write_claim`。按句识别“已提交/已生成/已撤回”类声明（覆盖“已按你的要求提交”“请求已生成”等语序），否定/计划只看所在分句，排除复述用户自己的行为；按类别（工单/权限/重置/解锁/锁定）对照本轮成功的写工具；写工具失败而回答未说明时要求如实说明原因；Agent 没有撤回工具，只有本会话确实建过审批时才核对“已撤回/不再推进”。意图识别判定本轮未要求写操作时不核对，避免把复述过去纠正成“当时没提交”。
+- 纠正提示带上具体不一致之处，并要求不提“核对/更正”；纠正一次后仍不一致，回答末尾追加确定性的“【以审批记录为准】…”说明。新指标 `it_copilot_agent_claim_checks_total{outcome=corrected|noted}`。
+- 回答输出前：去掉模型照抄历史格式伪造的 `[本轮工具：…已生成待审批 …]` 执行记录；用户本轮贴出的密码/验证码替换为 `******`。
+- 纯英文消息在本轮提示里明确要求英文回复；规则补充“工具失败如实说明原因”“用用户的语言回复”。
+- 思考档位：新增 `IT_COPILOT_AGENT_THINKING`（disabled/low/high/max，只作用于 Agent），默认 disabled。实测 4 档 × 160 用例：开思考无可测量收益，成本 1.5–3.5 倍、首字时延翻倍（docs/evaluation-deep.md §10）。
+- Token：规则加“不写过渡语”、回复“每个问题一般不超过 200 字”（system 预算 300→320 字）；预取知识改为紧凑文本（`knowledge_text`）；情景记忆加余弦距离门槛（`IT_COPILOT_MEMORY_MAX_DISTANCE`，默认 0.6），改按相关度 × 重要度排序；技能支持 full/progressive/auto 披露（`IT_COPILOT_SKILL_DISCLOSURE`，SKILL.md 新增 `intent_groups`、`write_tools`），当前规模下 auto 取 full。同为关闭思考时，总输入 −5% ~ −10%、输出 −10% ~ −13%、时延 p50 −6% ~ −10%。
+- 评测：`evaluation/token_audit.py` 按组成部分统计每次模型调用并记录真实用量与费用，三个业务评测脚本默认开启；`scripts/compare_token_modes.py` 对比多组报告。
+- 评测：Jev 预取命中计为知识检索证据（`evaluate_application.py`、`evaluate_simulated.py`）；`forbid_text` 前 4 字内有否定词时不计；新增 `scripts/evaluate_experience.py`（真实口吻对话 + SSE 时延）与 `scripts/evaluate_rag_gitlab.py`（GitLab 公开 Handbook 检索）。
+
+## v4.0 — 精简（破坏性更新）
+
+不兼容旧数据库与旧数据，升级需重建数据库（本地删除 `data/it_copilot.sqlite3`，部署环境重建 PostgreSQL 库）。
+
+- 迁移：14 个历史迁移合并为单一基线 `0001_baseline_schema`。
+- 评测报告移出 git（`evaluation/reports/` 加入 `.gitignore`，由脚本本地生成）；删除只读报告的 `GET /eval/reports` 与前端“离线评测”面板，运维页改名“运行状态”。
+- 删除 v1 离线冒烟门禁（`evaluate_all.py` 及其意图/记忆/RAG/Planner/phase6 套件）和 v2 时期的消融、重排、恢复、Judge 脚本，以及只被它们使用的数据集（`intent_v1`、`intent_v2`、`rag_v1`、`rag_v2_queries`）；意图评测默认使用 `intent_v3`。
+- 删除旧记忆归属迁移（`memory/scope_migration.py`、`scripts/migrate_memory_scope.py`、`memory_scope_bindings` 表）、知识库旧版文档 ID 与旧演示文档哈希的兼容逻辑、`run_local.sh`（并入 `start_local.sh`）。
+- 只保留一个 Agent：删除多 Agent 规划（`agents/planner.py`、bounded / bounded_all / single 三种模式、5 个专职 Agent、`AgentType`、性能路由、降级冷却与 Triage 兜底、`PLAN_RUN` / `HEALTH` 状态机）、`IT_COPILOT_PLANNING_MODE` 等配置、技能与 MCP 配置里的 `agents` 字段、`scripts/compare_strategies.py` 与 ADR 0006。`ChatResponse` 去掉 `agent_type`、`routing_confidence`、`plan`、`findings`；`/monitor` 的 `agents` 改为单个 `agent`；Agent 相关 Prometheus 指标去掉 `agent` 标签。评测脚本不再有 `--planning` / `--strategies` 参数。
+- 删除技能自改进循环（`evaluation/improvement.py`、`scripts/self_improve.py`、ADR 0011）。
+- 检索增强拆成两个独立开关：`IT_COPILOT_RAG_RERANK`（召回 20 个候选后重排）与 `IT_COPILOT_RAG_REWRITE`（查询改写），均默认关闭；`search_with_rewrite` 改名 `enhanced_search`。
+- 只读工具：`lookup_asset`、`query_ticket` 改为按登录身份读本人的沙箱设备/工单台账（原先返回固定假数据）；删除没有数据源的 `check_service_status` 和硬编码 4 个错误码的 `lookup_error_code`，错误码说明移入知识库 `knowledge/it_helpdesk/common-error-codes.md`。评测数据集相应改为以知识检索作为错误码证据，`simulated_v4` 去掉“服务状态”原子后按原种子重新生成，设备资产号改为员工本人的 `DEV-<工号>`。
+- 删除无调用方的 `LLMJudge` 与 `evaluation/task_browser_app.py`。
+- 删除工具输出注入检测（`agents/injection_guard.py`、`IT_COPILOT_INJECTION_GUARD`、`AgentToolSpec.untrusted_output`、trace 的 `injection_score`、`scripts/evaluate_injection.py`、`scripts/build_injection_dataset.py` 与 `injection_v1` 数据集）。写操作仍由身份、策略与人工审批拦截。
+- 长任务故障评测的崩溃点改为“Agent 调用已持久化、进度建议生成期间”。
+- 文档：`docs/evaluation-v3.md` 改为 `docs/evaluation.md`，删除 `docs/evaluation-v2.md` 与已废弃的 ADR 0010，README 与 ADR 去掉迁移编号和升级说明。
+
 ## v3 — 可信身份、可恢复执行与实时事件流
 
 - 身份：请求身份只取自已验证 JWT（OIDC/Keycloak 或开发令牌），请求体身份字段被忽略；RBAC 四角色；trace、审批、审计、员工状态、事件流按归属授权；`client_request_id` 按调用者隔离，修复不同用户同 ID 时 trace 互相覆盖、审批冲突的问题。移除共享管理员令牌。
@@ -9,7 +39,7 @@
 - 统一工具执行层：所有 Agent 工具经超时、熔断、只读重试与写操作幂等键。
 - 检索：向量召回在部门过滤后命中不足时自适应扩窗，修复其他部门文档挤占候选导致返回为空的问题。
 - 部署：compose 增加 postgres / keycloak / gitea（含初始化任务）/ 独立 worker；修复镜像构建时 `data/` 目录权限导致构建失败；前端 OIDC 登录（PKCE）、演示身份切换、审批页、实时事件展示。
-- 质量：GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）；21 项安全回归、真实 TCP 流式回归；后端 183 项测试（另 3 项真实服务集成测试按需运行），前端 18 项。见 docs/evaluation-v3.md、docs/adr/、docs/threat-model.md。
+- 质量：GitHub Actions（lint、离线测试、PostgreSQL、Keycloak+Gitea 集成、前端）；21 项安全回归、真实 TCP 流式回归；后端 183 项测试（另 3 项真实服务集成测试按需运行），前端 18 项。见 docs/evaluation.md、docs/adr/、docs/threat-model.md。
 - 复合诊断建单：计划 token 预算默认 30000（`IT_COPILOT_PLAN_TOKEN_BUDGET`）；Endpoint/Network/Access 开放仅生成审批的 `create_ticket`；模型轮数默认 5（`IT_COPILOT_MAX_MODEL_ROUNDS`）；计划含工单步骤时诊断步骤隐藏建单工具。
 - 新增 `generalist` 对照策略与 64 场景分层评测集（`application_strata_v3.json`）、按领域证据与多效果检查、`compare_strategies.py`（Wilson 区间、配对 McNemar）；结果：single 40/64、bounded 44/64、generalist 63/64。
 - 真实模型（deepseek-flash）重跑应用评测：开发集 24/24、23/24，留出集 36/36、36/36（v2：23/24、22/24、36/36、33/36）；修复评测脚本工号解析缺陷，报告记录实际上游模型。
@@ -21,7 +51,7 @@
 - 审批：同一会话、同一申请人的新申请如果完全覆盖某张仍待审批的旧单，旧单标记为 `superseded`，不能再被批准，替代关系写入审计。修复多轮对话中重复建单（修复前占多轮评测失败的 72%）。
 - 新增 τ-bench 式多轮评测（`evaluation/simulated.py`、`scripts/evaluate_simulated.py`、`simulated_v4.json`）：组合任务、LLM 模拟用户、按最终状态评分、pass^k、模拟用户越界标记；有测试检查任务可解、“什么都不做”判为失败。
 - `compare_strategies.py` 支持按策略、按轮次拆开的报告文件，新增 `--exclude-simulator-flags`、`--exclude-errored`。
-- 评测运行后段模型服务额度耗尽，部分分层没有有效数据，详见 docs/evaluation-v3.md 第 7 节。
+- 评测运行后段模型服务额度耗尽，部分分层没有有效数据，详见 docs/evaluation.md 第 7 节。
 - 新增 ADR 0006（默认通用 Agent）、0007（待审批申请替代）。后端 200 项测试通过（另 3 项真实服务集成测试按需运行），前端 18 项；工作流测试在 PostgreSQL 17 上通过。
 
 ## v3.2 — 依赖与镜像升级、删除协议网关

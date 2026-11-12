@@ -124,10 +124,8 @@ def test_demo_seeding_updates_its_own_docs_but_never_overwrites_admin_docs(tmp_p
     (seed / "it" / "vpn.md").write_text("# VPN 指南\n演示 VPN 正文 v1\n", encoding="utf-8")
     monkeypatch.setenv("IT_COPILOT_KNOWLEDGE_DIR", str(seed))
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
-    legacy_sla = "P1 为大范围业务中断，P2 为关键员工无法工作，P3 为单用户一般问题，P4 为咨询。创建工单后保留 ticket_id，所有变更需审计。"
     KnowledgeBase(url).add_documents([
         {"title": "权限申请流程", "content": "管理员维护的正式流程"},  # admin upload, source defaults to title
-        {"title": "工单优先级与 SLA", "content": legacy_sla},  # written by the old inline seeder
     ])
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "true")
     contents = lambda base: {r["title"]: r["content"] for r in base.search("流程 SLA VPN 正文", top_k=20, mode="bm25")}

@@ -1,4 +1,4 @@
-# 后端镜像构建上下文：只需要 Python 源码、技能、配置与评测报告
+# 后端镜像构建上下文：只需要 Python 源码、技能与配置
 
 # 版本控制与本地环境
 .git
@@ -31,3 +31,4 @@ tests/
 .npm-cache/
 .playwright-cli/
 output/
+evaluation/reports/

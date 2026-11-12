@@ -75,6 +75,7 @@ async def main() -> int:
     report = {**runs[-1], "suite": "intent-v3-jev", "model": args.model,
               "runs": [{k: run[k] for k in ("accuracy", "strict_accuracy", "by_split", "latency_s", "jev_calls", "jev_errors", "jev_input_tokens")} for run in runs]}
     output = pathlib.Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if runs[-1]["jev_errors"]:

@@ -8,8 +8,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -22,8 +21,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -36,8 +34,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -50,8 +47,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -188,8 +184,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -205,8 +200,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -222,8 +216,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -240,8 +233,7 @@
   "title": "公司代理配置指南",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -269,8 +261,7 @@
   "employee_id": "1001",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -298,8 +289,7 @@
   "employee_id": "1002",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -331,8 +321,7 @@
   "role": "readonly",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -346,8 +335,7 @@
   "employee_id": "1001",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -417,8 +405,7 @@
   "title": "邮件退信排障",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -431,8 +418,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -451,8 +437,7 @@
   "role": "readonly",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -465,8 +450,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -496,8 +480,7 @@
   "employee_id": "1001",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -516,8 +499,7 @@
   "role": "readonly",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -534,8 +516,7 @@
   "employee_id": "1001",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -577,8 +558,7 @@
   },
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -592,8 +572,7 @@
   "title": "磁盘空间不足处理",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -617,8 +596,7 @@
   },
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -632,8 +610,7 @@
   "employee_id": "1001",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -686,8 +663,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"
@@ -720,8 +696,7 @@
   "employee_id": "1002",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -738,8 +713,7 @@
   "role": "readonly",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   }
  },
@@ -763,8 +737,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ]
   },
   "forbid_tools": []
@@ -857,8 +830,7 @@
   "outcome": "tools",
   "evidence": {
    "network": [
-    "lookup_error_code",
-    "check_service_status"
+    "search_knowledge_base"
    ],
    "endpoint": [
     "lookup_asset"

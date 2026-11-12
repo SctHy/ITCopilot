@@ -1,9 +1,7 @@
-"""IT-Copilot Agent tools.
+"""IT-Copilot Agent 工具：本地只读查询、只生成待审批请求的写工具，以及共享知识检索。
 
-Agent tool definitions deliberately use the same Request/args contract as the
-original runtime.  BaseAgent wraps each spec as a PydanticAI Tool; PydanticAI
-drives the model/tool loop while BaseAgent keeps whitelist, JSON Schema
-validation, write-operation guards and trace recording.
+BaseAgent 把每个 spec 包成 PydanticAI Tool；PydanticAI 驱动模型/工具循环，BaseAgent 负责
+JSON Schema 校验、写操作守卫与 trace 记录。
 """
 from __future__ import annotations
 
@@ -22,32 +20,37 @@ def _strings(*names: str) -> Dict[str, Any]:
     return {name: {"type": "string"} for name in names}
 
 
-# ── 只读工具 ──────────────────────────────────────────────────────────────────
+# ── 只读工具：读取本人的沙箱台账（workflow.store.WorkflowStore.employee） ──────
 
-ERROR_CODES = {
-    "401": ("认证失败", ["确认身份平台状态", "检查客户端时间和版本"]),
-    "403": ("权限不足", ["核对最小权限申请和审批状态"]),
-    "500": ("服务端处理异常", ["记录 request_id 和发生时间", "确认服务状态"]),
-    "VPN-691": ("VPN 身份认证或连接失败", ["确认账号未锁定", "检查系统时间、DNS 和客户端版本"]),
-}
-
-
-def lookup_error_code(req, args):
-    code = str(args.get("error_code", "")).upper().strip()
-    meaning, steps = ERROR_CODES.get(code, ("暂未识别的错误码", ["补充完整错误信息、发生时间和运行环境"]))
-    return {"error_code": code, "meaning": meaning, "next_steps": steps, "server_log_checked": False}
+def _own_record(req, directory):
+    """当前登录员工的台账；只按已验证身份查询，模型传入的工号不参与。"""
+    principal = getattr(req, "principal", None)
+    employee_id = getattr(principal, "employee_id", None)
+    if directory is None:
+        raise ValueError("台账服务不可用")
+    if not employee_id:
+        raise ValueError("当前登录身份未绑定工号，无法查询台账")
+    return directory.employee(employee_id) or {"devices": [], "tickets": []}
 
 
-def lookup_asset(req, args):
-    return {"asset_id": args.get("asset_id", ""), "status": "assigned", "source": "mock_asset_adapter", "read_only": True}
+def lookup_asset(req, args, directory):
+    asset_id = str(args.get("asset_id", "")).strip().upper()
+    devices = _own_record(req, directory)["devices"]
+    device = next((d for d in devices if d["device_id"].upper() == asset_id), None)
+    if device is None:
+        # 不区分“不存在”和“属于他人”，避免借工具探测别人的设备。
+        return {"asset_id": asset_id, "found": False, "own_devices": [d["device_id"] for d in devices],
+                "message": "你名下的设备台账里没有这个资产号"}
+    return {"asset_id": device["device_id"], "found": True, "kind": device["kind"], "locked": device["locked"], "source": "device_ledger"}
 
 
-def check_service_status(req, args):
-    return {"service": args.get("service", "corporate-vpn"), "status": "operational", "source": "mock_status_adapter", "read_only": True}
-
-
-def query_ticket(req, args):
-    return {"ticket_id": args.get("ticket_id", "INC-DEMO-1001"), "status": "In Progress", "owner": "IT Service Desk", "source": "mock_ticket_adapter"}
+def query_ticket(req, args, directory):
+    ticket_id = str(args.get("ticket_id", "")).strip().upper()
+    tickets = _own_record(req, directory)["tickets"]
+    if ticket_id:
+        tickets = [t for t in tickets if t["ticket_id"].upper() == ticket_id]
+    return {"tickets": tickets, "found": bool(tickets), "source": "ticket_ledger",
+            "message": "" if tickets else "没有找到你名下的这张工单；仍在审批中的建单申请不在工单台账里"}
 
 
 # ── 写操作工具：只生成待审批请求，不直接变更 ─────────────────────────────────
@@ -119,57 +122,28 @@ def build_shared_rag_tools(tool_manager) -> ToolSet:
     return _toolset(make_tool(
         "search_knowledge_base", "检索企业 IT 知识库并返回相关 SOP 片段。",
         {"query": {"type": "string", "minLength": 1, "maxLength": 2000}, "top_k": {"type": "integer", "minimum": 1, "maximum": 10}},
-        search_knowledge_base, required=["query"], self_governed=True, untrusted_output=True,
+        search_knowledge_base, required=["query"], self_governed=True,
     ))
 
 
-# ── 各 Agent 的工具白名单 ─────────────────────────────────────────────────────
+# ── Agent 工具集 ──────────────────────────────────────────────────────────────
 
-def _create_ticket_tool() -> AgentToolSpec:
-    # Only prepares a pending approval (no side effect), so diagnostic agents may file the
-    # ticket for what they just diagnosed instead of telling the user to go elsewhere.
-    return make_tool("create_ticket", "用户要求建单时，创建工单待审批请求。title 写故障摘要，description 写已做的诊断与证据，priority 取 P1-P4。",
-                     _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False)
-
-
-def triage_tools() -> ToolSet:
-    # 意图、实体与待补充字段已写进本轮消息，接待 Agent 不需要再用工具去查。
-    return {}
-
-
-def endpoint_tools() -> ToolSet:
-    return _toolset(
-        make_tool("lookup_asset", "只读查询设备资产状态。", _strings("asset_id"), lookup_asset),
-        make_tool("lock_device", "设备丢失或被盗时，创建远程锁定待审批请求；只能锁本人设备，device_id 如 DEV-1001。",
-                  _strings("employee_id", "device_id", "reason"), lock_device, required=["employee_id", "device_id", "reason"], retry_safe=False),
-        _create_ticket_tool(),
-    )
-
-
-def access_tools() -> ToolSet:
+def agent_tools(directory=lambda: None) -> ToolSet:
+    """directory：返回台账读模型（WorkflowStore）的函数；运行时装配完成后才有值。"""
     access_schema = {**_strings("employee_id", "reason"),
         "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
         "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "不得把管理员等其他角色换成这里的角色"},
         "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "有效期（小时）；用户没说就省略"}}
     return _toolset(
+        make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001。", _strings("asset_id"),
+                  lambda req, args: lookup_asset(req, args, directory()), required=["asset_id"]),
+        make_tool("query_ticket", "查询本人名下已创建的工单；不传 ticket_id 时列出全部。", _strings("ticket_id"),
+                  lambda req, args: query_ticket(req, args, directory())),
+        make_tool("lock_device", "设备丢失或被盗时，创建远程锁定待审批请求；只能锁本人设备，device_id 如 DEV-1001。",
+                  _strings("employee_id", "device_id", "reason"), lock_device, required=["employee_id", "device_id", "reason"], retry_safe=False),
         make_tool("reset_password", "创建密码重置待审批请求，不直接修改账号。", _strings("employee_id"), reset_password, required=["employee_id"], retry_safe=False),
         make_tool("unlock_account", "创建账号解锁待审批请求。", _strings("employee_id"), unlock_account, required=["employee_id"], retry_safe=False),
         make_tool("request_access", "创建限时权限待审批请求，到期自动回收；只能为本人申请。字段以本工具参数为准，SOP 里的其他信息写进 reason。", access_schema, request_access, required=["employee_id", "system", "role", "reason"], retry_safe=False),
-        _create_ticket_tool(),
+        make_tool("create_ticket", "用户要求建单时，创建工单待审批请求。title 写故障摘要，description 写已做的诊断与证据，priority 取 P1-P4。",
+                  _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False),
     )
-
-
-def network_software_tools() -> ToolSet:
-    return _toolset(
-        make_tool("lookup_error_code", "解释常见 IT 错误码，不读取服务端日志。", _strings("error_code"), lookup_error_code, required=["error_code"]),
-        make_tool("check_service_status", "查询 IT 服务状态。", _strings("service"), check_service_status),
-        _create_ticket_tool(),
-    )
-
-
-def ticket_tools() -> ToolSet:
-    return _toolset(
-        _create_ticket_tool(),
-        make_tool("query_ticket", "查询工单状态。", _strings("ticket_id"), query_ticket),
-    )
-

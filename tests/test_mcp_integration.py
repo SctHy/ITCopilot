@@ -9,7 +9,7 @@ import pytest
 import uvicorn
 
 from agents.agent_orchestrator import AgentOrchestrator
-from agents.types import AgentType, Request
+from agents.types import Request
 from tooling.mcp_client import MCPServerConfig, StandardMCPClient, load_servers
 from tooling.mcp_server import create_http_app, create_server
 from tooling.tool_manager import MCPToolManager
@@ -43,7 +43,7 @@ def mcp_url():
 
 
 def config(url, **overrides):
-    values = {"name": "local", "transport": "streamable_http", "url": url, "allowed_tools": ["search_local_knowledge"], "agents": ["network_software"], "timeout_s": 10}
+    values = {"name": "local", "transport": "streamable_http", "url": url, "allowed_tools": ["search_local_knowledge"], "timeout_s": 10}
     return MCPServerConfig(**{**values, **overrides})
 
 
@@ -64,9 +64,7 @@ def test_client_discovers_registers_and_calls_remote_tool(mcp_url):
             alias = "mcp_local_search_local_knowledge"
             assert [t["name"] for t in server["tools"]] == [alias]
 
-            # 只进入 allowed_agents 中的 Agent
-            assert alias in orchestrator._pool[AgentType.NETWORK_SOFTWARE][0].get_tools()
-            assert alias not in orchestrator._pool[AgentType.ACCESS][0].get_tools()
+            assert alias in orchestrator.agent.get_tools()
 
             spec = client.agent_tools()[alias]
             assert spec.retry_safe and spec.input_schema["properties"]["query"]["type"] == "string"
@@ -81,7 +79,7 @@ def test_client_discovers_registers_and_calls_remote_tool(mcp_url):
         finally:
             await client.close()
         assert client.summary()["servers"][0]["state"] == "closed"
-        assert "mcp_local_search_local_knowledge" not in orchestrator._pool[AgentType.NETWORK_SOFTWARE][0].get_tools()
+        assert "mcp_local_search_local_knowledge" not in orchestrator.agent.get_tools()
         assert "mcp_local_search_local_knowledge" not in manager._tools
 
     asyncio.run(run())

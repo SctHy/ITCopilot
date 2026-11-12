@@ -98,10 +98,6 @@ from core.task_history_schema import define_tables as define_history_tables
 
 task_links = define_history_tables(metadata)
 
-from core.memory_scope_schema import define_table as define_memory_scope_table
-
-memory_scope_bindings = define_memory_scope_table(metadata)
-
 approvals = Table(
     "approvals", metadata,
     Column("id", String(200), primary_key=True),

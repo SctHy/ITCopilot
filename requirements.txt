@@ -20,6 +20,7 @@ psycopg[binary]==3.3.6     # PostgreSQL 驱动
 
 # ── 身份 ──────────────────────────────────────────────────────────────────────
 pyjwt[crypto]==2.15.1      # OIDC（Keycloak）RS256/JWKS 校验与 dev 模式 HS256 令牌
+cryptography==50.0.2       # 飞书事件 AES 解密（intake/feishu.py 直接使用；此前只经 pyjwt[crypto] 间接安装）
 
 # ── 监控与链路追踪 ────────────────────────────────────────────────────────────
 prometheus-client==0.26.0

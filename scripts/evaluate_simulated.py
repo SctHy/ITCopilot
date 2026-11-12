@@ -1,10 +1,9 @@
-"""Run τ-bench-style simulated-user tasks against every planning strategy.
+"""Run τ-bench-style simulated-user tasks against the agent.
 
-    python scripts/evaluate_simulated.py --strategies generalist,bounded,bounded_all,single --output simulated_v4_run1.json
-    python scripts/compare_strategies.py evaluation/reports/simulated_v4_run1.json evaluation/reports/simulated_v4_run2.json
+    python scripts/evaluate_simulated.py --output simulated_v4_run1.json
 
 Each run is one process (the intent cache makes in-process repeats dependent); pass^k is
-computed across runs by compare_strategies (a task passes only if it passes in every run).
+computed across runs (a task passes only if it passes in every run).
 The user simulator uses the same upstream model as the agent; its tokens are reported
 separately from agent tokens.
 """
@@ -34,7 +33,7 @@ from workflow.store import SEED_EMPLOYEES  # noqa: E402
 DATASET = DATASETS_DIR / "simulated_v4.json"
 
 
-async def run_task(http, state, task, mode, user_llm, max_turns):
+async def run_task(http, state, task, user_llm, max_turns):
     unique = uuid.uuid4().hex
     requester = auth("alice", subject=f"eval:{unique}", employee_id=task["employee_id"], department="engineering")
     auditor = auth("grace")
@@ -42,7 +41,7 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
     transcript, tool_calls, agent_tokens, user_calls, ended = [], [], 0, 0, "max_turns"
     flow = TRIAL.start()
     started = time.monotonic()
-    result = {"case_id": task["id"], "stratum": task["tier"], "planning": mode, "repeat": 0}
+    result = {"case_id": task["id"], "stratum": task["tier"], "repeat": 0}
     try:
         message = task["opening"]
         for index in range(max_turns):
@@ -51,6 +50,9 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
             body = response.json()
             trace = (await http.get("/trace/" + body["request_id"], headers=requester)).json().get("trace", {})
             tool_calls += [{k: c.get(k) for k in ("tool_name", "input", "success")} for c in trace.get("tool_traces", [])]
+            if body.get("knowledge_used") and not any(c["tool_name"] == "search_knowledge_base" for c in trace.get("tool_traces", [])):
+                # Jev 路径与意图识别并行预取知识并附进本轮消息，Agent 不再调用检索工具；预取命中同样算检索。
+                tool_calls.append({"tool_name": "search_knowledge_base", "input": {"prefetched": True}, "success": True})
             agent_tokens += billable_tokens(body.get("token_usage"))
             transcript += [{"role": "user", "content": message}, {"role": "assistant", "content": body["response"]}]
             reply = (await complete_text(user_llm, user_prompt(task, transcript), max_tokens=200, request_timeout=60)).text.strip()
@@ -86,7 +88,6 @@ async def run_task(http, state, task, mode, user_llm, max_turns):
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--redis-url", default="redis://127.0.0.1:16379/0")
-    parser.add_argument("--strategies", default="generalist,bounded,bounded_all,single")
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--tasks", default="", help="comma-separated task ids (debug subset)")
     parser.add_argument("--max-turns", type=int, default=8)
@@ -102,29 +103,26 @@ async def main():
     user_llm = build_model(os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), os.getenv("OPENAI_MODEL", "deepseek-chat"))
     from scripts.evaluate_application import upstream_model
 
-    modes = args.strategies.split(",")
     rows = []
+    from evaluation.token_audit import TokenAudit, summarize
+    audit = TokenAudit().__enter__()
     async with application(redis_url=args.redis_url, documents=json.loads((DATASETS_DIR / "rag_v2_corpus.json").read_text())) as (http, state):
-        for index, task in enumerate(tasks):
-            shift = index % len(modes)
-            for mode in modes[shift:] + modes[:shift]:
-                state.orchestrator.planning_mode = mode
-                state.tool_manager.invalidate_cache("knowledge_search")
-                row = await run_task(http, state, task, mode, user_llm, args.max_turns)
-                rows.append(row)
-                print(f"{mode} {task['id']}: {row['passed']} turns={row['turns']} ended={row['ended']}", flush=True)
-                write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
-        planner = state.orchestrator._planner.metrics if state.orchestrator._planner else {}
-    summary = {}
-    for mode in modes:
-        group = [r for r in rows if r["planning"] == mode]
-        summary[mode] = {"trials": len(group), "passed": sum(r["passed"] for r in group), "success_rate": round(sum(r["passed"] for r in group) / max(1, len(group)), 3)}
+        for task in tasks:
+            state.tool_manager.invalidate_cache("knowledge_search")
+            before = len(audit.records)
+            row = await run_task(http, state, task, user_llm, args.max_turns)
+            row["model_usage"] = summarize(audit.records[before:])
+            rows.append(row)
+            print(f"{task['id']}: {row['passed']} turns={row['turns']} ended={row['ended']}", flush=True)
+            write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
+    summary = {"trials": len(rows), "passed": sum(r["passed"] for r in rows), "success_rate": round(sum(r["passed"] for r in rows) / max(1, len(rows)), 3)}
     write_report(args.output, {
         "suite": "simulated-v4", "status": "complete", "started_at": datetime.now(timezone.utc).isoformat(),
-        "upstream": upstream_model(), "dataset": DATASET.name, "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest()[:16], "max_turns": args.max_turns, "planner": planner,
+        "upstream": upstream_model(), "dataset": DATASET.name, "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest()[:16], "max_turns": args.max_turns,
         # Identifies the simulator instructions: runs are only comparable under the same prompt.
         "simulator_prompt_sha256": hashlib.sha256(user_prompt(json.loads(DATASET.read_text())[0], []).encode()).hexdigest()[:16],
-        "summary": summary, "trials": rows,
+        "summary": summary, "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"),
+        "token_audit": audit.summary(), "trials": rows,
         "limitations": "Authored compositional tasks and simulator prompts in the style of τ-bench; same model plays the user; local sandbox state.",
     }, echo=False)
     print(json.dumps(summary, ensure_ascii=False))

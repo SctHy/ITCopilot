@@ -11,7 +11,7 @@ from jsonschema import validators
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.prompting import AGENT_RULES
 from agents.tools import build_shared_rag_tools
-from agents.types import AgentType, Request
+from agents.types import Request
 from tooling.tool_manager import ToolResult
 
 
@@ -23,7 +23,7 @@ def orchestrator():
 
 
 def all_specs(orch):
-    return {spec.name: spec for agents in orch._pool.values() for agent in agents for spec in agent.get_tools().values()}
+    return dict(orch.agent.get_tools())
 
 
 def test_every_tool_schema_is_valid_json_schema_and_closed(orchestrator):
@@ -33,12 +33,9 @@ def test_every_tool_schema_is_valid_json_schema_and_closed(orchestrator):
         assert set(spec.input_schema.get("required", [])) <= set(spec.input_schema["properties"]), spec.name
 
 
-def test_low_value_tools_are_gone_and_triage_needs_no_tools(orchestrator):
-    names = set(all_specs(orchestrator))
-    assert not names & {"inspect_request_context", "suggest_required_fields", "build_diagnostic_plan"}
-    assert set(orchestrator._pool[AgentType.TRIAGE][0].get_tools()) == {"search_knowledge_base"}
-    assert set(orchestrator._generalist.get_tools()) == {
-        "search_knowledge_base", "lookup_asset", "lookup_error_code", "check_service_status", "query_ticket",
+def test_agent_holds_exactly_the_product_tools(orchestrator):
+    assert set(all_specs(orchestrator)) == {
+        "search_knowledge_base", "lookup_asset", "query_ticket",
         "create_ticket", "reset_password", "unlock_account", "request_access", "lock_device"}
 
 
@@ -49,12 +46,11 @@ def test_write_tools_are_not_retry_safe_and_read_tools_are(orchestrator):
 
 
 def test_prompt_and_tool_budgets(orchestrator):
-    for agents in orchestrator._pool.values():
-        for agent in agents:
-            prompt = agent._build_system_prompt(Request("x"))
-            # 300 字以内：每条规则都对应评测里出现过的失败（先查 SOP、不主动提交、引用时重新检索等）。
-            assert len(prompt) <= 300 and prompt.endswith(AGENT_RULES), agent.agent_type
-    specs = orchestrator._generalist.get_tools().values()
+    prompt = orchestrator.agent._build_system_prompt(Request("x"))
+    # 每条规则都对应评测里出现过的失败（先查 SOP、不主动提交、引用时重新检索等）。
+    # 300 → 320：加“不先写过渡语”（深度评测：26 轮里 8 轮先输出过渡语再调工具，前端清掉但照样计费）。
+    assert len(prompt) <= 320 and prompt.endswith(AGENT_RULES)
+    specs = orchestrator.agent.get_tools().values()
     assert all(len(spec.description) <= 80 for spec in specs)
     payload = [{"name": s.name, "description": s.description, "parameters": s.input_schema} for s in specs]
     # 2600 → 2800 when lock_device (≈325 chars: three required string fields) was added; keep the margin tight.

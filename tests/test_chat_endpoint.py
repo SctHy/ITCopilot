@@ -14,6 +14,7 @@ from evaluation.fake_model import scripted_model
 from monitor.performance_monitor import PerformanceMonitor
 from tests.conftest import auth
 from tooling.tool_manager import MCPToolManager
+from tests.conftest import with_read_tool
 
 
 def sample(name, **labels):
@@ -26,16 +27,13 @@ def chat_client(monkeypatch):
         if info.output_tools:  # 意图识别的结构化输出
             return ModelResponse(parts=[ToolCallPart("classify_it_request", {"intent": "vpn_issue", "confidence": 0.9, "entities": {"error_code": ["VPN-691"]}})])
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
-            return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"error_code": "VPN-691"})])
+            return ModelResponse(parts=[ToolCallPart("diagnose", {"code": "VPN-691"})])
         return ModelResponse(parts=[TextPart("VPN-691 表示认证失败，请确认账号未锁定。")])
 
     model = scripted_model(respond)
-    orchestrator = AgentOrchestrator("sk-local")
-    orchestrator.planning_mode = "single"  # these tests assert specialist routing and per-agent health
+    orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator._intent_recognizer.llm = model
-    for agents in orchestrator._pool.values():
-        for agent in agents:
-            agent._llm = model
+    orchestrator.agent._llm = model
     tool_manager = MCPToolManager("sk-local")
     monitor = PerformanceMonitor(orchestrator, tool_manager)
     for name, value in {"orchestrator": orchestrator, "memory": None, "tool_manager": tool_manager, "monitor": monitor}.items():
@@ -51,8 +49,8 @@ def test_chat_end_to_end_records_metrics_and_slo(chat_client):
     response = http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-1"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "success" and body["agent_type"] == "network_software" and body["intent"] == "vpn_issue"
-    assert body["tools_used"] == ["lookup_error_code"] and "VPN-691" in body["response"]
+    assert body["status"] == "success" and body["intent"] == "vpn_issue"
+    assert body["tools_used"] == ["diagnose"] and "VPN-691" in body["response"]
     assert sample("it_copilot_chat_requests_total", status="success", intent_group="network") == before + 1
     # 无记忆、无审批时只有 memory_context / intent / agent 三段。
     assert set(body["stage_ms"]) == {"memory_context", "intent", "agent"} and all(v >= 0 for v in body["stage_ms"].values())
@@ -86,7 +84,7 @@ def test_monitor_endpoint_reports_live_state(chat_client):
     http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-3"})
     monitor.tick()
     body = http.get("/monitor").json()
-    assert body["agents"]["network_software_0"]["state"] == "healthy"
+    assert body["agent"]["total"] >= 1 and body["agent"]["recent_success_rate"] == 1
     assert body["monitor"]["status"] == "ok" and body["monitor"]["slos"][0]["requests_1h"] >= 1
     assert body["mcp"] == {"enabled": False, "servers": []}
 

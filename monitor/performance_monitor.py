@@ -1,13 +1,10 @@
-"""Agent 在线表现监控：近期窗口规则 + SLO 燃烧率告警 + 告警状态机 + 路由反馈闭环。
+"""Agent 在线表现监控：近期窗口规则 + SLO 燃烧率告警 + 告警状态机。
 
 数据来源（无需额外埋点）：
   - Orchestrator.get_stats() 的 5 分钟滑动窗口（recent_*）
   - MCPToolManager.get_stats() 的累计计数，按快照差分得到近期成功率
   - API 每次 /chat 结束时调用 record_chat()，驱动 SLO 时间窗
   - StandardMCPClient.summary() 的外部 MCP 连接状态（可选）
-
-闭环：近期成功率/延迟恶化 → update_routing_penalties() 降权 → 超阈值的专职 Agent 进入冷却，
-请求改由 Triage 兜底 → 冷却结束放行单个探针 → 成功即恢复。
 
 告警按“状态迁移”通知（触发 / 升级 / 恢复各一次），连续 RESOLVE_TICKS 个周期正常才恢复，避免抖动刷屏。
 """
@@ -203,14 +200,11 @@ class Thresholds:
     agent_latency_ms: float = 8000
     tool_success_warning: float = .95
     tool_window_s: float = 300
-    routing_success: float = .90
-    routing_latency_ms: float = 8000
 
     @classmethod
     def from_env(cls) -> "Thresholds":
         return cls(
             agent_latency_ms=env_float("IT_COPILOT_ALERT_AGENT_LATENCY_MS", 8000),
-            routing_latency_ms=env_float("IT_COPILOT_ROUTING_LATENCY_MS", 8000),
         )
 
 
@@ -299,30 +293,20 @@ class PerformanceMonitor:
 
     def _agent_conditions(self) -> Dict[str, Condition]:
         t = self.thresholds
-        out, penalties = {}, {}
-        for key, s in self._orchestrator.get_stats().items():
-            n, success, latency = s["recent_total"], s["recent_success_rate"], s["recent_avg_ms"]
-            penalties[key] = self._routing_penalty(success, latency, t.routing_success, t.routing_latency_ms) if n >= t.min_samples else 0.
-            if n >= t.min_samples and success < t.agent_success_warning:
-                severity = "critical" if success < t.agent_success_critical else "warning"
-                out[f"agent_success:{key}"] = Condition(
-                    "agent_success_rate", severity, f"Agent {key} 近 5 分钟成功率 {success:.0%}（{n} 次）", round(success, 3), t.agent_success_warning,
-                    "查看 it_copilot_agent_failures_total 的 reason 分布：model 查模型服务，round_limit 查提示词与工具设计，bad_output 查模型输出格式。",
-                )
-            if n >= t.min_samples and latency > t.agent_latency_ms:
-                out[f"agent_latency:{key}"] = Condition(
-                    "agent_latency", "warning", f"Agent {key} 近 5 分钟平均耗时 {latency:.0f}ms", round(latency), t.agent_latency_ms,
-                    "检查上游模型延迟与工具耗时分布；必要时降低 max_tokens 或为该 Agent 换更快的模型。",
-                )
-        self._orchestrator.update_routing_penalties(penalties)
-        for key, s in self._orchestrator.get_stats().items():
-            degraded = s["state"] != "healthy"
-            metrics.AGENT_DEGRADED.labels(agent=key).set(int(degraded))
-            if degraded:
-                out[f"agent_degraded:{key}"] = Condition(
-                    "agent_degraded", "warning", f"Agent {key} 已降级（{s['state']}），请求由 Triage 兜底", s["monitor_penalty"], 0,
-                    "冷却结束后会自动放行单个探针请求；持续降级说明根因未消除。",
-                )
+        s = self._orchestrator.get_stats()
+        n, success, latency = s["recent_total"], s["recent_success_rate"], s["recent_avg_ms"]
+        out = {}
+        if n >= t.min_samples and success < t.agent_success_warning:
+            severity = "critical" if success < t.agent_success_critical else "warning"
+            out["agent_success"] = Condition(
+                "agent_success_rate", severity, f"Agent 近 5 分钟成功率 {success:.0%}（{n} 次）", round(success, 3), t.agent_success_warning,
+                "查看 it_copilot_agent_failures_total 的 reason 分布：model 查模型服务，round_limit 查提示词与工具设计，bad_output 查模型输出格式。",
+            )
+        if n >= t.min_samples and latency > t.agent_latency_ms:
+            out["agent_latency"] = Condition(
+                "agent_latency", "warning", f"Agent 近 5 分钟平均耗时 {latency:.0f}ms", round(latency), t.agent_latency_ms,
+                "检查上游模型延迟与工具耗时分布；必要时降低 max_tokens 或换更快的模型。",
+            )
         return out
 
     def _tool_conditions(self, now: float) -> Dict[str, Condition]:
@@ -360,16 +344,6 @@ class PerformanceMonitor:
                     "外部工具已自动下线，Agent 仅使用本地工具；客户端按指数退避自动重连。",
                 )
         return out
-
-    @staticmethod
-    def _routing_penalty(success_rate: float, avg_ms: float, success_floor: float, latency_ms: float) -> float:
-        """把近期表现转成 0–0.9 的路由降权；≥ IT_COPILOT_MONITOR_FALLBACK_PENALTY（默认 0.5）触发降级冷却。"""
-        penalty = 0.
-        if success_rate < success_floor:
-            penalty += min(.6, (success_floor - success_rate) * 2)
-        if avg_ms > latency_ms:
-            penalty += min(.3, (avg_ms - latency_ms) / 20000)
-        return min(penalty, .9)
 
     # ── 通知 ──────────────────────────────────────────────────────────────────
 

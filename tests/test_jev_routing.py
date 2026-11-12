@@ -71,7 +71,7 @@ def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
             return ModelResponse(parts=[ToolCallPart("create_ticket", {"title": "VPN", "description": "诊断"})])
         return ModelResponse(parts=[TextPart("好的。")])
 
-    agent = AgentOrchestrator("sk-local")._generalist
+    agent = AgentOrchestrator("sk-local").agent
     agent._llm = scripted_model(reply)
     alice = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
     response = asyncio.run(agent.handle(Request("VPN 怎么办", conversation_state={}, principal=alice, allowed_writes=allowed)))

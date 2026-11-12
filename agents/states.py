@@ -1,4 +1,4 @@
-"""Conversation readiness and the transient agent/plan protocols."""
+"""Conversation readiness and the transient agent protocols."""
 from enum import StrEnum
 
 from core.states import Machine, Protocol
@@ -42,12 +42,6 @@ TOOL_CALL = Protocol("tool_call", "new", {
     "validating": {"execute": "executing", "fail": "failed", "cancel": "cancelled"},
     "executing": {"complete": "completed", "fail": "failed", "cancel": "cancelled"},
 })
-
-PLAN_RUN = Protocol("plan_run", "waiting", {
-    "waiting": {"wave": "running", "finish": "completed", "fail": "failed"},
-    "running": {"join": "waiting", "cancel": "cancelled"},
-})
-
 
 class OnceState(StrEnum):
     AVAILABLE = "available"

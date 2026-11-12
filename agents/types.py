@@ -1,32 +1,11 @@
-"""Agent 运行时共用的数据类型：请求、响应、路由决策与错误。"""
+"""Agent 运行时共用的数据类型：请求、响应与错误。"""
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from agents.intent.taxonomy import IntentCategory, UrgencyLevel
-
-
-class AgentType(Enum):
-    TRIAGE = "triage"
-    ENDPOINT = "endpoint"
-    ACCESS = "access"
-    NETWORK_SOFTWARE = "network_software"
-    TICKET = "ticket"
-    GENERALIST = "generalist"   # 单个 Agent 拥有全部工具（默认策略，见 PLANNING_MODES）
-
-
-# 意图组 → 负责的专职 Agent；未列出的组（general/knowledge）由 Triage 处理。
-GROUP_AGENTS: Dict[str, AgentType] = {
-    "endpoint": AgentType.ENDPOINT,
-    "access": AgentType.ACCESS,
-    "network": AgentType.NETWORK_SOFTWARE,
-    "software": AgentType.NETWORK_SOFTWARE,
-    "ticket": AgentType.TICKET,
-    "escalation": AgentType.TICKET,
-}
 
 
 @dataclass(frozen=True)
@@ -53,15 +32,15 @@ class Request:
     before_unsafe_tool: Any = field(default=None, repr=False)
     unsafe_tool_calls: set = field(default_factory=set, repr=False)
     conversation_state: Optional[Dict[str, Any]] = None
-    step_outputs: Dict[str, Any] = field(default_factory=dict)
+    step_outputs: Dict[str, Any] = field(default_factory=dict)  # 共享事项回调传入的审批结果等只读证据
     principal: Any = field(default=None, repr=False)  # core.identity.Principal; set by the API from the verified token
     emit: Any = field(default=None, repr=False)       # async (event, data) -> None; live execution events for SSE
-    hidden_tools: frozenset = frozenset()              # tools not offered in this run (e.g. ticket owned by a plan step)
-    stream_answer: bool = False                        # push live answer_delta events (single-agent paths only)
+    hidden_tools: frozenset = frozenset()              # tools not offered in this run (e.g. writes in a shared-task follow-up)
+    stream_answer: bool = False                        # push live answer_delta events
     allowed_writes: Optional[frozenset] = None         # write tools the user asked for this turn; None = not gated
+    skill_text: str = ""                               # progressive skill disclosure: bodies selected for this turn
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
     checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
-    planning_mode: Optional[str] = None  # per-run override, without mutating the shared orchestrator
     task_references: List[Dict[str, Any]] = field(default_factory=list)  # private-chat recall; not shared-room context
     related_approvals: List[Dict[str, Any]] = field(default_factory=list)  # own withdrawable/releasable items (agents/request_recall.py)
 
@@ -72,7 +51,6 @@ class Request:
 
 @dataclass
 class AgentResponse:
-    agent_type: AgentType
     content: str
     success: bool
     confidence: float = 1.
@@ -118,42 +96,16 @@ class AgentRunDeps:
 
 
 @dataclass
-class RoutingDecision:
-    primary_agent: AgentType
-    supporting_agents: List[AgentType] = field(default_factory=list)
-    reason: str = ""
-    confidence: float = 0.
-
-    @property
-    def agent_types(self) -> List[AgentType]:
-        return [self.primary_agent] + self.supporting_agents
-
-    @property
-    def multi_agent(self) -> bool:
-        return bool(self.supporting_agents)
-
-
-@dataclass
 class OrchestratorResult:
     request_id: str
     response: str
-    agent_type: AgentType
     intent: Optional[IntentCategory]
     escalated: bool = False
     latency_ms: float = 0.
-    agent_types: List[AgentType] = field(default_factory=list)
-    primary_agent: Optional[AgentType] = None
-    supporting_agents: List[AgentType] = field(default_factory=list)
     tools_used: List[str] = field(default_factory=list)
     tool_traces: List[Dict[str, Any]] = field(default_factory=list)
-    routing_reason: str = ""
-    routing_confidence: float = 0.
     status: str = "success"
-    retryable: bool = False
     error_code: Optional[str] = None
-    plan: Optional[Dict[str, Any]] = None
-    findings: List[Dict[str, Any]] = field(default_factory=list)
-    trace_events: List[Dict[str, Any]] = field(default_factory=list)
     token_usage: Dict[str, int] = field(default_factory=dict)
 
     @property

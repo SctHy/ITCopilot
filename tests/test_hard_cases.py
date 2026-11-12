@@ -20,11 +20,12 @@ from pydantic_ai.messages import (
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.conversation_state import with_login_employee
 from agents.intent.entities import extract_entities
-from agents.prompting import WRITE_CLAIM, history_messages
+from agents.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, history_messages
 from agents.types import Request
 from evaluation.fake_model import scripted_model
 from memory.conversation_memory import MemoryContext, Message, MsgRole
 from tooling.tool_manager import MCPToolManager, Tool
+from tests.conftest import with_read_tool
 
 # ── 编号抽取：对抗输入 ──────────────────────────────────────────────────────────
 
@@ -58,6 +59,31 @@ def test_write_claim_detects_completed_claims(text):
 ])
 def test_write_claim_ignores_offers_and_plans(text):
     assert not WRITE_CLAIM.search(text)
+
+
+# 深度评测（2026-11-12）里漏判/误判的真实回答
+@pytest.mark.parametrize("text", [
+    "工单已按你的要求提交建单申请（待审批，审批通过后才有工单号）。",   # 插入语“按你的要求”
+    "**结论：** 密码重置待审批请求已生成，审批通过后由身份平台核验。",   # 名词在前
+    "**已提交待审批工单**（P3，单用户一般问题），审批通过后才会生成工单号。",
+])
+def test_claims_found_in_deep_evaluation_replies(text):
+    assert _claims(text, WRITE_CLAIM)
+
+
+@pytest.mark.parametrize("text", [
+    "你上周已提交的工单还在处理。",                                    # 复述用户自己的行为
+    "GitLab 权限申请尚未提交，等你确认项目名称后再处理。",
+    "你只需要 reporter 角色，我没有创建任何申请，也没有提交审批。",
+    "你已提供工号 1001、角色 reporter 和理由。",
+])
+def test_non_claims_found_in_deep_evaluation_replies(text):
+    assert not _claims(text, WRITE_CLAIM)
+
+
+def test_withdraw_claims_and_offers():
+    assert _claims("你刚才的 GitLab 只读申请已按你的意思不再推进，需要时再说。", WITHDRAW_CLAIM)
+    assert not _claims("如需撤回，可以在审批卡片上点“撤回”。", WITHDRAW_CLAIM)
 
 
 # ── 历史结构：随机输入下的不变量 ─────────────────────────────────────────────────
@@ -169,9 +195,9 @@ def test_streamed_deltas_after_last_reset_equal_final_answer_for_random_chunking
 
         async def reply(messages, info, preambles=preambles, final=final):
             done = sum(isinstance(p, ToolReturnPart) for m in messages for p in m.parts)
-            tools = ["lookup_error_code", "check_service_status"]
+            tools = ["diagnose", "diagnose"]
             if done < len(tools):
-                return ModelResponse(parts=[TextPart(preambles[done]), ToolCallPart(tools[done], {"error_code": "VPN-691"} if done == 0 else {})])
+                return ModelResponse(parts=[TextPart(preambles[done]), ToolCallPart(tools[done], {"code": "VPN-691" if done == 0 else "vpn"})])
             return ModelResponse(parts=[TextPart(final)])
 
         chunk = rng.randint(1, 9)
@@ -181,7 +207,7 @@ def test_streamed_deltas_after_last_reset_equal_final_answer_for_random_chunking
         async def emit(event, data):
             events.append((event, data))
 
-        agent = AgentOrchestrator("sk-local")._generalist
+        agent = with_read_tool(AgentOrchestrator("sk-local")).agent
         agent._llm = scripted_model(reply)
         response = asyncio.run(agent.handle(Request("VPN 报 691", emit=emit, stream_answer=True)))
         names = [e for e, _ in events]
@@ -205,7 +231,7 @@ def test_refused_write_does_not_count_as_evidence_and_correction_happens_once():
             return ModelResponse(parts=[ToolCallPart("create_ticket", {"title": "VPN", "description": "诊断"})])
         return ModelResponse(parts=[TextPart("已为你创建工单待审批。")])
 
-    agent = AgentOrchestrator("sk-local")._generalist
+    agent = with_read_tool(AgentOrchestrator("sk-local")).agent
     agent._llm = scripted_model(reply)
     response = asyncio.run(agent.handle(Request("VPN 怎么办", conversation_state={}, allowed_writes=frozenset())))
     assert response.tool_traces[0]["success"] is False and "没有要求" in response.tool_traces[0]["error"]
@@ -221,3 +247,12 @@ def test_refused_write_does_not_count_as_evidence_and_correction_happens_once():
 def test_device_ids_are_not_mistaken_for_error_codes(message, device, errors):
     entities = extract_entities(message)
     assert entities["device_id"] == device and entities["error_code"] == errors
+
+
+def test_episodic_memory_drops_unrelated_rows_and_ranks_by_relevance():
+    """深度评测：情景记忆原先没有相关度门槛，且只按重要度排序；老用户每轮都会带上无关旧对话。"""
+    from memory.conversation_memory import MemoryManager
+    results = {"documents": [["打印机排队", "VPN-691 认证失败", "GitLab 权限"]],
+               "metadatas": [[{"importance": 0.9}, {"importance": 0.5}, {"importance": 0.5}]],
+               "distances": [[0.9, 0.2, 0.55]]}
+    assert MemoryManager._rank_memory_rows(results, 1200) == ["VPN-691 认证失败", "GitLab 权限"]

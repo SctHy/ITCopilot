@@ -145,7 +145,7 @@ async def _chat_entry(payload: ChatRequest, principal: Principal, rid: str, emit
     with chat_span(rid) as span:
         response = await _chat(payload, principal, rid, emit)
         if isinstance(response, ChatResponse):
-            for key in ("status", "agent_type", "intent", "intent_group"):
+            for key in ("status", "intent", "intent_group"):
                 span.set_attribute(f"it_copilot.{key}", getattr(response, key))
         return response
 
@@ -212,13 +212,13 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     flow.send("respond")
     response = ChatResponse(
         task_references=req.task_references, related_approvals=req.related_approvals,
-        request_id=rid, response=reply, status=result.status, agent_type=result.agent_type.value,
+        request_id=rid, response=reply, status=result.status,
         intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
-        confidence=req.intent_confidence, intent_confidence=req.intent_confidence, routing_confidence=result.routing_confidence,
+        confidence=req.intent_confidence, intent_confidence=req.intent_confidence,
         intent_source_scores=intent_result.source_scores, clarification_needed=bool(req.conversation_state.get("missing_fields")),
         missing_slots=req.conversation_state.get("missing_fields", []), inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
         tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used or bool(req.knowledge), latency_ms=result.latency_ms,
-        escalated=result.escalated, plan=result.plan, findings=result.findings, approval_required=bool(approval), approval_id=approval_id,
+        escalated=result.escalated, approval_required=bool(approval), approval_id=approval_id,
         token_usage=result.token_usage, stage_ms=stages.ms,
     )
     if state.memory:
@@ -230,7 +230,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
         if state.profile_updater:
             state.profile_updater.submit(principal.scope_key, conv_id)
         if result.intent and result.intent.value not in {"greeting", "chitchat"}:
-            metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "agent_type": result.agent_type.value, "entities": intent_result.entities}
+            metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "entities": intent_result.entities}
             spawn(state.memory.store_episodic_turn(principal.scope_key, conv_id, rid, payload.message, response.response, metadata))
     metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
@@ -295,7 +295,7 @@ def _stream_response(stream: str, after: Optional[str]) -> StreamingResponse:
 
 @router.post("/chat/stream")
 async def chat_stream(payload: ChatRequest, principal: Principal = Depends(current_principal)):
-    """实时执行事件流：intent → routed/plan → tool_started/tool_finished（单 Agent 时穿插 answer_delta / answer_reset 实时正文）→ approval_required → content_delta → completed。
+    """实时执行事件流：intent → tool_started/tool_finished（穿插 answer_delta / answer_reset 实时正文）→ approval_required → content_delta → completed。
 
     每个事件带 id，可用 GET /chat/stream/{request_id} + Last-Event-ID 断线续传。相同 client_request_id 的
     重复提交只订阅已有执行，不会再跑一遍。"""

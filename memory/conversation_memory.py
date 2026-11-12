@@ -147,6 +147,7 @@ class MemoryManager:
     HISTORY_TOP_K = 5     # 情景记忆检索返回条数
     MEMORY_MAX_TOKENS = 1200
     MEMORY_HALF_LIFE_DAYS = 30.0
+    MEMORY_MAX_DISTANCE = 0.6
     SUMMARY_MAX_CHARS = 800
     PROFILE_EVERY_MESSAGES = 6  # 约 3 轮对话提炼一次画像
     PROFILE_DOC_PREFIX = "user_profile:"
@@ -596,7 +597,7 @@ class MemoryManager:
             doc_id = hashlib.sha256(f"turn:{request_id}".encode()).hexdigest()
             meta = {"user_id": self._safe_text(user_id), "conv_id": self._safe_text(conv_id), "request_id": self._safe_text(request_id), "ts": datetime.now().isoformat(), "memory_type": "episodic_turn", "importance": 0.5}
             for key, value in (metadata or {}).items():
-                if key in {"intent", "intent_group", "agent_type"}:
+                if key in {"intent", "intent_group"}:
                     meta[key] = self._safe_text(value)[:64]
             if metadata and metadata.get("entities"):
                 meta["entity_keys"] = ",".join(sorted(str(k) for k in metadata["entities"].keys()))[:256]
@@ -680,11 +681,19 @@ class MemoryManager:
     def _rank_memory_rows(cls, results: Dict[str, Any], max_tokens: int, entities: Optional[Dict[str, Any]] = None) -> List[str]:
         docs = results.get("documents") or []
         metas = results.get("metadatas") or []
+        distances = results.get("distances") or []
         docs = docs[0] if docs and isinstance(docs[0], list) else docs
         metas = metas[0] if metas and isinstance(metas[0], list) else metas
+        distances = distances[0] if distances and isinstance(distances[0], list) else distances
+        # 余弦距离门槛：jina-v2-base-zh 上同主题问答对 0.19–0.62、不同主题 ≥0.62（9 条查询的小样本校准）。
+        # 不设门槛时，老用户每轮都会带上 3 条与当前问题无关的旧对话，而且落在不命中缓存的本轮消息里。
+        max_distance = float(os.getenv("IT_COPILOT_MEMORY_MAX_DISTANCE") or cls.MEMORY_MAX_DISTANCE)
         rows = []
         for idx, doc in enumerate(docs):
             if not isinstance(doc, str) or not doc.strip():
+                continue
+            distance = float(distances[idx]) if idx < len(distances) and distances[idx] is not None else None
+            if distance is not None and distance > max_distance:
                 continue
             meta = metas[idx] if idx < len(metas) and isinstance(metas[idx], dict) else {}
             requested_keys = {str(key) for key, value in (entities or {}).items() if value}
@@ -703,7 +712,9 @@ class MemoryManager:
                 importance *= 0.5 ** (age_days / max(1.0, cls.MEMORY_HALF_LIFE_DAYS))
             except (TypeError, ValueError):
                 pass
-            rows.append((importance, doc))
+            # 相关度为主、重要度与新近度为辅；原先只按重要度排序，相似度顺序被整个丢掉。
+            relevance = 1.0 - distance if distance is not None else 0.5
+            rows.append((relevance * (0.5 + importance), doc))
         rows.sort(key=lambda item: item[0], reverse=True)
         return cls._budget_texts([doc for _, doc in rows], max_tokens)
 

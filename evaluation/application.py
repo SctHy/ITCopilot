@@ -51,7 +51,7 @@ async def application(*, model=None, redis_url=None, documents=()):
         if model is not None:
             # An offline model substitute must cover every model path, regardless
             # of the developer's .env or installed third-party credentials.
-            env.update(IT_INTENT_BACKEND="llm", IT_COPILOT_INJECTION_GUARD="off", IT_COPILOT_RERANK_BACKEND="llm")
+            env.update(IT_INTENT_BACKEND="llm", IT_COPILOT_RERANK_BACKEND="llm")
         with patch.dict(os.environ, env):
             with ExitStack() as stack:
                 stack.enter_context(
@@ -103,16 +103,11 @@ async def application(*, model=None, redis_url=None, documents=()):
                     if documents:
                         await state.kb.add_documents_async(list(documents))
                     if model is not None:
-                        state.orchestrator._llm = model
-                        if state.orchestrator._planner:
-                            state.orchestrator._planner.llm = model
+                        state.orchestrator._llm = state.orchestrator.agent._llm = model
                         state.orchestrator._intent_recognizer.llm = model
                         state.tool_manager._llm = model
                         state.task_worker.handle.advisor.model = model
                         state.memory._llm = model
-                        for pool in state.orchestrator._pool.values():
-                            for agent in pool:
-                                agent._llm = model
                     async with httpx2.AsyncClient(
                         transport=httpx2.ASGITransport(app=api.app),
                         base_url="http://evaluation",

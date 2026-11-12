@@ -40,7 +40,7 @@ def slow_model(latency_s: float):
         if info.output_tools:
             return ModelResponse(parts=[ToolCallPart("classify_it_request", {"intent": "vpn_issue", "confidence": 0.9, "entities": {"error_code": ["VPN-691"]}})])
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
-            return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"error_code": "VPN-691"})])
+            return ModelResponse(parts=[ToolCallPart("search_knowledge_base", {"query": "VPN-691"})])
         return ModelResponse(parts=[TextPart("VPN-691 表示认证失败：确认账号未锁定，检查系统时间和客户端版本。")])
     return scripted_model(reply)
 
@@ -94,6 +94,7 @@ def main() -> int:
         "baseline_note": "Previous SSE replayed events after the turn completed: its first progress event ~= completed_s.",
         "rows": rows,
     }
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"runs": args.runs, "summary": summary, "first_run": rows[0]["event_times"]}, ensure_ascii=False, indent=2))
     return 0

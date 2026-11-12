@@ -8,9 +8,8 @@ from types import SimpleNamespace
 
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.intent.taxonomy import IntentCategory, UrgencyLevel
-from agents.planner import ExecutionPlan, PlanStep
 from agents.task_runner import TaskAgentRunner
-from agents.types import AgentResponse, AgentType
+from agents.types import AgentResponse
 from core.identity import Principal
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.local import LocalDirectoryAdapter
@@ -35,37 +34,36 @@ def compose(url, clock):
 
 
 async def child(url, phase, calls_path, checkpoints):
-    """Parent SIGKILLs at the start of step two, after step one's durable save."""
+    """Parent SIGKILLs while the progress advisor runs, after the agent step's durable save."""
     workflow, tasks, caps = compose(url, lambda: 1000.0 if phase == 'crash' else 1006.0)
     orchestrator = AgentOrchestrator.__new__(AgentOrchestrator)
-    orchestrator._planning_mode = 'bounded'
 
     async def recognize(*args, **kwargs):
         return SimpleNamespace(intent=IntentCategory.ACCESS_REVIEW, intent_group='access', confidence=1,
             urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset())
 
-    async def plan(*args):
-        return ExecutionPlan('fault-plan', '只读诊断', [PlanStep('access', '权限诊断', 'access', []),
-            PlanStep('network', '访问诊断', 'network_software', ['access'])])
-
-    async def execute(req, kind):
+    async def execute(req):
         with Path(calls_path).open('a') as output:
-            output.write(json.dumps({'phase': phase, 'step': kind.value}) + '\n')
+            output.write(json.dumps({'phase': phase, 'step': 'agent'}) + '\n')
             output.flush()
             os.fsync(output.fileno())
-        if phase == 'crash' and kind == AgentType.NETWORK_SOFTWARE:
-            print('FAULT_POINT', flush=True)
-            await asyncio.Event().wait()
-        return AgentResponse(kind, '确定性诊断结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
+        return AgentResponse('确定性诊断结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
 
-    orchestrator.recognize_intent, orchestrator._planner, orchestrator._execute = recognize, SimpleNamespace(plan=plan), execute
+    class Advisor:
+        async def suggest(self, *args):
+            if phase == 'crash':
+                print('FAULT_POINT', flush=True)
+                await asyncio.Event().wait()
+            return None, {}
+
+    orchestrator.recognize_intent, orchestrator._execute = recognize, execute
     try:
         claim = tasks.claim(5)
         if not claim:
             raise RuntimeError('expected a recoverable task')
         task, event, transcript = tasks.context(claim)
         task['_claim'] = claim
-        runner = TaskAgentRunner(orchestrator, lambda _: {}, plan_store=caps.plan_store if checkpoints else None)
+        runner = TaskAgentRunner(orchestrator, lambda _: {}, advisor=Advisor(), plan_store=caps.plan_store if checkpoints else None)
         result = await runner(task, event, transcript)
         tasks.finish(claim, result)
     finally:
@@ -103,13 +101,12 @@ async def recovery_trial(directory, checkpoints):
     try:
         body = tasks.get(task['id'], APPLICANT)
         calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
-        first_calls = sum(row['step'] == 'access' for row in calls)
+        agent_calls = sum(row['step'] == 'agent' for row in calls)
         replies = sum(e['kind'] == 'assistant' for e in body['events'])
         return {'scenario': 'sigkill_recovery', 'checkpoints': checkpoints,
-                'passed': body['runs'][0]['status'] == 'done' and replies == 1 and first_calls == (1 if checkpoints else 2),
+                'passed': body['runs'][0]['status'] == 'done' and replies == 1 and agent_calls == (1 if checkpoints else 2),
                 'recovered': body['runs'][0]['status'] == 'done', 'assistant_replies': replies,
-                'specialist_invocations_including_interrupted': len(calls),
-                'completed_first_step_invocations': first_calls, 'reused_steps': int(checkpoints and first_calls == 1),
+                'agent_invocations_including_interrupted': agent_calls, 'reused_agent_step': int(checkpoints and agent_calls == 1),
                 'human_recovery_actions': 0, 'kill_signal': 'SIGKILL', 'lease_clock': 'logical_1000_to_1006'}
     finally:
         workflow.close()

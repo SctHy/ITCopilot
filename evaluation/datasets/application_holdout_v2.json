@@ -89,7 +89,7 @@
     ],
     "outcome": "tools",
     "tools": [
-      "lookup_error_code"
+      "search_knowledge_base"
     ]
   },
   {

@@ -25,13 +25,11 @@ class ChatResponse(BaseModel):
     request_id: str
     response: str
     status: str
-    agent_type: str
     intent: str
     intent_group: str = "other"
     entities: Dict[str, Any] = {}
     confidence: float = 0.
     intent_confidence: float = 0.
-    routing_confidence: float = 0.
     intent_source_scores: Dict[str, float] = {}
     clarification_needed: bool = False
     missing_slots: list[str] = []
@@ -41,8 +39,6 @@ class ChatResponse(BaseModel):
     knowledge_used: bool = False
     latency_ms: float = 0.
     escalated: bool = False
-    plan: Optional[Dict[str, Any]] = None
-    findings: list[Dict[str, Any]] = []
     approval_required: bool = False
     approval_id: Optional[str] = None
     token_usage: Dict[str, int] = {}

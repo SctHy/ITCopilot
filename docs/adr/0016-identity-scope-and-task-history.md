@@ -33,32 +33,10 @@
 | `TaskAccess` | 成员权限、目录和审批指派；通过访问策略接口注入 TaskStore |
 | `TaskHistory` | 授权检索、引用和续接；注入进度服务与审批读模型，不调用路由或模型 |
 | `TaskRecall` | 私聊上下文适配，只接收读取函数，不导入事项存储 |
-| `memory/scope_migration.py` | 旧记忆的显式归属迁移，不依赖事项服务 |
 | `task_history` 路由 | HTTP 校验和服务调用，通过共享依赖唤醒 worker |
 | `taskClient` / `taskHistoryController` / `TaskHistoryPanel` | 分别负责传输、异步状态和展示；不直接提交审批 |
 
-`TaskStore` 本身不导入产品访问策略，未注入扩展时只允许申请人和同租户管理员访问。`TaskCapabilities` 与 `api/main.py` 负责组装。迁移 `0011` 新增 `task_links` 和 `memory_scope_bindings`；它们分别由事项与记忆 schema 定义，审批状态不复制进历史表。
-
-## 升级与旧数据
-
-重启 API 会应用迁移。既有事项也立即使用显式成员规则：之前仅凭部门进入的审批人需要被邀请或指定，已有成员/指定审批人记录继续有效。历史投票、讨论与审批不会删除。
-
-旧版只有 `subject` 的私人记忆保留在原位置，但不作为新作用域的兜底数据。不能仅凭同名用户猜测组织。运维可根据可信身份目录准备 JSON 映射，例如：
-
-```json
-[{"subject": "dev:alice", "tenant": "default"}]
-```
-
-先停止旧版本写入并备份数据库，再在已配置 `IT_COPILOT_DATABASE_URL` 的环境运行：
-
-```bash
-.venv/bin/python scripts/migrate_memory_scope.py --bindings /path/to/verified-bindings.json
-.venv/bin/python scripts/migrate_memory_scope.py --bindings /path/to/verified-bindings.json --apply
-```
-
-第一条仅预览记录计数；第二条复制长期情景记忆和画像，保留源记录。绑定表禁止把同一个旧 `subject` 分配给多个租户；元数据中的已有租户必须与映射一致。重复执行不会重复复制或覆盖目标画像；多个旧画像选最近更新的一个，并报告冲突数。无法证明唯一归属的旧数据应保持隔离。
-
-短期 Redis 会话、旧回执、旧 SSE 与无租户 trace 不迁移。升级前应等待在途请求结束，避免用旧请求键跨版本重试创建新的申请；已有审批继续按原审批 ID 读取和处理。升级后私聊开启新会话，按上述映射恢复可确认归属的长期记忆。
+`TaskStore` 本身不导入产品访问策略，未注入扩展时只允许申请人和同租户管理员访问。`TaskCapabilities` 与 `api/main.py` 负责组装。`task_links` 由事项 schema 定义，审批状态不复制进历史表。
 
 ## 验证与范围
 
@@ -68,6 +46,6 @@ npm test --prefix frontend
 .venv/bin/python scripts/evaluate_shared_tasks.py --repeats 3 --output /tmp/shared-isolation.json
 ```
 
-相同后端契约通过 `IT_COPILOT_TEST_DATABASE_URL` 在 PostgreSQL 执行，包含同名用户跨租户、旧审批/trace/SSE 隔离、旧记忆迁移、成员撤销、指派与待办、逐查看者历史授权、并发幂等引用和只读续接。共享流程评测验证登录、邀请、投票及后续工作流，使用确定性处理器与隔离业务数据，不等同于浏览器、真实模型或真实 IdP 验证。
+相同后端契约通过 `IT_COPILOT_TEST_DATABASE_URL` 在 PostgreSQL 执行，包含同名用户跨租户、跨租户审批/trace/SSE 隔离、成员撤销、指派与待办、逐查看者历史授权、并发幂等引用和只读续接。共享流程评测验证登录、邀请、投票及后续工作流，使用确定性处理器与隔离业务数据，不等同于浏览器、真实模型或真实 IdP 验证。
 
 本决定覆盖聊天、记忆、事项与审批的应用权限。知识库和业务目录适配器仍需各自的租户映射，不能据此宣称全部外部系统都已具备独立租户资源。任务历史只包含共享事项，既有私人聊天仍由三级记忆模块召回。

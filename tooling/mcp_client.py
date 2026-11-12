@@ -1,7 +1,7 @@
 """官方 MCP SDK（2.x）客户端：工具发现、会话生命周期、白名单和 Agent 适配。
 
 外部 MCP 工具注册进 MCPToolManager（Schema 校验、TTL 缓存、超时、熔断、指标），
-再包装为 AgentToolSpec 交给 allowed_agents 中的 Agent；默认只接收带 readOnlyHint 的只读工具。
+再包装为 AgentToolSpec 交给 Agent；默认只接收带 readOnlyHint 的只读工具。
 """
 import asyncio
 import hashlib
@@ -35,7 +35,6 @@ class MCPServerConfig:
     name: str
     transport: str
     allowed_tools: List[str]
-    agents: List[str]
     url: str = ""
     command: str = ""
     args: List[str] = field(default_factory=list)
@@ -53,8 +52,6 @@ class MCPServerConfig:
             raise ValueError("MCP 仅支持 streamable_http 或 stdio")
         if not self.allowed_tools or not all(isinstance(n, str) and n for n in self.allowed_tools):
             raise ValueError("必须显式配置 MCP allowed_tools 白名单")
-        if not self.agents or not set(self.agents) <= {"triage", "endpoint", "access", "network_software", "ticket"}:
-            raise ValueError("MCP agents 必须是有效 Agent 类型")
         if self.transport == "streamable_http":
             url = urlsplit(self.url)
             if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password:
@@ -176,7 +173,6 @@ class StandardMCPClient:
             "name": c.config.name, "transport": c.config.transport, "state": c.state,
             "protocol_version": c.protocol_version, "error": c.error,
             "startup": c.startup.state, "catalog": c.catalog.state,
-            "agents": c.config.agents,
             "tools": [{"name": alias, "remote_name": origin[1]} for alias, origin in self._origins.items() if origin[0] == c.config.name],
         } for c in self.connections.values()]}
 
@@ -302,9 +298,8 @@ class StandardMCPClient:
 
             self._agent_tools[alias] = AgentToolSpec(
                 name=alias, description="外部 MCP 资料工具：" + (remote.description or remote.name)[:1500],
-                input_schema=remote.input_schema, handler=agent_handler, allowed_agents=tuple(config.agents),
-                retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True),
-                untrusted_output=True)
+                input_schema=remote.input_schema, handler=agent_handler,
+                retry_safe=config.read_only or bool(annotations and annotations.read_only_hint is True and annotations.destructive_hint is not True))
         connection.catalog.send("loaded")
         self._update_metrics(config.name)
         if self._on_change:

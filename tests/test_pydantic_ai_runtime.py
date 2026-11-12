@@ -8,12 +8,13 @@ from pydantic_ai.usage import RequestUsage
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.intent.recognizer import IntentRecognizer
 from agents.intent.taxonomy import IntentCategory
-from agents.types import AgentCallError, AgentType, Request
+from agents.types import AgentCallError, Request
 from tooling.tool_manager import MCPToolManager
+from tests.conftest import with_read_tool
 
 
-def _agent(agent_type, respond):
-    agent = AgentOrchestrator("sk-local")._pool[agent_type][0]
+def _agent(respond):
+    agent = with_read_tool(AgentOrchestrator("sk-local")).agent
     agent._llm = FunctionModel(respond)
     return agent
 
@@ -30,20 +31,20 @@ def test_tool_loop_records_trace_usage_and_lean_prompt():
         seen["tools"] = sorted(tool.name for tool in info.function_tools)
         returns = _tool_returns(messages)
         if not returns:
-            return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"error_code": "vpn-691"}, tool_call_id="c1")], usage=RequestUsage(input_tokens=10, output_tokens=4))
+            return ModelResponse(parts=[ToolCallPart("diagnose", {"code": "vpn-691"}, tool_call_id="c1")], usage=RequestUsage(input_tokens=10, output_tokens=4))
         seen["tool_content"] = returns[-1].content
         return ModelResponse(parts=[TextPart("VPN-691 表示身份认证失败。")], usage=RequestUsage(input_tokens=20, output_tokens=6))
 
     async def run():
-        result = await _agent(AgentType.NETWORK_SOFTWARE, respond).handle(Request("VPN 报错 VPN-691"))
+        result = await _agent(respond).handle(Request("VPN 报错 VPN-691"))
         assert result.success and result.status == "success"
-        assert result.tools_used == ["lookup_error_code"]
+        assert result.tools_used == ["diagnose"]
         assert result.tool_traces[0]["tool_use_id"] == "c1" and result.tool_traces[0]["success"] is True
         assert result.token_usage == {"input_tokens": 30, "output_tokens": 10, "cache_read_tokens": 0}
-        assert seen["tool_content"]["meaning"] == "VPN 身份认证或连接失败"
-        assert "lookup_error_code" in seen["tools"] and "reset_password" not in seen["tools"]
+        assert seen["tool_content"]["meaning"] == "测试诊断结果"
+        assert {"diagnose", "reset_password", "create_ticket"} <= set(seen["tools"])
         # 工具清单只随工具定义下发，不在 system prompt 里重复。
-        assert "规则：" in seen["instructions"] and "lookup_error_code" not in seen["instructions"]
+        assert "规则：" in seen["instructions"] and "diagnose" not in seen["instructions"]
 
     asyncio.run(run())
 
@@ -52,12 +53,12 @@ def test_schema_violation_is_returned_to_model_without_running_tool():
     async def respond(messages, info):
         returns = _tool_returns(messages)
         if not returns:
-            return ModelResponse(parts=[ToolCallPart("lookup_error_code", {"code": "x"})])
+            return ModelResponse(parts=[ToolCallPart("diagnose", {"error_code": "x"})])
         assert returns[-1].content["success"] is False
         return ModelResponse(parts=[TextPart("请提供错误码。")])
 
     async def run():
-        result = await _agent(AgentType.NETWORK_SOFTWARE, respond).handle(Request("VPN 报错"))
+        result = await _agent(respond).handle(Request("VPN 报错"))
         assert result.success and result.tools_used == []
         assert "JSON Schema" in result.tool_traces[0]["error"]
 
@@ -72,7 +73,7 @@ def test_write_tool_blocked_while_slots_missing():
 
     async def run():
         req = Request("重置密码", conversation_state={"missing_fields": ["employee_id"]})
-        result = await _agent(AgentType.ACCESS, respond).handle(req)
+        result = await _agent(respond).handle(req)
         assert result.tools_used == [] and req.tool_attempts == []
         assert "缺少必要信息" in result.tool_traces[0]["error"]
 
@@ -93,7 +94,7 @@ def test_duplicate_write_tool_call_runs_once():
 
     async def run():
         req = Request("重置密码 员工号 E1001", before_unsafe_tool=before_unsafe_tool)
-        result = await _agent(AgentType.ACCESS, respond).handle(req)
+        result = await _agent(respond).handle(req)
         assert result.tools_used == ["reset_password"] and commits == ["reset_password"]
         assert sorted(trace["success"] for trace in result.tool_traces) == [False, True]
         assert all(trace["retry_safe"] is False for trace in result.tool_traces)
@@ -103,10 +104,10 @@ def test_duplicate_write_tool_call_runs_once():
 
 def test_tool_round_limit_raises_agent_call_error_with_evidence():
     async def respond(messages, info):
-        return ModelResponse(parts=[ToolCallPart("check_service_status", {"service": "vpn"})])
+        return ModelResponse(parts=[ToolCallPart("diagnose", {"code": "vpn"})])
 
     async def run():
-        agent = _agent(AgentType.NETWORK_SOFTWARE, respond)
+        agent = _agent(respond)
         try:
             await agent._call_llm(Request("VPN 状态"))
         except AgentCallError as exc:
@@ -124,7 +125,7 @@ def test_length_finish_reason_marks_partial():
         return ModelResponse(parts=[TextPart("回答被截断")], finish_reason="length")
 
     async def run():
-        result = await _agent(AgentType.TRIAGE, respond).handle(Request("你是谁"))
+        result = await _agent(respond).handle(Request("你是谁"))
         assert result.success and result.status == "partial"
 
     asyncio.run(run())
@@ -245,8 +246,9 @@ def test_search_defaults_to_single_hybrid_query_without_llm(monkeypatch):
     assert not asyncio.run(manager.search("knowledge_search", "", top_k=3)).success
 
 
-def test_search_uses_rewrite_and_rerank_when_enabled(monkeypatch):
+def test_search_rewrite_alone_merges_sub_queries_without_reranking(monkeypatch):
     monkeypatch.setenv("IT_COPILOT_RAG_REWRITE", "true")
+    monkeypatch.delenv("IT_COPILOT_RAG_RERANK", raising=False)
     manager, calls = _search_manager([{"title": "VPN", "content": "证书"}])
     seen = []
 
@@ -256,5 +258,23 @@ def test_search_uses_rewrite_and_rerank_when_enabled(monkeypatch):
 
     manager._llm = FunctionModel(respond)
     result = asyncio.run(manager.search("knowledge_search", "VPN 连不上", top_k=3))
-    assert result.success and seen == ["return_sub_queries"]
+    assert result.success and not result.reranked and seen == ["return_sub_queries"]
     assert sorted(c["query"] for c in calls) == ["VPN 证书过期", "VPN 连不上"]
+
+
+def test_search_rerank_alone_recalls_candidates_and_reorders(monkeypatch):
+    monkeypatch.delenv("IT_COPILOT_RAG_REWRITE", raising=False)
+    monkeypatch.setenv("IT_COPILOT_RAG_RERANK", "true")
+    rows = [{"title": f"doc{i}", "content": f"片段{i}"} for i in range(6)]
+    manager, calls = _search_manager(rows)
+    seen = []
+
+    async def respond(messages, info):
+        seen.append(info.output_tools[0].name)
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"response": [5, 4]})])
+
+    manager._llm = FunctionModel(respond)
+    result = asyncio.run(manager.search("knowledge_search", "VPN 连不上", top_k=3))
+    assert seen == ["return_ranking"]                              # no rewrite call
+    assert calls == [{"query": "VPN 连不上", "top_k": 20, "department": None, "mode": "hybrid"}]
+    assert result.reranked and [r["title"] for r in result.data] == ["doc5", "doc4", "doc0"]

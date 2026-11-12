@@ -2,11 +2,7 @@ import asyncio
 import os
 import tempfile
 
-from agents.agent_orchestrator import AgentOrchestrator
 from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import IntentCategory
-from agents.planner import build_plan, is_complex_request
-from agents.types import AgentType
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import MCPToolManager, Tool
 
@@ -39,13 +35,6 @@ def test_tool_manager_timeout_uses_fallback():
     asyncio.run(run())
 
 
-def test_orchestrator_routes_core_intents():
-    orchestrator = AgentOrchestrator(api_key="sk-local")
-    assert orchestrator._route(IntentCategory.VPN_ISSUE) == AgentType.NETWORK_SOFTWARE
-    assert orchestrator._route(IntentCategory.PERMISSION_REQUEST) == AgentType.ACCESS
-    assert orchestrator._route(IntentCategory.TICKET_STATUS) == AgentType.TICKET
-
-
 def test_intent_metrics_expose_disabled_fallback():
     async def run():
         old = os.environ.get("IT_INTENT_LLM_ENABLED")
@@ -76,19 +65,3 @@ def test_rag_hybrid_returns_citations_and_department_scope():
         assert rows[0]["citation"].startswith("研发 VPN SOP")
         assert all(row["department"] in {"研发", "*"} for row in rows)
     os.environ.pop("IT_COPILOT_SEED_DEMO_DOCS", None)
-
-
-def test_phase5_planner_is_bounded_and_parallel_ready():
-    message = "请申请 GitLab 权限并准备一台新电脑"
-    assert is_complex_request(message)
-    plan = build_plan(message, "req-1")
-    assert len(plan.steps) <= plan.max_steps
-    assert {step.agent_type for step in plan.steps} >= {"access", "endpoint"}
-    assert all(step["status"] == "pending" for step in plan.to_dict()["steps"])
-
-
-def test_planner_keywords_are_case_insensitive():
-    upper = build_plan("配置 VPN", "upper")
-    lower = build_plan("配置 vpn", "lower")
-    assert [step.agent_type for step in upper.steps] == [step.agent_type for step in lower.steps]
-    assert any(step.agent_type == "network_software" for step in upper.steps)

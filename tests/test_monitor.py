@@ -1,10 +1,9 @@
-"""PerformanceMonitor: SLO burn rate, alert state machine, routing feedback loop; deterministic clock, offline."""
+"""PerformanceMonitor: SLO burn rate, alert state machine, agent/tool rules; deterministic clock, offline."""
 import asyncio
 
 import pytest
 
 from agents.agent_orchestrator import AgentOrchestrator
-from agents.types import AgentType
 from monitor.performance_monitor import (
     AlertManager,
     Condition,
@@ -79,17 +78,15 @@ def test_alert_manager_notifies_on_transitions_only():
     assert manager.history[-1].state == "resolved"
 
 
-def test_failing_agent_alerts_degrades_and_routes_to_triage():
+def test_failing_agent_raises_a_critical_success_rate_alert():
     monitor, events = make_monitor()
-    agent = monitor._orchestrator._pool[AgentType.NETWORK_SOFTWARE][0]
+    agent = monitor._orchestrator.agent
     for i in range(10):
-        agent.stats.record(False, 500, f"r{i}")
+        agent.stats.record(False, 500)
     monitor.tick()
-    keys = {key for _, key, _ in events}
-    assert {"agent_success:network_software_0", "agent_degraded:network_software_0"} <= keys
-    assert agent.stats.state() == "cooling" and agent.stats.monitor_penalty >= .5
+    assert "agent_success" in {key for _, key, _ in events}
     summary = monitor.summary()
-    assert summary["status"] == "critical" and any(s["alert"] == "agent_success:network_software_0" for s in summary["suggestions"])
+    assert summary["status"] == "critical" and any(s["alert"] == "agent_success" for s in summary["suggestions"])
 
 
 def test_tool_rules_use_recent_window_not_lifetime_totals():

@@ -10,19 +10,12 @@ from pydantic_ai.models.function import FunctionModel
 
 from agents.agent_orchestrator import AgentOrchestrator
 from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import IntentCategory
-from agents.planner import ExecutionPlan, PlanStep, build_plan
-from agents.types import AgentType, Request, RoutingDecision
+from agents.types import Request
 from core.redaction import redact
 from memory.conversation_memory import MemoryManager
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, Tool
 from workflow.approval import approval_summary
-
-
-@pytest.mark.parametrize("message,agent", [("配置 VPN", "network_software"), ("配置 vpn", "network_software"), ("连接 WIFI", "network_software"), ("连接 wifi", "network_software"), ("处理 MFA", "access"), ("处理 mfa", "access")])
-def test_planner_normalizes_english_keywords(message, agent):
-    assert any(step.agent_type == agent for step in build_plan(message, "x").steps)
 
 
 @pytest.mark.parametrize("key", ["password", "secret", "authorization", "api_key"])
@@ -103,36 +96,6 @@ def test_approval_ignores_read_only_tools():
     assert approval_summary(["lookup_asset", "knowledge_search"], "查询") is None
 
 
-def test_planner_dependency_wave_contract():
-    plan = build_plan("申请权限并准备新电脑，然后建一张工单", "p")
-    ticket = next(step for step in plan.steps if step.step_id == "ticket")
-    assert "endpoint" in ticket.depends_on and "access" in ticket.depends_on
-
-
-def test_planner_adds_ticket_only_when_asked():
-    assert [s.agent_type for s in build_plan("电脑 DEV-1 黑屏，同时 VPN 报 VPN-691", "p").steps] == ["endpoint", "network_software"]
-    assert "ticket" not in [s.agent_type for s in build_plan("设备 DEV-1 黑屏，诊断就行，不要建工单", "p").steps]
-    assert [s.agent_type for s in build_plan("解释一下 403 错误码", "p").steps] == ["network_software"]
-
-
-def test_planner_step_limit():
-    assert len(build_plan("权限、设备、VPN、软件、工单", "p").steps) <= 6
-
-
-def test_planner_dependency_cycle_stops_without_running_agents():
-    async def run():
-        orchestrator = AgentOrchestrator("sk-local")
-        plan = ExecutionPlan("p", "goal", [PlanStep("a", "a", "triage", ["b"]), PlanStep("b", "b", "triage", ["a"])])
-        result = await orchestrator._run_plan(Request("x"), plan)
-        assert result.status == "failed" and result.error_code == "plan_dependency_cycle" and result.escalated
-        assert all(a.stats.total == 0 for agents in orchestrator._pool.values() for a in agents)
-    asyncio.run(run())
-
-
-def test_orchestrator_routes_ticket():
-    assert AgentOrchestrator("sk-local")._route(IntentCategory.TICKET_STATUS) == AgentType.TICKET
-
-
 def test_request_has_department_and_budget_fields():
     request = Request("VPN", department="研发")
     assert request.department == "研发" and request.request_id
@@ -141,7 +104,7 @@ def test_request_has_department_and_budget_fields():
 def test_agent_surfaces_model_connection_failure():
     async def run():
         orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:9")
-        agent = orchestrator._pool[AgentType.NETWORK_SOFTWARE][0]
+        agent = orchestrator.agent
 
         async def refuse(messages, info):
             raise ModelConnectionError("test", "connection refused", phase="connect")
@@ -157,7 +120,7 @@ def test_agent_surfaces_model_connection_failure():
 def test_agent_surfaces_model_5xx_without_request_details():
     async def run():
         orchestrator = AgentOrchestrator("sk-local", base_url="http://127.0.0.1:9")
-        agent = orchestrator._pool[AgentType.TRIAGE][0]
+        agent = orchestrator.agent
 
         async def server_error(messages, info):
             raise ModelHTTPError(502, "test", body="upstream unavailable")
@@ -185,8 +148,8 @@ def test_sse_stream_emits_status_and_completed_events(monkeypatch):
     from tests.conftest import auth
 
     async def fake_chat(payload, principal, rid, emit=None):
-        await emit("tool_started", {"tool": "lookup_error_code"})
-        return schemas.ChatResponse(request_id=rid, response="已完成", status="success", agent_type="triage", intent="chitchat")
+        await emit("tool_started", {"tool": "diagnose"})
+        return schemas.ChatResponse(request_id=rid, response="已完成", status="success", intent="chitchat")
 
     monkeypatch.setattr(state, "orchestrator", object())
     monkeypatch.setattr(chat_routes, "_chat", fake_chat)
@@ -249,22 +212,10 @@ def test_trace_tools_route_is_not_shadowed_by_request_id_route():
     assert client.get("/trace/tools", headers=auth("alice")).status_code == 403
 
 
-def test_parallel_run_reports_failure_when_every_agent_crashes():
-    async def run():
-        orchestrator = AgentOrchestrator("sk-local")
-        async def crash(req, agent_type):
-            raise RuntimeError("boom")
-        orchestrator._execute = crash
-        decision = RoutingDecision(AgentType.NETWORK_SOFTWARE, [AgentType.TRIAGE])
-        result = await orchestrator.run_parallel(Request("VPN 和权限"), decision)
-        assert result.status == "failed" and result.error_code == "agent_failed" and result.response and result.agent_types == []
-    asyncio.run(run())
-
-
 def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():
     from api import schemas
-    base = dict(request_id="r2", response="ok", status="success", agent_type="network_software", intent="vpn_issue")
-    no_kb = schemas.ChatResponse(**base, tools_used=["lookup_error_code"])
+    base = dict(request_id="r2", response="ok", status="success", intent="vpn_issue")
+    no_kb = schemas.ChatResponse(**base, tools_used=["diagnose"])
     with_kb = schemas.ChatResponse(**base, tools_used=["search_knowledge_base"], knowledge_used=True)
     assert no_kb.knowledge_used is False
     assert with_kb.knowledge_used is True

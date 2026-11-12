@@ -8,20 +8,19 @@ from types import SimpleNamespace
 import fakeredis.aioredis
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from api import state
 from api.main import app
 from api.deps import request_id
 from core.scopes import identity_scope
-from core.db import task_links, vector_documents
+from core.db import task_links
 from core.events import InMemoryEventBus
 from memory.conversation_memory import MemoryManager
-from memory.scope_migration import migrate_legacy
 from agents.task_recall import TaskRecall
 from agents.task_runner import TaskAgentRunner
 from agents.intent.taxonomy import IntentCategory, UrgencyLevel
-from agents.types import OrchestratorResult, AgentType
+from agents.types import OrchestratorResult
 from tests.conftest import auth
 from tests.test_shared_tasks import env as shared_env, proposal
 from tests.test_task_execution import caps as execution_caps
@@ -66,38 +65,6 @@ def test_private_working_and_cross_conversation_memory_are_scoped(db_url):
         assert await m.get_turn_receipt(b, 'old', 'a') is None
         await m._redis.aclose()
     asyncio.run(run())
-
-
-def test_legacy_memory_migration_is_explicit_idempotent_and_one_tenant(db_url):
-    m = MemoryManager(database_url=db_url, api_key='sk-local')
-    m._episodic.upsert(ids=['old-turn'], documents=['VPN legacy secret'], metadatas=[{'user_id': ALICE.subject, 'conv_id': 'old'}])
-    m._profile.upsert(ids=[m._profile_doc_id(ALICE.subject)], documents=['{"systems": ["legacy"]}'], metadatas=[{'user_id': ALICE.subject}])
-    engine = m._episodic._engine
-    bindings = [{'subject': ALICE.subject, 'tenant': 'default'}]
-    assert migrate_legacy(engine, bindings)['copied'] == 2
-    assert not m._episodic.get(where={'user_id': ALICE.scope_key})['ids']
-    assert migrate_legacy(engine, bindings, apply=True)['copied'] == 2
-    assert migrate_legacy(engine, bindings, apply=True)['already_present'] == 2
-    assert m._episodic.get(where={'user_id': ALICE.subject})['ids'] == ['old-turn']  # originals retained
-    assert m._episodic.get(where={'user_id': ALICE.scope_key})['ids']
-    with pytest.raises(ValueError, match='different tenant'):
-        migrate_legacy(engine, [{'subject': ALICE.subject, 'tenant': 'other'}], apply=True)
-    with pytest.raises(ValueError, match='multiple tenants'):
-        migrate_legacy(engine, bindings + [{'subject': ALICE.subject, 'tenant': 'other'}])
-
-
-def test_legacy_profile_migration_previews_conflicts_and_preserves_latest(db_url):
-    m = MemoryManager(database_url=db_url, api_key='sk-local')
-    m._profile.upsert(ids=['older', 'newer'], documents=['old', 'new'], metadatas=[{'user_id': ALICE.subject}] * 2)
-    engine = m._profile._engine
-    with engine.begin() as db:
-        db.execute(update(vector_documents).where(vector_documents.c.id == 'older').values(updated_at=1))
-        db.execute(update(vector_documents).where(vector_documents.c.id == 'newer').values(updated_at=2))
-    bindings = [{'subject': ALICE.subject, 'tenant': ALICE.tenant}]
-    preview = migrate_legacy(engine, bindings)
-    assert preview['copied'] == 1 and preview['profile_conflicts'] == 1
-    assert migrate_legacy(engine, bindings, apply=True) == {**preview, 'mode': 'apply'}
-    assert m._profile.get(where={'user_id': ALICE.scope_key})['documents'] == ['new']
 
 
 def test_private_chat_passes_scoped_identity_through_every_memory_port(chat_client, monkeypatch):
@@ -358,7 +325,7 @@ def test_continuation_is_idempotent_readonly_and_uses_original_task(env, caps):
         assert '续接时重新读取' in req.context and '"status": "open"' in req.context
         with pytest.raises(ValueError):
             await req.before_unsafe_tool('request_access')
-        return OrchestratorResult(req.request_id, '只读跟进', AgentType.TRIAGE, req.intent)
+        return OrchestratorResult(req.request_id, '只读跟进', req.intent)
 
     runner = TaskAgentRunner(SimpleNamespace(recognize_intent=recognize, run=run), lambda _: {}, read_task_state=caps.history.runtime_context)
     tasks.finish(claim, asyncio.run(runner(context, event, transcript)))

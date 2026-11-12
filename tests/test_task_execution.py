@@ -10,9 +10,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from agents.agent_orchestrator import AgentOrchestrator
-from agents.planner import ExecutionPlan, PlanStep
 from agents.task_runner import TaskAgentRunner
-from agents.types import AgentResponse, AgentType
+from agents.types import AgentResponse
 from agents.intent.taxonomy import IntentCategory, UrgencyLevel
 from api import state
 from api.main import app
@@ -44,36 +43,34 @@ def caps(env):
     return result
 
 
-def fake_orchestrator(calls, crash=False):
-    """Real bounded executor, deterministic planner/specialists; no external model call."""
+def fake_orchestrator(calls):
+    """Real orchestrator run path and checkpointing, deterministic intent and agent; no external model call."""
     orchestrator = AgentOrchestrator.__new__(AgentOrchestrator)
-    orchestrator._planning_mode = 'bounded'
 
     async def recognize(*args, **kwargs):
         calls['intent'] += 1
         return SimpleNamespace(intent=IntentCategory.PERMISSION_REQUEST, intent_group='access', confidence=1,
             urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset({'request_access'}))
 
-    async def plan(*args):
-        calls['plan'] += 1
-        return ExecutionPlan('p', '诊断', [PlanStep('first', '权限', 'access', []), PlanStep('second', '网络', 'network_software', ['first'])])
+    async def execute(req):
+        calls['agent'] += 1
+        return AgentResponse('结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
 
-    async def execute(req, kind):
-        calls[kind.value] += 1
-        if kind == AgentType.NETWORK_SOFTWARE and crash:
-            # Simulates a process disappearing after the first step's durable commit.
-            raise asyncio.CancelledError()
-        return AgentResponse(kind, '结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
-
-    orchestrator.recognize_intent, orchestrator._planner = recognize, SimpleNamespace(plan=plan)
-    orchestrator._execute = execute
+    orchestrator.recognize_intent, orchestrator._execute = recognize, execute
     return orchestrator
 
 
-async def run_claim(tasks, caps, claim, orchestrator):
+class CrashingAdvisor:
+    """Simulates the process disappearing after the agent step's durable commit."""
+
+    async def suggest(self, *args):
+        raise asyncio.CancelledError()
+
+
+async def run_claim(tasks, caps, claim, orchestrator, advisor=None):
     task, event, transcript = tasks.context(claim)
     task['_claim'] = claim
-    return await TaskAgentRunner(orchestrator, lambda _: {}, caps.progress.context, plan_store=caps.plan_store)(task, event, transcript)
+    return await TaskAgentRunner(orchestrator, lambda _: {}, caps.progress.context, advisor=advisor, plan_store=caps.plan_store)(task, event, transcript)
 
 
 def ready_task(tasks, caps, *, limit=0):
@@ -84,21 +81,21 @@ def ready_task(tasks, caps, *, limit=0):
     return task
 
 
-def test_restart_reuses_completed_steps_frozen_input_plan_and_known_cost(env, caps):
+def test_restart_reuses_completed_agent_step_frozen_input_and_known_cost(env, caps):
     tasks, _, clock = env
     task = room(tasks)
     first, calls = tasks.claim(5), Counter()
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(run_claim(tasks, caps, first, fake_orchestrator(calls, crash=True)))
+        asyncio.run(run_claim(tasks, caps, first, fake_orchestrator(calls), advisor=CrashingAdvisor()))
     assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 10
-    # Human progress changing during downtime does not silently change an already-running plan's input.
+    # Human progress changing during downtime does not silently change an already-running turn's input.
     caps.progress.save(task['id'], ALICE, progress(task, task['events'][0]['id']))
     clock.t += 6
     current = tasks.claim(5)
     result = asyncio.run(run_claim(tasks, caps, current, fake_orchestrator(calls)))
     tasks.finish(current, result)
-    assert calls == {'intent': 1, 'plan': 1, 'access': 1, 'network_software': 2}
-    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 20
+    assert calls == {'intent': 1, 'agent': 1}
+    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 10
     assert len([e for e in tasks.get(task['id'], ALICE)['events'] if e['kind'] == 'assistant']) == 1
     assert tasks.get(task['id'], ALICE)['runs'][0]['status'] == 'done'
 
@@ -143,20 +140,19 @@ def test_checkpoint_and_usage_rollback_if_lease_expires_during_commit(env, caps,
         assert not db.execute(select(task_checkpoints)).first()
 
 
-def test_failed_step_is_retried_and_its_known_usage_is_charged(env, caps):
+def test_failed_agent_step_is_retried_and_its_known_usage_is_charged(env, caps):
     tasks, _, clock = env
     task = room(tasks)
     calls = Counter()
     orchestrator = fake_orchestrator(calls)
     execute = orchestrator._execute
 
-    async def fail_second(req, kind):
-        result = await execute(req, kind)
-        if kind == AgentType.NETWORK_SOFTWARE:
-            result.success, result.status = False, 'failed'
+    async def fail(req):
+        result = await execute(req)
+        result.success, result.status = False, 'failed'
         return result
 
-    orchestrator._execute = fail_second
+    orchestrator._execute = fail
     first = tasks.claim()
     with pytest.raises(RuntimeError):
         asyncio.run(run_claim(tasks, caps, first, orchestrator))
@@ -164,8 +160,8 @@ def test_failed_step_is_retried_and_its_known_usage_is_charged(env, caps):
     clock.t += 3
     second = tasks.claim()
     tasks.finish(second, asyncio.run(run_claim(tasks, caps, second, fake_orchestrator(calls))))
-    assert calls['access'] == 1 and calls['network_software'] == 2
-    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 30
+    assert calls['agent'] == 2
+    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 20
 
 
 def test_model_claim_is_not_verified_success_and_replans_are_bounded(env, caps):
@@ -189,22 +185,20 @@ def test_model_claim_is_not_verified_success_and_replans_are_bounded(env, caps):
         caps.progress.transition(task['id'], ALICE, 'resolved', '模型说完成了')
 
 
-def test_verification_followup_forces_readonly_bounded_plan(env, caps):
+def test_verification_followup_is_readonly(env, caps):
     tasks, _, _ = env
     task = ready_task(tasks, caps, limit=1)
     asyncio.run(TaskVerificationWorker(caps.goals).run_once())
     claim = tasks.claim()
     orchestrator = fake_orchestrator(Counter())
-    orchestrator._planning_mode = 'generalist'
     execute = orchestrator._execute
 
-    async def inspect(req, kind):
-        assert req.planning_mode == 'bounded'
+    async def inspect(req):
         assert req.allowed_writes == frozenset()
         assert 'request_access' in req.hidden_tools
         with pytest.raises(ValueError):
             await req.before_unsafe_tool('request_access')
-        return await execute(req, kind)
+        return await execute(req)
 
     orchestrator._execute = inspect
     tasks.finish(claim, asyncio.run(run_claim(tasks, caps, claim, orchestrator)))
@@ -372,16 +366,13 @@ def test_worker_integrates_checkpoint_scope(env, caps):
     runner = TaskAgentRunner(fake_orchestrator(calls), lambda _: {}, plan_store=caps.plan_store)
     assert asyncio.run(TaskWorker(tasks, runner).run_once())
     assert tasks.get(task['id'], ALICE)['runs'][0]['status'] == 'done'
-    assert {'input', 'plan', 'step/first', 'step/second', 'result'} <= {p['step_key'] for p in caps.plan_store.list(task['id'], ALICE)}
+    assert {'input', 'agent', 'result'} <= {p['step_key'] for p in caps.plan_store.list(task['id'], ALICE)}
 
 
-@pytest.mark.parametrize('mode', ['generalist', 'single', 'bounded'])
-def test_restart_after_result_reuses_aggregate_advice_and_usage(env, caps, mode):
+def test_restart_after_result_reuses_aggregate_advice_and_usage(env, caps):
     tasks, _, clock = env
     task, calls = room(tasks), Counter()
     orchestrator = fake_orchestrator(calls)
-    orchestrator._planning_mode = mode
-    orchestrator._best_agent = lambda kind: SimpleNamespace(stats=SimpleNamespace(routing_score=lambda: 1.0))
 
     async def advice(*args):
         calls['advice'] += 1
@@ -402,5 +393,5 @@ def test_restart_after_result_reuses_aggregate_advice_and_usage(env, caps, mode)
     assert restored == original
     tasks.finish(second, restored)
     assert calls['advice'] == calls['intent'] == 1
-    expected = 25 if mode == 'bounded' else 15
-    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == expected
+    assert calls['agent'] == 1
+    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 15
