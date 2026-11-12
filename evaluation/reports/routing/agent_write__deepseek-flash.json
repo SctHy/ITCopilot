@@ -1,33 +1,33 @@
 {
   "route": "agent_write",
   "model": "deepseek-flash",
-  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "model_config_sha256": "4e062f729f65dc8319342e9358aba70b889a02b1b76fbb6e87e6b3f69db52020",
   "status": "complete",
   "kind": "real_model",
   "evaluation_kind": "application_business_oracle",
   "repeats": 3,
   "trials": 330,
-  "passed": 312,
-  "success_rate": 0.9454545454545454,
+  "passed": 309,
+  "success_rate": 0.9363636363636364,
   "wilson": [
-    0.9154353219952588,
-    0.9652222243699068
+    0.9046803759977421,
+    0.9580045673803793
   ],
-  "p95_s": 10.910035040986259,
-  "cost_per_success_usd": 0.0005991417115384615,
-  "route_calls": 261,
+  "p95_s": 14.16858466702979,
+  "cost_per_success_usd": 0.0006257424271844661,
+  "route_calls": 263,
   "source_reports": [
     {
-      "path": "evaluation/reports/acceptance_2026-11-13/after_strata.json",
-      "sha256": "4ff32a01c64de0a88539849f5f11c0afc8aaaf0f0ee72de0caf842e44c82de7a",
+      "path": "evaluation/reports/requalification/strata.json",
+      "sha256": "ba7edc5bd925196d252b0faeea4ffd38005ad163993814a3dad200d74f8d0ab3",
       "dataset_sha256": "3aa0b5e507f123427d81f54b48b6a1fc5c8f6f6c7bb28d9b41b40a643ad844b1",
-      "code_sha256": "5768ed1b1e8c9af635e3d496c73cf65ba85e71776d74ab67abca1c1ac7ab049b"
+      "code_sha256": "4a9909c5aab39d2e9d7b5edee900e68055da5f0a64e3830542fe13f2f7150f5e"
     },
     {
-      "path": "evaluation/reports/acceptance_2026-11-13/after_hard.json",
-      "sha256": "734963537b7189d3881a88feecb66dc219c581cd6e964a960ee293e6b3976fc8",
+      "path": "evaluation/reports/requalification/hard.json",
+      "sha256": "c594c79e960d8a8c859a511673d0c4f84d2b96fa6250e408cd46a271931407e7",
       "dataset_sha256": "93bb76abf495d95c8ad7a0139364f600b96920da90e433dd9eb5c80aa8cd489f",
-      "code_sha256": "5768ed1b1e8c9af635e3d496c73cf65ba85e71776d74ab67abca1c1ac7ab049b"
+      "code_sha256": "4a9909c5aab39d2e9d7b5edee900e68055da5f0a64e3830542fe13f2f7150f5e"
     }
   ],
   "dataset_sha256": "e6c34e7c9ad08af4eb5f63dfc0ef89b665791c18ca486a4e7768d3b208d945ba",

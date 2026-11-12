@@ -12,8 +12,8 @@
     0.7575059933447592,
     1.0
   ],
-  "p95_s": 1.1496659580152482,
-  "cost_per_success_usd": 5.0475e-05,
+  "p95_s": 1.7556269170017913,
+  "cost_per_success_usd": 5.1374999999999995e-05,
   "route_calls": 12,
   "cases": [
     {
@@ -28,7 +28,7 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.6568142920150422
+      "latency_s": 1.2821812499896623
     },
     {
       "id": "summary-ticket",
@@ -42,7 +42,7 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.8310372079722583
+      "latency_s": 0.9471514169708826
     },
     {
       "id": "summary-access",
@@ -56,21 +56,21 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.8007053339970298
+      "latency_s": 1.1947601250139996
     },
     {
       "id": "summary-reset",
       "repeat": 0,
       "passed": true,
-      "cost_usd": 5.3700000000000004e-05,
-      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；该用户转为查询公司MFA操作指引。",
+      "cost_usd": 5.25e-05,
+      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；用户转为查询公司MFA操作指引。",
       "usage": {
         "input_tokens": 67,
-        "output_tokens": 28,
+        "output_tokens": 27,
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.8442584589938633
+      "latency_s": 1.7556269170017913
     },
     {
       "id": "summary-vpn",
@@ -84,11 +84,67 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.6938212920213118
+      "latency_s": 1.1848623339901678
     },
     {
       "id": "summary-ticket",
       "repeat": 1,
+      "passed": true,
+      "cost_usd": 6.18e-05,
+      "output": "工号未提供；设备DEV-1001蓝屏，工单INC-1001仍待审批，尚未执行维修。系统角色与错误码均未提供。",
+      "usage": {
+        "input_tokens": 62,
+        "output_tokens": 36,
+        "cache_read_tokens": 0,
+        "requests": 1
+      },
+      "latency_s": 1.0165055409888737
+    },
+    {
+      "id": "summary-access",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 4.8e-05,
+      "output": "员工1002申请gitlab developer 24小时，审批APR-42尚未批准。系统权限没有改变。",
+      "usage": {
+        "input_tokens": 64,
+        "output_tokens": 24,
+        "cache_read_tokens": 0,
+        "requests": 1
+      },
+      "latency_s": 1.1616230420186184
+    },
+    {
+      "id": "summary-reset",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 5.3700000000000004e-05,
+      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；该用户转为查询公司MFA操作指引。",
+      "usage": {
+        "input_tokens": 67,
+        "output_tokens": 28,
+        "cache_read_tokens": 0,
+        "requests": 1
+      },
+      "latency_s": 0.6409842499997467
+    },
+    {
+      "id": "summary-vpn",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 4.2e-05,
+      "output": "员工1001报告VPN错误691，已建议检查账号锁定；待办是联系IT。",
+      "usage": {
+        "input_tokens": 60,
+        "output_tokens": 20,
+        "cache_read_tokens": 0,
+        "requests": 1
+      },
+      "latency_s": 0.7340142499888316
+    },
+    {
+      "id": "summary-ticket",
+      "repeat": 2,
       "passed": true,
       "cost_usd": 6.3e-05,
       "output": "工号未提供；设备DEV-1001蓝屏，工单INC-1001仍待审批，尚未执行维修。系统角色未提供，错误码未提供。",
@@ -98,63 +154,7 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 1.1496659580152482
-    },
-    {
-      "id": "summary-access",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 4.8e-05,
-      "output": "员工1002申请gitlab developer 24小时，审批APR-42尚未批准。系统权限没有改变。",
-      "usage": {
-        "input_tokens": 64,
-        "output_tokens": 24,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 1.0555727079627104
-    },
-    {
-      "id": "summary-reset",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 5.3700000000000004e-05,
-      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；该用户转为查询公司MFA操作指引。",
-      "usage": {
-        "input_tokens": 67,
-        "output_tokens": 28,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 0.8014072920195758
-    },
-    {
-      "id": "summary-vpn",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 4.2e-05,
-      "output": "员工1001报告VPN错误691，已建议检查账号锁定；待办是联系IT。",
-      "usage": {
-        "input_tokens": 60,
-        "output_tokens": 20,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 0.866831874998752
-    },
-    {
-      "id": "summary-ticket",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 4.8599999999999995e-05,
-      "output": "设备DEV-1001出现蓝屏，工单INC-1001仍处于待审批状态，尚未执行维修。",
-      "usage": {
-        "input_tokens": 62,
-        "output_tokens": 25,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 0.5303206670214422
+      "latency_s": 1.076090499991551
     },
     {
       "id": "summary-access",
@@ -168,25 +168,25 @@
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.8105234160320833
+      "latency_s": 1.2442949999822304
     },
     {
       "id": "summary-reset",
       "repeat": 2,
       "passed": true,
-      "cost_usd": 5.3700000000000004e-05,
-      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；该用户转为查询公司MFA操作指引。",
+      "cost_usd": 5.25e-05,
+      "output": "员工1003的密码重置申请APR-19被拒绝，密码没有改变；用户转为查询公司MFA操作指引。",
       "usage": {
         "input_tokens": 67,
-        "output_tokens": 28,
+        "output_tokens": 27,
         "cache_read_tokens": 0,
         "requests": 1
       },
-      "latency_s": 0.7055217910092324
+      "latency_s": 1.1530227499897592
     }
   ],
   "dataset_sha256": "24edb6a478ce6fb69d66552544db4508ceae2367ce9575de7c32ed530f0fec1f",
   "limitations": "Frozen authored role contracts, not application end-to-end success or production quality. Judge predictions are compared with fixed human labels and never replace a business assertion.",
-  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "model_config_sha256": "4e062f729f65dc8319342e9358aba70b889a02b1b76fbb6e87e6b3f69db52020",
   "code_sha256": "6f79189e056baf114c2bc71f13fc689f8045a12566b631e4839d0946f19de888"
 }

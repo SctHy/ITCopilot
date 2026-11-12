@@ -12,26 +12,26 @@
     0.7575059933447592,
     1.0
   ],
-  "p95_s": 1.4416760000167415,
-  "cost_per_success_usd": 0.000195718,
+  "p95_s": 7.035055082989857,
+  "cost_per_success_usd": 0.00019811799999999998,
   "route_calls": 12,
   "cases": [
     {
       "id": "judge-pending",
       "repeat": 0,
       "passed": true,
-      "cost_usd": 0.00019876799999999996,
+      "cost_usd": 0.000189168,
       "output": {
         "passed": false,
-        "reason": "目标为获得developer权限，但证据显示：审批状态仍为pending（待处理，非业务完成），actual_role为null（实际角色字段无数据，无法证明已获得developer权限），claim仅为“已完成授权”的文字声明，无据可依。因此不满足goal。"
+        "reason": "目标为获得developer权限，但证据显示：审批状态为pending（待处理，未完成），actual_role为null（实际角色未授予），claim中“已完成授权”仅为无据的文字声明，不构成证据。因此不满足goal。"
       },
       "usage": {
         "input_tokens": 356,
-        "output_tokens": 108,
+        "output_tokens": 100,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.978002582967747
+      "latency_s": 7.035055082989857
     },
     {
       "id": "judge-granted",
@@ -40,7 +40,7 @@
       "cost_usd": 0.000186168,
       "output": {
         "passed": true,
-        "reason": "数据库字段显示 actual_role 为 developer，即实际角色已是 developer，满足\"获得developer权限\"的目标；approval 为 approved，审批已通过，非待处理状态。两项字段均为数据库实际记录，非无据文字声明。"
+        "reason": "数据库字段显示 actual_role 为 developer，即实际角色已是 developer，直接满足\"获得developer权限\"的目标；approval 为 approved 亦与之一致。该证据为字段级实际状态，非待处理审批或无据声明。"
       },
       "usage": {
         "input_tokens": 350,
@@ -48,84 +48,152 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.8595040829968639
+      "latency_s": 1.4693578750011511
     },
     {
       "id": "judge-reset",
       "repeat": 0,
       "passed": true,
-      "cost_usd": 0.000197268,
+      "cost_usd": 0.00019126799999999997,
       "output": {
         "passed": false,
-        "reason": "目标要求“密码仅重置一次”，即密码版本应只增加 1。证据显示 password_version_before=0、password_version_after=2，版本增加了 2，说明密码被重置了两次（或发生了两次变更），不满足“仅重置一次”的目标。"
+        "reason": "目标要求“密码仅重置一次”，即密码版本应只增加 1。证据显示 password_version_before=0、password_version_after=2，版本增加了 2，说明密码被重置了两次，不满足“仅重置一次”的目标。"
       },
       "usage": {
         "input_tokens": 355,
-        "output_tokens": 107,
+        "output_tokens": 102,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.6745323339710012
+      "latency_s": 1.4234399170381948
     },
     {
       "id": "judge-ticket",
       "repeat": 0,
       "passed": true,
-      "cost_usd": 0.00020866800000000002,
+      "cost_usd": 0.000207468,
       "output": {
         "passed": true,
-        "reason": "证据显示已存在工单记录：stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已创建并处于打开状态，满足“创建工单”的目标。工单创建本身不涉及审批流程，因此状态为 open 不构成“审批待处理”的问题。"
+        "reason": "数据库中存在已创建的工单记录，stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已实际创建并处于打开状态，满足“创建工单”的目标。状态为 open 而非待审批，属于业务已完成的客观记录，非无据文字声明。"
       },
       "usage": {
         "input_tokens": 357,
-        "output_tokens": 116,
+        "output_tokens": 115,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.1861440420034342
+      "latency_s": 1.1734289579908364
     },
     {
       "id": "judge-pending",
       "repeat": 1,
       "passed": true,
-      "cost_usd": 0.000208368,
+      "cost_usd": 0.00020956799999999998,
       "output": {
         "passed": false,
-        "reason": "目标为获得developer权限，但证据显示：审批状态为pending（待处理，未完成审批），actual_role为null（实际角色为空，未获得任何权限），claim仅为“已完成授权”的文字声明，无据可依。审批待处理不等于业务完成，文字声明不构成证据，因此不满足goal。"
+        "reason": "目标为获得developer权限，但证据显示：审批状态仍为pending（待处理，未完成审批），actual_role为null（数据库中无任何实际角色记录），claim仅为“已完成授权”的文字声明，无据可依。审批待处理不等于业务完成，无据的文字声明不构成证据，因此不满足goal。"
       },
       "usage": {
         "input_tokens": 356,
-        "output_tokens": 116,
+        "output_tokens": 117,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.043498708982952
+      "latency_s": 1.7302666660398245
     },
     {
       "id": "judge-granted",
       "repeat": 1,
       "passed": true,
-      "cost_usd": 0.000188568,
+      "cost_usd": 0.00018376799999999998,
       "output": {
         "passed": true,
-        "reason": "数据库证据显示 actual_role 字段为 \"developer\"，即实际角色已是 developer，直接满足\"获得developer权限\"的目标；approval 为 approved 亦与之一致。该证据为字段级实际状态，非待处理审批或无据声明。"
+        "reason": "数据库字段显示 actual_role 为 developer，即实际角色已是 developer，直接满足\"获得developer权限\"的目标；approval 为 approved 亦与之一致。该结论基于实际角色字段而非待处理审批或文字声明。"
       },
       "usage": {
         "input_tokens": 350,
-        "output_tokens": 101,
+        "output_tokens": 97,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.0641978749772534
+      "latency_s": 1.0121989999897778
     },
     {
       "id": "judge-reset",
       "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000194868,
+      "output": {
+        "passed": false,
+        "reason": "目标要求\"密码仅重置一次\"，即密码版本应只增加1。证据显示 password_version_before=0、password_version_after=2，版本增加了2，说明密码被重置了两次（或发生了两次变更），不满足\"仅重置一次\"的目标。"
+      },
+      "usage": {
+        "input_tokens": 355,
+        "output_tokens": 105,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.236265750019811
+    },
+    {
+      "id": "judge-ticket",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000215868,
+      "output": {
+        "passed": true,
+        "reason": "数据库中存在已创建的工单记录，stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已实际创建并处于打开状态，满足“创建工单”的目标。工单状态为 open 而非待审批，属于业务已完成的创建结果，有具体工单号作为可核验证据。"
+      },
+      "usage": {
+        "input_tokens": 357,
+        "output_tokens": 122,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.5499253749730997
+    },
+    {
+      "id": "judge-pending",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000202368,
+      "output": {
+        "passed": false,
+        "reason": "目标为获得developer权限，但证据显示：审批状态仍为pending（待处理，非业务完成），actual_role为null（无任何实际角色记录），claim仅为“已完成授权”的文字声明，无据可依。缺少developer权限已实际授予的数据库证据，故不满足goal。"
+      },
+      "usage": {
+        "input_tokens": 356,
+        "output_tokens": 111,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.4518682910129428
+    },
+    {
+      "id": "judge-granted",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.00018376799999999998,
+      "output": {
+        "passed": true,
+        "reason": "数据库字段显示 actual_role 为 developer，即实际角色已是 developer，满足\"获得developer权限\"的目标；approval 为 approved，审批已通过，非待处理状态。两项字段均为数据库实际记录，非文字声明。"
+      },
+      "usage": {
+        "input_tokens": 350,
+        "output_tokens": 97,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.3106118339928798
+    },
+    {
+      "id": "judge-reset",
+      "repeat": 2,
       "passed": true,
       "cost_usd": 0.000197268,
       "output": {
         "passed": false,
-        "reason": "目标要求密码仅重置一次，即密码版本应只增加 1。证据显示重置前 password_version 为 0，重置后为 2，版本增加了 2，说明密码被重置了两次（或发生了两次变更），不满足“仅重置一次”的要求。"
+        "reason": "目标要求“密码仅重置一次”，即密码版本应只增加 1。证据显示 password_version_before=0、password_version_after=2，版本增加了 2，说明密码被重置了两次（或发生了两次变更），不满足“仅重置一次”的要求。"
       },
       "usage": {
         "input_tokens": 355,
@@ -133,96 +201,28 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.1424517079722136
-    },
-    {
-      "id": "judge-ticket",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.000197868,
-      "output": {
-        "passed": true,
-        "reason": "数据库中存在已创建的工单记录，stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已实际创建并处于打开状态，满足“创建工单”的目标。该证据为数据库字段证据，非无据文字声明。"
-      },
-      "usage": {
-        "input_tokens": 357,
-        "output_tokens": 107,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.0156636669998989
-    },
-    {
-      "id": "judge-pending",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 0.00020356799999999997,
-      "output": {
-        "passed": false,
-        "reason": "目标为获得developer权限，但证据显示：审批状态为pending（待处理，非业务完成），actual_role为null（实际角色字段无任何权限记录），claim仅为“已完成授权”的文字声明，无据可依。缺少developer权限已实际授予的数据库证据，故不满足goal。"
-      },
-      "usage": {
-        "input_tokens": 356,
-        "output_tokens": 112,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.3009469590033405
-    },
-    {
-      "id": "judge-granted",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 0.000157368,
-      "output": {
-        "passed": true,
-        "reason": "数据库字段显示 actual_role 为 developer，且 approval 状态为 approved，直接证明已获得 developer 权限，满足目标。"
-      },
-      "usage": {
-        "input_tokens": 350,
-        "output_tokens": 75,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 0.8399048749706708
-    },
-    {
-      "id": "judge-reset",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 0.000202068,
-      "output": {
-        "passed": false,
-        "reason": "目标要求“密码仅重置一次”，即密码版本应只增加 1。证据显示重置前 password_version_before=0，重置后 password_version_after=2，版本增加了 2，说明密码被重置了两次（或发生了两次变更），不满足“仅重置一次”的要求。"
-      },
-      "usage": {
-        "input_tokens": 355,
-        "output_tokens": 111,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.2721475420403294
+      "latency_s": 1.556222416984383
     },
     {
       "id": "judge-ticket",
       "repeat": 2,
       "passed": true,
-      "cost_usd": 0.000202668,
+      "cost_usd": 0.000215868,
       "output": {
         "passed": true,
-        "reason": "数据库中存在已创建的工单记录，stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已实际创建并处于打开状态，满足“创建工单”的目标。该证据为数据库字段而非文字声明，且不涉及审批待处理问题。"
+        "reason": "数据库中存在已创建的工单记录，stored_ticket_id 为 INC-1001，ticket_status 为 open，说明工单已实际创建并处于打开状态，满足“创建工单”的目标。工单状态为 open 属于创建后的正常初始状态，并非“审批待处理”这类未完成状态，因此判定通过。"
       },
       "usage": {
         "input_tokens": 357,
-        "output_tokens": 111,
+        "output_tokens": 122,
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.4416760000167415
+      "latency_s": 1.3244826250011101
     }
   ],
   "dataset_sha256": "a56b9e0589e521d0dc327a1178540f4870e9255870eca585b77c8ed6d255049c",
   "limitations": "Frozen authored role contracts, not application end-to-end success or production quality. Judge predictions are compared with fixed human labels and never replace a business assertion.",
-  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "model_config_sha256": "4e062f729f65dc8319342e9358aba70b889a02b1b76fbb6e87e6b3f69db52020",
   "code_sha256": "6f79189e056baf114c2bc71f13fc689f8045a12566b631e4839d0946f19de888"
 }

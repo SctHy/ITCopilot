@@ -12,28 +12,28 @@
     0.1205838183869109,
     0.6457978644196036
   ],
-  "p95_s": 1.311883750022389,
-  "cost_per_success_usd": 0.000465408,
+  "p95_s": 2.5806188749847934,
+  "cost_per_success_usd": 0.00044300799999999994,
   "route_calls": 9,
   "cases": [
     {
       "id": "profile-cn",
       "repeat": 0,
       "passed": true,
-      "cost_usd": 0.000164436,
+      "cost_usd": 0.00016083599999999998,
       "output": {
-        "background": "在研发部担任后端工程师。",
-        "work": "日常使用 GitLab 进行代码协作。",
+        "background": "研发部后端工程师。",
+        "work": "后端开发工作，常用 GitLab。",
         "environment": "使用 MacBook 办公。",
         "communication": "希望用中文回答。"
       },
       "usage": {
         "input_tokens": 403,
-        "output_tokens": 99,
+        "output_tokens": 96,
         "cache_read_tokens": 256,
         "requests": 1
       },
-      "latency_s": 1.1764435830409639
+      "latency_s": 2.5806188749847934
     },
     {
       "id": "profile-en",
@@ -52,11 +52,125 @@
         "cache_read_tokens": 256,
         "requests": 1
       },
-      "latency_s": 0.7334178750170395
+      "latency_s": 0.8408623330178671
     },
     {
       "id": "profile-change",
       "repeat": 0,
+      "passed": false,
+      "cost_usd": 0.000136536,
+      "output": {
+        "background": "",
+        "work": "财务部",
+        "environment": "使用ERP系统；设备为Windows",
+        "communication": "希望用中文简短回答"
+      },
+      "usage": {
+        "input_tokens": 406,
+        "output_tokens": 75,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 1.2883624169626273
+    },
+    {
+      "id": "profile-cn",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.00016083599999999998,
+      "output": {
+        "background": "在研发部担任后端工程师。",
+        "work": "日常开发使用 GitLab。",
+        "environment": "使用 MacBook 办公。",
+        "communication": "希望用中文回答。"
+      },
+      "usage": {
+        "input_tokens": 403,
+        "output_tokens": 96,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 1.3352162499795668
+    },
+    {
+      "id": "profile-en",
+      "repeat": 1,
+      "passed": false,
+      "cost_usd": 0.000135636,
+      "output": {
+        "background": "",
+        "work": "Works in Finance; uses Jira daily.",
+        "environment": "Uses Windows.",
+        "communication": "Prefers replies in English."
+      },
+      "usage": {
+        "input_tokens": 395,
+        "output_tokens": 77,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 0.7685603750287555
+    },
+    {
+      "id": "profile-change",
+      "repeat": 1,
+      "passed": false,
+      "cost_usd": 0.000136536,
+      "output": {
+        "background": "",
+        "work": "财务部",
+        "environment": "使用ERP系统；设备为Windows",
+        "communication": "希望用中文简短回答"
+      },
+      "usage": {
+        "input_tokens": 406,
+        "output_tokens": 75,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 0.6654912919620983
+    },
+    {
+      "id": "profile-cn",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000158436,
+      "output": {
+        "background": "研发部后端工程师",
+        "work": "后端开发工作，常用 GitLab",
+        "environment": "使用 MacBook",
+        "communication": "希望用中文回答"
+      },
+      "usage": {
+        "input_tokens": 403,
+        "output_tokens": 94,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 1.3947010000119917
+    },
+    {
+      "id": "profile-en",
+      "repeat": 2,
+      "passed": false,
+      "cost_usd": 0.000135636,
+      "output": {
+        "background": "",
+        "work": "Works in Finance; uses Jira daily.",
+        "environment": "Uses Windows.",
+        "communication": "Prefers replies in English."
+      },
+      "usage": {
+        "input_tokens": 395,
+        "output_tokens": 77,
+        "cache_read_tokens": 256,
+        "requests": 1
+      },
+      "latency_s": 1.2783115000347607
+    },
+    {
+      "id": "profile-change",
+      "repeat": 2,
       "passed": false,
       "cost_usd": 0.00016893599999999998,
       "output": {
@@ -71,125 +185,11 @@
         "cache_read_tokens": 256,
         "requests": 1
       },
-      "latency_s": 0.8483764999546111
-    },
-    {
-      "id": "profile-cn",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.00016323599999999998,
-      "output": {
-        "background": "研发部后端工程师",
-        "work": "后端开发工作，常用 GitLab 进行代码协作",
-        "environment": "使用 MacBook",
-        "communication": "希望用中文回答"
-      },
-      "usage": {
-        "input_tokens": 403,
-        "output_tokens": 98,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.0092078750021756
-    },
-    {
-      "id": "profile-en",
-      "repeat": 1,
-      "passed": false,
-      "cost_usd": 0.000135636,
-      "output": {
-        "background": "",
-        "work": "Works in Finance; uses Jira daily.",
-        "environment": "Uses Windows.",
-        "communication": "Prefers replies in English."
-      },
-      "usage": {
-        "input_tokens": 395,
-        "output_tokens": 77,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.158138583006803
-    },
-    {
-      "id": "profile-change",
-      "repeat": 1,
-      "passed": false,
-      "cost_usd": 0.00016293599999999997,
-      "output": {
-        "background": "现在在财务部（此前在研发部）。",
-        "work": "使用ERP系统。",
-        "environment": "设备为Windows。",
-        "communication": "希望用中文简短回答。"
-      },
-      "usage": {
-        "input_tokens": 406,
-        "output_tokens": 97,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.0285318749956787
-    },
-    {
-      "id": "profile-cn",
-      "repeat": 2,
-      "passed": true,
-      "cost_usd": 0.000162036,
-      "output": {
-        "background": "研发部后端工程师",
-        "work": "后端开发；常用 GitLab 进行代码协作",
-        "environment": "使用 MacBook",
-        "communication": "希望用中文回答"
-      },
-      "usage": {
-        "input_tokens": 403,
-        "output_tokens": 97,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.311883750022389
-    },
-    {
-      "id": "profile-en",
-      "repeat": 2,
-      "passed": false,
-      "cost_usd": 0.000135636,
-      "output": {
-        "background": "",
-        "work": "Works in Finance; uses Jira daily.",
-        "environment": "Uses Windows.",
-        "communication": "Prefers replies in English."
-      },
-      "usage": {
-        "input_tokens": 395,
-        "output_tokens": 77,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.0879885419853963
-    },
-    {
-      "id": "profile-change",
-      "repeat": 2,
-      "passed": false,
-      "cost_usd": 0.00016773599999999998,
-      "output": {
-        "background": "在财务部工作（此前在研发部，现已调动）。",
-        "work": "使用 ERP 系统。",
-        "environment": "设备为 Windows。",
-        "communication": "希望用中文简短回答。"
-      },
-      "usage": {
-        "input_tokens": 406,
-        "output_tokens": 101,
-        "cache_read_tokens": 256,
-        "requests": 1
-      },
-      "latency_s": 1.0583552079624496
+      "latency_s": 1.070630041998811
     }
   ],
   "dataset_sha256": "aa12e336a12c99db4745fbc1d789693ca2bac1cb05b784c65641e2b777ab02a5",
   "limitations": "Frozen authored role contracts, not application end-to-end success or production quality. Judge predictions are compared with fixed human labels and never replace a business assertion.",
-  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "model_config_sha256": "4e062f729f65dc8319342e9358aba70b889a02b1b76fbb6e87e6b3f69db52020",
   "code_sha256": "6f79189e056baf114c2bc71f13fc689f8045a12566b631e4839d0946f19de888"
 }
