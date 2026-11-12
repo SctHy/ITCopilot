@@ -5,6 +5,7 @@ Skill 是一段可热加载的业务能力说明，用来补充 Agent 的 system
 它适合放置企业话术、处理流程、合规边界、排障 SOP 等需要运营侧快速调整的规则。
 """
 import json
+import hashlib
 import os
 import logging
 from dataclasses import dataclass, field
@@ -64,6 +65,8 @@ class SkillManager:
     def __init__(self, root_dir: str, max_prompt_chars: int = 5000):
         self.root_dir = Path(root_dir).expanduser().resolve()
         self.max_prompt_chars = max_prompt_chars
+        self.change_engine = None
+        self.fingerprint = hashlib.sha256(b"[]").hexdigest()
         self._skills: List[Skill] = []
         self._errors: List[str] = []
         self.lifecycle = SNAPSHOT.start()
@@ -93,6 +96,7 @@ class SkillManager:
         if not self.root_dir.exists():
             logger.info(f"Skill 目录不存在，跳过加载: {self.root_dir}")
             self._skills = []
+            self.fingerprint = hashlib.sha256(b"[]").hexdigest()
             self._errors = []
             self.lifecycle.send("publish")
             return []
@@ -108,6 +112,10 @@ class SkillManager:
                 logger.warning(f"Skill 加载失败: {msg}")
 
         self._skills = loaded
+        self.fingerprint = hashlib.sha256(json.dumps([
+            {"name": s.name, "description": s.description, "content": s.content, "enabled": s.enabled,
+             "keywords": s.keywords, "intent_groups": s.intent_groups, "write_tools": s.write_tools}
+            for s in loaded], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         self._errors = errors
         self.lifecycle.send("partial" if errors else "publish")
         self._log_loaded_skills()
@@ -115,7 +123,12 @@ class SkillManager:
 
     def reload(self) -> List[Skill]:
         """运行时热加载入口，供 API 调用。"""
-        return self.load()
+        previous = self.fingerprint
+        loaded = self.load()
+        if self.change_engine is not None and previous != self.fingerprint:
+            from core.change_log import record_change
+            record_change(self.change_engine, "skills", self.fingerprint, {"previous": previous, "count": len(loaded)})
+        return loaded
 
     def prompt(self) -> str:
         """全部启用的 Skill，按总长度截断。

@@ -49,3 +49,9 @@ def shutdown_tracing(provider: Optional[object]) -> None:
 
 def chat_span(request_id: str):
     return tracer.start_as_current_span("it_copilot.chat", attributes={"it_copilot.request_id": request_id})
+
+
+def turn_attributes(record):
+    span = trace.get_current_span()
+    for key in ("agent_version", "model", "route", "policy_version", "tenant"):
+        span.set_attribute("it_copilot." + key, record[key])

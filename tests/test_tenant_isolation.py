@@ -70,6 +70,7 @@ PROBES: Dict[Tuple[str, str], Tuple[Request, str]] = {
     ("GET", "/knowledge/documents"): (get("/knowledge/documents"), "list"),
     ("DELETE", "/knowledge/documents/{document_id}"): (delete("/knowledge/documents/{doc}"), "deny"),
     ("POST", "/search"): (post("/search", query=MARK), "list"),
+    ("GET", "/admin/changes"): (get("/admin/changes"), "list"),
     ("GET", "/admin/audit"): (get("/admin/audit", limit=500), "list"),
     ("GET", "/admin/sessions/revocations"): (get("/admin/sessions/revocations"), "list"),
     ("GET", "/tasks"): (get("/tasks"), "list"),

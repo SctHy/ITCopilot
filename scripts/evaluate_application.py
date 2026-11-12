@@ -83,8 +83,10 @@ async def trial(http, state, case, repeat):
             trace = (await http.get("/trace/" + body["request_id"], headers=requester)).json()
             result["turns"].append({"response": body, "trace": trace})
         checks, outcome = result["checks"], case["outcome"]
+        from agents.outcome import turn_outcome
         checks["all_turns_completed"] = all(
-            t["response"]["status"] in {"success", "partial"} for t in result["turns"]
+            turn_outcome({**t["response"], "signals": t["trace"].get("trace", {}).get("observability", {}).get("versions", {}).get("signals", [])}) == "success"
+            for t in result["turns"]
         )
         # Evidence per domain: each group lists acceptable tools; any successful call satisfies it.
         used = [x["tool_name"] for t in result["turns"] for x in t["trace"].get("trace", {}).get("tool_traces", []) if x.get("success")]

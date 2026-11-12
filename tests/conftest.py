@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+os.environ.setdefault("IT_COPILOT_BUILD_SHA", "test-build")
 os.environ.setdefault("IT_COPILOT_AUTH_MODE", "dev")
 os.environ.setdefault("IT_COPILOT_ENV", "development")
 # 测试不连外部 Jev；需要时显式注入 JevClient。

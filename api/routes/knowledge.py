@@ -31,6 +31,10 @@ async def _add_knowledge(documents: list[Dict[str, Any]], principal: Principal, 
         # 让 Agent 立即检索到新文档，而不是等待 60 秒 TTL 缓存过期。
         state.tool_manager.invalidate_cache("knowledge_search")
         change.detail["chunks"] = chunks
+    from core.change_log import record_change
+    version = await asyncio.to_thread(state.kb.collection_version, principal.tenant)
+    await asyncio.to_thread(record_change, state.workflow.engine, "knowledge", str(version),
+                           {"via": via, "documents": len(documents)}, tenant=principal.tenant, actor=principal.subject)
     return {"documents": len(documents), "chunks": chunks, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 
 
@@ -87,6 +91,10 @@ async def knowledge_delete(document_id: str, principal: Principal = Depends(requ
         state.tool_manager.invalidate_cache("knowledge_search")
         logger.info("knowledge document %s deleted by %s", document_id, principal.subject)
         change.detail = {k: removed[k] for k in ("title", "source", "chunks", "demo_seed")}
+    from core.change_log import record_change
+    version = await asyncio.to_thread(state.kb.collection_version, principal.tenant)
+    await asyncio.to_thread(record_change, state.workflow.engine, "knowledge", str(version),
+                           {"deleted": document_id}, tenant=principal.tenant, actor=principal.subject)
     return {**removed, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 
 

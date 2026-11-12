@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -47,7 +48,7 @@ from core.protocols import CacheState, cache_state
 from core.llm import agent_thinking_settings, is_model_unavailable
 from core.redaction import redact
 from monitor import metrics
-from tooling.executor import ToolExecutor
+from tooling.executor import ToolExecutor, ToolInputInvalid, WriteGuardBlocked, error_class
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class BaseAgent:
         self._shared_tools = {}
         self._agent = None
         self.executor = ToolExecutor()
+        self._fingerprints = {}
 
     def get_tools(self):
         return dict(self._shared_tools)
@@ -80,10 +82,27 @@ class BaseAgent:
 
     def _runtime(self) -> Agent:
         """按当前工具白名单懒构建 PydanticAI Agent；白名单变化时重建。"""
-        if cache_state(self._agent is not None) == CacheState.MISSING:
+        if cache_state(self._agent is not None) == CacheState.MISSING or (self._skill_manager is not None and self._fingerprints["skill_fp"] != self._skill_manager.fingerprint):
             tools = [self._as_tool(spec) for spec in self.get_tools().values()]
+            digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+            self._fingerprints = {
+                "prompt_fp": digest(self.system_prompt + AGENT_RULES),
+                "tools_fp": digest(json.dumps([[name, spec.input_schema] for name, spec in sorted(self.get_tools().items())], sort_keys=True, ensure_ascii=False)),
+                "skill_fp": self._skill_manager.fingerprint if self._skill_manager else digest(""),
+            }
             self._agent = Agent(deps_type=AgentRunDeps, output_type=str, instructions=self._instructions, tools=tools, name=self.name)
         return self._agent
+
+    def fingerprints(self) -> dict:
+        self._runtime()
+        return dict(self._fingerprints)
+
+    def _observability(self, req):
+        from core.turn_records import build_sha
+        sha = build_sha()
+        return {**self.fingerprints(), "agent_spec": self.name, "agent_version": "build:" + sha,
+                "build_sha": sha, "model": self._model, "route": "agent", "route_reason": "primary",
+                "signals": list(req.signals), "first_token_ms": req.first_token_ms}
 
     def _instructions(self, ctx: RunContext[AgentRunDeps]) -> str:
         return self._build_system_prompt(ctx.deps.req)
@@ -100,7 +119,7 @@ class BaseAgent:
         return tool
 
     async def handle(self, req: Request) -> AgentResponse:
-        t0 = time.monotonic()
+        t0 = req.started_at = time.monotonic()
         self.stats.total += 1
         try:
             result = await self._call_llm(req)
@@ -115,6 +134,9 @@ class BaseAgent:
                 response = AgentResponse("模型服务暂时不可用，请检查模型配置或稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="model_unavailable")
             else:
                 response = AgentResponse("抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
+            if isinstance(ex, AgentCallError) and ex.reason in {"round_limit", "bad_output", "empty_output"}:
+                response.error_code = ex.reason
+            response.observability = self._observability(req)
             return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
         self.stats.success += int(ok)
@@ -122,7 +144,7 @@ class BaseAgent:
         return self._observe(AgentResponse(
             content=result.content, success=ok, confidence=req.intent_confidence, latency_ms=ms,
             escalate=self._needs_escalation(result.content), tools_used=result.tools_used, tool_traces=result.tool_traces,
-            status=result.status, token_usage=result.token_usage,
+            status=result.status, token_usage=result.token_usage, observability=self._observability(req),
         ))
 
     def _observe(self, response: AgentResponse, failure_reason: Optional[str] = None) -> AgentResponse:
@@ -167,6 +189,7 @@ class BaseAgent:
                 # 带上具体不一致之处让模型补调工具或改口，只纠正一次。
                 logger.warning("agent reply disagrees with this turn's write results (%d); asking once to correct", len(problems))
                 metrics.AGENT_CLAIM_CHECKS.labels(outcome="corrected").inc()
+                req.signals.append("claim_corrected")
                 await req.publish("answer_reset", {})
                 result = await run(correction_prompt(problems), message_history=result.all_messages())
                 usages.append(result.usage)
@@ -194,12 +217,13 @@ class BaseAgent:
             # 纠正一次后仍不一致：不再请求模型，追加以审批记录为准的确定性说明。
             logger.warning("agent reply still disagrees with write results after correction; appending note")
             metrics.AGENT_CLAIM_CHECKS.labels(outcome="noted").inc()
+            req.signals.append("claim_noted")
             content += "\n\n" + fallback_note(remaining)
         content = redact_user_secrets(content, req.message)
         status = "partial" if result.response.finish_reason == "length" else "success"
         flow.send("truncate" if status == "partial" else "complete")
         return AgentCallResult(content, deps.used, deps.traces, status, {key: sum(int(getattr(u, key) or 0) for u in usages)
-                                                                          for key in ("input_tokens", "output_tokens", "cache_read_tokens")})
+                                                                          for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")})
 
 
     async def _run_streaming(self, prompt: str, req: Request, kwargs: Dict[str, Any]):
@@ -242,7 +266,7 @@ class BaseAgent:
         await req.publish("tool_started", {"tool": spec.name, "tool_use_id": tool_id, "retry_safe": spec.retry_safe})
         try:
             if spec.name in req.hidden_tools:
-                raise ValueError(f"本次处理不提供 {spec.name}")
+                raise WriteGuardBlocked(f"本次处理不提供 {spec.name}")
             self._validate_tool_input(spec, args)
             if not spec.retry_safe:
                 await self._guard_unsafe_tool(req, spec.name, args)
@@ -256,14 +280,14 @@ class BaseAgent:
         except Exception as ex:
             flow.send("fail")
             success, error = False, str(ex)
-            outcome = {"ToolUnavailable": "circuit_open", "ToolTimeout": "timeout"}.get(type(ex).__name__, "error")
+            outcome = error_class(ex)
             result = {"success": False, "error": error}
             logger.warning("tool %s failed: %s", spec.name, ex)
         latency_ms = round((time.monotonic() - started) * 1000, 1)
-        metrics.AGENT_TOOL_CALLS.labels(tool=spec.name, outcome=outcome).inc()
+        metrics.AGENT_TOOL_CALLS.labels(tool=spec.name, error_class=outcome).inc()
         deps.traces.append({
             "tool_name": spec.name, "tool_use_id": tool_id, "input": args, "success": success,
-            "latency_ms": latency_ms, "error": error, "retry_safe": spec.retry_safe, "outcome": outcome,
+            "latency_ms": latency_ms, "error": error, "retry_safe": spec.retry_safe, "outcome": outcome, "error_class": outcome,
             "idempotency_key": idempotency_key, "output": redact(result),
             "phase": flow.state,
         })
@@ -277,13 +301,13 @@ class BaseAgent:
         """写操作前置条件：槽位齐全、同请求不重复、先提交“结果未知”回执再执行。"""
         if req.allowed_writes is not None and name in WRITE_ACTIONS and name not in req.allowed_writes:
             # 意图识别判断用户这一轮没有要求这项操作：挡住主动提交，而不是从工具列表里拿掉（保持前缀缓存）。
-            raise ValueError("用户这一轮没有要求办理这项操作；需要的话先向用户确认")
+            raise WriteGuardBlocked("用户这一轮没有要求办理这项操作；需要的话先向用户确认")
         missing_slots = (req.conversation_state or {}).get("missing_fields") or []
         if slot_state(req.conversation_state) == SlotState.CLARIFYING:
-            raise ValueError("缺少必要信息，暂不执行写操作：" + ", ".join(missing_slots))
+            raise WriteGuardBlocked("缺少必要信息，暂不执行写操作：" + ", ".join(missing_slots))
         key = json.dumps([name, args], sort_keys=True, ensure_ascii=True)
         if once_state(key, req.unsafe_tool_calls) == OnceState.CONSUMED:
-            raise ValueError("副作用工具不得在同一请求重复执行")
+            raise WriteGuardBlocked("副作用工具不得在同一请求重复执行")
         req.unsafe_tool_calls.add(key)
         req.tool_attempts.append({"tool_name": name, "retry_safe": False})
         if req.before_unsafe_tool:
@@ -310,7 +334,7 @@ class BaseAgent:
         try:
             validators.validator_for(spec.input_schema)(spec.input_schema).validate(args)
         except ValidationError as ex:
-            raise ValueError(f"工具参数未通过 JSON Schema 校验（{ex.validator}）") from None
+            raise ToolInputInvalid(f"工具参数未通过 JSON Schema 校验（{ex.validator}）") from None
 
     @staticmethod
     def _needs_escalation(content: str) -> bool:

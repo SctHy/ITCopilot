@@ -146,7 +146,7 @@ def test_sse_stream_emits_status_and_completed_events(monkeypatch):
     from core.events import InMemoryEventBus
     from tests.conftest import auth
 
-    async def fake_chat(payload, principal, rid, emit=None):
+    async def fake_chat(payload, principal, rid, emit=None, channel="web"):
         await emit("tool_started", {"tool": "diagnose"})
         return schemas.ChatResponse(request_id=rid, response="已完成", status="success", intent="chitchat")
 

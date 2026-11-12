@@ -25,6 +25,7 @@ class ChatResponse(BaseModel):
     request_id: str
     response: str
     status: str
+    error_code: Optional[str] = None
     intent: str
     intent_group: str = "other"
     entities: Dict[str, Any] = {}

@@ -23,13 +23,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
 from sqlalchemy import and_, delete, exists, or_, select
 
-from core.db import approvals, channel_inbox, channel_outbox, vector_documents
+from core.db import approvals, channel_inbox, channel_outbox, vector_documents, turn_records
 from core.env import env_float
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ EPISODIC_COLLECTION = "episodic"
 class RetentionPolicy:
     channel_days: Optional[float] = 30.0     # None: keep forever
     episodic_days: Optional[float] = 90.0
+    turn_days: Optional[float] = 90.0
     batch: int = 500
 
     @classmethod
@@ -52,8 +55,12 @@ class RetentionPolicy:
         def days(name: str, default: float) -> Optional[float]:
             value = env_float(name, default)
             return value if value > 0 else None
+        raw_turn_days = float(os.getenv("IT_COPILOT_RETENTION_TURN_DAYS", str(cls.turn_days)))
+        if not math.isfinite(raw_turn_days) or raw_turn_days < 0:
+            raise ValueError("IT_COPILOT_RETENTION_TURN_DAYS must be a finite nonnegative number")
         return cls(channel_days=days("IT_COPILOT_RETENTION_CHANNEL_DAYS", 30.0),
-                   episodic_days=days("IT_COPILOT_RETENTION_EPISODIC_DAYS", 90.0))
+                   episodic_days=days("IT_COPILOT_RETENTION_EPISODIC_DAYS", 90.0),
+                   turn_days=raw_turn_days if raw_turn_days > 0 else None)
 
 
 def _open_approval_for(request_id_column):
@@ -82,6 +89,9 @@ class RetentionSweeper:
             cutoff = now - self.policy.episodic_days * DAY
             report["episodic_memory"] = self._drain(vector_documents, vector_documents.c.id, and_(
                 vector_documents.c.collection == EPISODIC_COLLECTION, vector_documents.c.updated_at < cutoff))
+        if self.policy.turn_days:
+            report["turn_records"] = self._drain(turn_records, turn_records.c.request_id,
+                turn_records.c.created_at < now - self.policy.turn_days * DAY)
         if any(report.values()):
             from monitor import metrics
             for kind, count in report.items():
@@ -107,7 +117,7 @@ class RetentionSweeper:
     # ── background loop ──────────────────────────────────────────────────
 
     def start(self) -> None:
-        if self._task is None and (self.policy.channel_days or self.policy.episodic_days):
+        if self._task is None and (self.policy.channel_days or self.policy.episodic_days or self.policy.turn_days):
             self._task = asyncio.create_task(self._loop(), name="retention-sweeper")
 
     async def stop(self) -> None:

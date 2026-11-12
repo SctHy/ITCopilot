@@ -320,7 +320,7 @@ def test_continuation_is_idempotent_readonly_and_uses_original_task(env, caps):
 
     async def recognize(*args, **kwargs):
         return SimpleNamespace(intent=IntentCategory.PERMISSION_REQUEST, intent_group='access', confidence=1,
-            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset({'request_access'}))
+            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], recognition_source='test', requested_actions=frozenset({'request_access'}))
 
     async def run(req):
         observed.append(req)
@@ -328,9 +328,10 @@ def test_continuation_is_idempotent_readonly_and_uses_original_task(env, caps):
         assert '续接时重新读取' in req.context and '"status": "open"' in req.context
         with pytest.raises(ValueError):
             await req.before_unsafe_tool('request_access')
-        return OrchestratorResult(req.request_id, '只读跟进', req.intent)
+        from agents.base_agent import BaseAgent
+        return OrchestratorResult(req.request_id, '只读跟进', req.intent, observability=BaseAgent(None, 'test')._observability(req))
 
-    runner = TaskAgentRunner(SimpleNamespace(recognize_intent=recognize, run=run), lambda _: {}, read_task_state=caps.history.runtime_context)
+    runner = TaskAgentRunner(SimpleNamespace(recognize_intent=recognize, run=run, knowledge_version=lambda tenant: 0.), lambda _: {}, read_task_state=caps.history.runtime_context)
     tasks.finish(claim, asyncio.run(runner(context, event, transcript)))
     assert tasks.claim() is None and observed
     assert not tasks.get(task['id'], ALICE)['approvals']

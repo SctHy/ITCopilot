@@ -293,6 +293,10 @@ class StandardMCPClient:
 
             async def agent_handler(req, args, tool_name=alias, server=config.name, name=remote.name):
                 result = await self.manager.call(tool_name, args, context={"user_id": req.user_id})
+                if not result.success:
+                    from tooling.executor import ToolRemoteFailure
+                    category = {"invalid": "input_invalid", "unknown": "error"}.get(result.outcome, result.outcome)
+                    raise ToolRemoteFailure(result.error, category)
                 return {"success": result.success, "data": result.data, "error": result.error,
                         "cached": result.cached, "source": "external_mcp", "mcp_server": server, "mcp_tool": name}
 

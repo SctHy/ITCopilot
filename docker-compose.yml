@@ -8,7 +8,10 @@
 # 只在本机回环地址暴露端口；对外发布前请替换所有默认口令、关闭 Keycloak 密码模式，并在前面加 TLS 反向代理。
 
 x-backend: &backend
-  build: .
+  build:
+    context: .
+    args:
+      BUILD_SHA: ${IT_COPILOT_BUILD_SHA:?set IT_COPILOT_BUILD_SHA to the deployed git revision}
   image: it-copilot-backend:local
   restart: unless-stopped
 

@@ -99,7 +99,7 @@ def test_cache_read_tokens_are_reported_and_counted():
     labels = {"model": agent._model, "direction": "cache_read"}
     before = REGISTRY.get_sample_value("it_copilot_llm_tokens_total", labels) or 0
     response = asyncio.run(agent.handle(Request("你好")))
-    assert response.token_usage == {"input_tokens": 1000, "output_tokens": 20, "cache_read_tokens": 800}
+    assert response.token_usage == {"requests": 1, "input_tokens": 1000, "output_tokens": 20, "cache_read_tokens": 800}
     after = REGISTRY.get_sample_value("it_copilot_llm_tokens_total", labels)
     assert after == before + 800
 

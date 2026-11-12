@@ -275,7 +275,8 @@ class MCPToolManager:
             tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
             logger.error(f"工具异常: {name} — {ex}")
-            return await self._fallback_result(tool, params, context, str(ex), "error")
+            from tooling.executor import error_class
+            return await self._fallback_result(tool, params, context, str(ex), error_class(ex))
 
     async def _fallback_result(
         self,

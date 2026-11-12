@@ -46,15 +46,18 @@ def caps(env):
 def fake_orchestrator(calls):
     """Real orchestrator run path and checkpointing, deterministic intent and agent; no external model call."""
     orchestrator = AgentOrchestrator.__new__(AgentOrchestrator)
+    from agents.base_agent import BaseAgent
+    orchestrator.agent = BaseAgent(None, "test")
+    orchestrator.knowledge_version = lambda tenant: 0.0
 
     async def recognize(*args, **kwargs):
         calls['intent'] += 1
         return SimpleNamespace(intent=IntentCategory.PERMISSION_REQUEST, intent_group='access', confidence=1,
-            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset({'request_access'}))
+            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], recognition_source="test", requested_actions=frozenset({'request_access'}))
 
     async def execute(req):
         calls['agent'] += 1
-        return AgentResponse('结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
+        return AgentResponse('结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3}, observability=orchestrator.agent._observability(req))
 
     orchestrator.recognize_intent, orchestrator._execute = recognize, execute
     return orchestrator

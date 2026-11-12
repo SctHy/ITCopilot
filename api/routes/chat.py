@@ -130,7 +130,7 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
         message=payload.message, user_id=user_id, conv_id=conv_id, context=mem_ctx.to_prompt_text(include_recent=False) if mem_ctx else "",
         history=history, entities=intent_result.entities, intent=intent_result.intent, intent_group=intent_result.intent_group,
         urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=principal.department, request_id=rid,
-        principal=principal, emit=emit, allowed_writes=intent_result.requested_actions,
+        principal=principal, emit=emit, allowed_writes=intent_result.requested_actions, intent_source=intent_result.recognition_source,
         # needs_knowledge 为 None（Jev 不可用、没有判断）时也附上：多几百个输入 token，远比 Agent 自己再检索一轮便宜。
         knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge is not False and prefetched and prefetched.success else [],
     )
@@ -180,6 +180,7 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
         "approval": {"required": bool(approval), "approval_id": approval_id},
         "fallback": {"intent_source": intent_result.recognition_source},
         "stage_ms": stage_ms,
+        "versions": result.observability,
     }
     return trace
 
@@ -190,19 +191,19 @@ async def chat(payload: ChatRequest, principal: Principal = Depends(current_prin
     return await _chat_entry(payload, principal, request_id(principal, payload.client_request_id))
 
 
-async def _chat_entry(payload: ChatRequest, principal: Principal, rid: str, emit=None):
+async def _chat_entry(payload: ChatRequest, principal: Principal, rid: str, emit=None, channel="web"):
     if not state.orchestrator:
         raise HTTPException(503, "service not ready")
     from monitor.telemetry import chat_span
     with chat_span(rid) as span:
-        response = await _chat(payload, principal, rid, emit)
+        response = await _chat(payload, principal, rid, emit, channel)
         if isinstance(response, ChatResponse):
             for key in ("status", "intent", "intent_group"):
                 span.set_attribute(f"it_copilot.{key}", getattr(response, key))
         return response
 
 
-async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None):
+async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None, channel="web"):
     request_started = time.monotonic()
     conv_id = payload.conv_id
     if state.memory:
@@ -214,16 +215,16 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None)
                 flow = TURN.start()
                 flow.send("replay")
                 return receipt.get("response")
-            return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
-    return await _complete_turn(payload, principal, rid, conv_id, request_started, emit)
+            return await _complete_turn(payload, principal, rid, conv_id, request_started, emit, channel)
+    return await _complete_turn(payload, principal, rid, conv_id, request_started, emit, channel)
 
 
-async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None):
+async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None, channel="web"):
     # The caller holds the conversation lease through approval creation AND commit.
     flow = TURN.start()
     flow.send("run")
     try:
-        return await _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow)
+        return await _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow, channel)
     except asyncio.CancelledError:
         flow.send("cancel")
         raise
@@ -232,12 +233,28 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
         raise
 
 
-async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow):
+async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow, channel):
     stages = _Stages()
     verb = _confirmation_verb(payload.message) if state.workflow else None
     if verb:
         answered = await _answer_drafts(payload, principal, rid, conv_id, verb, emit)
         if answered is not None:
+            if state.workflow:
+                from agents.types import OrchestratorResult, Request
+                from core.turn_records import build_record, record_turn
+                from monitor.telemetry import turn_attributes
+                req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation")
+                result = OrchestratorResult(rid, answered.response, None,
+                    latency_ms=answered.latency_ms, observability=state.orchestrator.agent._observability(req))
+                record = build_record(req, result, channel=channel,
+                    policy_version=state.workflow.policy_for(principal.tenant).version,
+                    kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
+                    approval_id=answered.approval_id)
+                def persist_confirmation():
+                    with state.workflow.engine.begin() as db:
+                        record_turn(db, record)
+                await asyncio.to_thread(persist_confirmation)
+                turn_attributes(record)
             flow.send("respond")
             flow.send("commit")
             flow.send("finish")
@@ -258,7 +275,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
                     state.workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
                     action_requests=approval["action_requests"], summary=summary, ask_requester=True,
                     provenance=provenance(result.tool_traces, request_id=rid, intent=intent_result, knowledge=req.knowledge,
-                                          trace_id=result.trace_id, channel=conv_id.split(":", 1)[0] if ":" in conv_id else "web"))
+                                          trace_id=result.trace_id, channel=channel))
         except (PolicyViolation, ApprovalConflict, ValueError) as exc:
             # Tools validate first, so this is rare (e.g. policy changed mid-turn); never create a half-valid approval.
             logger.warning("approval not created for %s: %s", rid, exc)
@@ -286,7 +303,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     flow.send("respond")
     response = ChatResponse(
         task_references=req.task_references, related_approvals=req.related_approvals,
-        request_id=rid, response=reply, status=result.status,
+        request_id=rid, response=reply, status=result.status, error_code=result.error_code,
         intent=result.intent.value if result.intent else "other", intent_group=req.intent_group or "other", entities=req.entities,
         confidence=req.intent_confidence, intent_confidence=req.intent_confidence,
         intent_source_scores=intent_result.source_scores, clarification_needed=bool(req.conversation_state.get("missing_fields")),
@@ -296,6 +313,18 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
         awaiting_confirmation=awaiting,
         token_usage=result.token_usage, stage_ms=stages.ms,
     )
+    if state.workflow:
+        from core.turn_records import build_record, record_turn
+        from monitor.telemetry import turn_attributes
+        record = build_record(req, result, channel=channel,
+            policy_version=state.workflow.policy_for(principal.tenant).version,
+            kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
+            approval_id=approval_id, stage_ms=stages.ms)
+        def persist():
+            with state.workflow.engine.begin() as db:
+                record_turn(db, record)
+        await asyncio.to_thread(persist)
+        turn_attributes(record)
     if state.memory:
         # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)
@@ -430,5 +459,5 @@ async def _channel_turn(principal: Principal, text: str, conv_id: str, client_re
         if not (await rate_limit_decision(principal, AGENT_TURN, "feishu")).allowed:
             # Answered, not retried: the message is settled with this reply instead of queueing more model work.
             return {"request_id": rid, "response": RATE_LIMITED_REPLY, "approval_required": False}
-        raw = await _chat_entry(payload, principal, rid)
+        raw = await _chat_entry(payload, principal, rid, channel="feishu")
         return raw.model_dump() if isinstance(raw, ChatResponse) else dict(raw)

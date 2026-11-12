@@ -39,12 +39,21 @@ class Request:
     stream_answer: bool = False                        # push live answer_delta events
     allowed_writes: Optional[frozenset] = None         # write tools the user asked for this turn; None = not gated
     skill_text: str = ""                               # progressive skill disclosure: bodies selected for this turn
+    intent_source: str = "unknown"
+    signals: List[str] = field(default_factory=list)
+    first_token_ms: Optional[float] = None
+    started_at: float = 0.0
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
     checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
     task_references: List[Dict[str, Any]] = field(default_factory=list)  # private-chat recall; not shared-room context
     related_approvals: List[Dict[str, Any]] = field(default_factory=list)  # own withdrawable/releasable items (agents/request_recall.py)
 
     async def publish(self, event: str, data: Dict[str, Any]) -> None:
+        if event == "answer_reset":
+            self.signals.append("answer_reset")
+        elif event == "answer_delta" and self.first_token_ms is None:
+            import time
+            self.first_token_ms = (time.monotonic() - self.started_at) * 1000
         if self.emit is not None:
             await self.emit(event, data)
 
@@ -61,6 +70,7 @@ class AgentResponse:
     status: str = "success"
     error_code: Optional[str] = None
     token_usage: Dict[str, int] = field(default_factory=dict)
+    observability: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,6 +80,7 @@ class AgentCallResult:
     tool_traces: List[Dict[str, Any]] = field(default_factory=list)
     status: str = "success"
     token_usage: Dict[str, int] = field(default_factory=dict)
+    observability: Dict[str, Any] = field(default_factory=dict)
 
 
 class AgentCallError(RuntimeError):
@@ -107,6 +118,7 @@ class OrchestratorResult:
     status: str = "success"
     error_code: Optional[str] = None
     token_usage: Dict[str, int] = field(default_factory=dict)
+    observability: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def trace_id(self) -> str:

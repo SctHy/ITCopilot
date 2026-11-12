@@ -25,6 +25,44 @@ from monitor import metrics
 from tooling.tool_manager import CircuitBreaker
 
 
+class ToolRemoteFailure(RuntimeError):
+    def __init__(self, message, category):
+        super().__init__(message)
+        self.category = category
+
+
+class ToolInputInvalid(ValueError):
+    """Tool JSON Schema rejected the model's arguments."""
+
+
+class WriteGuardBlocked(ValueError):
+    """This turn has no authority to prepare the requested write."""
+
+
+class PolicyDenied(ValueError):
+    """A valid request is prohibited by the access policy."""
+
+
+def error_class(exc):
+    import httpx
+    import httpx2
+    if isinstance(exc, ToolRemoteFailure):
+        return exc.category
+    if isinstance(exc, ToolInputInvalid):
+        return "input_invalid"
+    if isinstance(exc, WriteGuardBlocked):
+        return "guard_blocked"
+    if isinstance(exc, PolicyDenied):
+        return "policy_denied"
+    if isinstance(exc, ToolTimeout):
+        return "timeout"
+    if isinstance(exc, ToolUnavailable):
+        return "circuit_open"
+    if isinstance(exc, (httpx.HTTPStatusError, httpx2.HTTPStatusError)):
+        return "upstream_5xx" if exc.response.status_code >= 500 else "upstream_4xx"
+    return "error"
+
+
 class ToolUnavailable(RuntimeError):
     """Breaker open: the tool failed repeatedly and is cooling down."""
 

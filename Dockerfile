@@ -14,6 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 
+ARG BUILD_SHA
+ENV IT_COPILOT_BUILD_SHA=${BUILD_SHA}
+
 COPY requirements.txt ./
 RUN uv pip install --system -r requirements.txt
 

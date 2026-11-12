@@ -93,7 +93,7 @@ async def run_retention(principal: Principal = Depends(require_platform_admin)):
         deleted = await asyncio.to_thread(state.retention.sweep)
         change.detail = deleted
     return {"deleted": deleted, "policy": {
-        "channel_days": state.retention.policy.channel_days, "episodic_days": state.retention.policy.episodic_days}}
+        "channel_days": state.retention.policy.channel_days, "episodic_days": state.retention.policy.episodic_days, "turn_days": state.retention.policy.turn_days}}
 
 
 @router.get("/admin/audit")
@@ -110,3 +110,22 @@ async def admin_audit_log(principal: Principal = Depends(require_roles(ROLE_IT_A
         raise HTTPException(503, "service not ready")
     items = await asyncio.to_thread(recent, state.workflow.engine, principal.tenant, limit=limit, before=before, event=event, outcome=outcome)
     return {"items": items, "next_before": items[-1]["id"] if len(items) == limit else None}
+
+
+@router.get("/admin/changes")
+async def behavior_changes(since: Optional[float] = Query(None, ge=0), kind: Optional[str] = None,
+                           principal: Principal = Depends(require_roles(ROLE_IT_ADMIN, ROLE_AUDITOR))):
+    from sqlalchemy import or_, select
+    from core.db import change_events, read
+    if state.workflow is None:
+        raise HTTPException(503, "service not ready")
+    def fetch():
+        query = select(change_events).where(or_(change_events.c.tenant == principal.tenant,
+                                                change_events.c.tenant.is_(None)))
+        if since is not None:
+            query = query.where(change_events.c.at >= since)
+        if kind is not None:
+            query = query.where(change_events.c.kind == kind)
+        with read(state.workflow.engine) as db:
+            return [dict(r) for r in db.execute(query.order_by(change_events.c.at.desc()).limit(500)).mappings()]
+    return {"items": await asyncio.to_thread(fetch)}

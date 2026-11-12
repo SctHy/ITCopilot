@@ -307,6 +307,11 @@ class TaskStore:
             data = {"run_id": claim["id"], "token_usage": result.get("token_usage", {}),
                     "conversation_state": result.get("conversation_state", {})}
             data.update(self.effects.commit(db, task, event, claim, result))
+            if "turn_record" in result:
+                from core.turn_records import record_turn
+                record = dict(result["turn_record"])
+                record["approval_id"] = data.get("approval_id")
+                record_turn(db, record)
             if self.governance:
                 self.governance.complete(db, claim, result)
             self._append(db, task, key("reply", claim["id"]), "assistant", "agent:it-copilot", "IT-Copilot",

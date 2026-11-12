@@ -145,16 +145,15 @@ class ExecutionWorker:
         or a restart see the same version: only the first sighting is recorded."""
         from core import admin_audit
 
-        try:
-            last = admin_audit.last_system(self.store.engine, "policy_loaded")
-            if last and last["subject"] == version:
-                return
-            policy = self.store.policy
-            admin_audit.record_system(self.store.engine, "policy_loaded", version, {
-                "declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
-                "previous": last["subject"] if last else None, "revalidated": changed, "worker": self.worker_id})
-        except Exception:
-            logger.exception("could not record policy %s in the admin audit", version)
+        from core.change_log import record_change
+        last = admin_audit.last_system(self.store.engine, "policy_loaded")
+        if last and last["subject"] == version:
+            return
+        policy = self.store.policy
+        detail = {"declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
+                  "previous": last["subject"] if last else None, "revalidated": changed, "worker": self.worker_id}
+        admin_audit.record_system(self.store.engine, "policy_loaded", version, detail)
+        record_change(self.store.engine, "policy", version, detail)
 
     def _record_overlays_loaded(self) -> None:
         """Each tenant's effective policy, recorded once per version under that tenant (its admins see it)."""
@@ -162,16 +161,15 @@ class ExecutionWorker:
 
         if self.store._policy:
             return
+        from core.change_log import record_change
         for tenant in overlay_tenants():
-            try:
-                policy = load_policy(tenant)
-                last = admin_audit.last_tenant_event(self.store.engine, tenant, "policy_loaded")
-                if last and last["subject"] == policy.version:
-                    continue
-                admin_audit.record_as(self.store.engine, tenant, admin_audit.SYSTEM_ACTOR, "policy_loaded", policy.version,
-                                      {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id})
-            except Exception:
-                logger.exception("could not record the policy overlay of tenant %s", tenant)
+            policy = load_policy(tenant)
+            last = admin_audit.last_tenant_event(self.store.engine, tenant, "policy_loaded")
+            if last and last["subject"] == policy.version:
+                continue
+            detail = {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id}
+            admin_audit.record_as(self.store.engine, tenant, admin_audit.SYSTEM_ACTOR, "policy_loaded", policy.version, detail)
+            record_change(self.store.engine, "policy", policy.version, detail, tenant=tenant)
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):

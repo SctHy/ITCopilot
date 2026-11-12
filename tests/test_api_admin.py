@@ -14,6 +14,9 @@ class FakeKnowledgeBase:
     def __init__(self):
         self.documents = []
 
+    def collection_version(self, tenant):
+        return float(len(self.documents))
+
     async def add_documents_async(self, documents, tenant=None):
         for doc in documents:
             if not doc["content"].strip():
@@ -37,7 +40,9 @@ class FakeKnowledgeBase:
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, db_url):
+    from workflow.store import WorkflowStore
+    monkeypatch.setattr(state, "workflow", WorkflowStore(db_url))
     kb = FakeKnowledgeBase()
     monkeypatch.setattr(state, "kb", kb)
     monkeypatch.setattr(state, "tool_manager", MCPToolManager("sk-local"))

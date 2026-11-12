@@ -10,6 +10,7 @@ of a user database, external MCP connection, or notification webhook is performe
 import asyncio
 import os
 import tempfile
+import subprocess
 from contextlib import ExitStack, asynccontextmanager
 from unittest.mock import patch
 
@@ -30,6 +31,7 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
     with tempfile.TemporaryDirectory(prefix="it-copilot-eval-") as directory:
         env = {
             "IT_COPILOT_DATA_DIR": directory,
+            "IT_COPILOT_BUILD_SHA": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip(),
             "IT_COPILOT_ENV": "development",
             "IT_COPILOT_SEED_DEMO_DOCS": "false",
             "IT_COPILOT_MCP_ENABLED": "false",

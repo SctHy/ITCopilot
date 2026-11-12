@@ -107,6 +107,8 @@ async def lifespan(app: FastAPI):
     from agents.task_progress_advisor import TaskProgressAdvisor
     from agents.task_recall import TaskRecall
 
+    from core.turn_records import build_sha
+    sha = build_sha()
     state.lifecycle = APPLICATION.start()
     # Startup and every background loop started here (workers, pumps, sweeps) span tenants: system
     # scope. Requests do not inherit it; each enters its caller's tenant (api.deps, ADR 0023).
@@ -153,6 +155,10 @@ async def lifespan(app: FastAPI):
             await asyncio.to_thread(ensure_supported, db_url, state.workflow.engine)
             if not multi_tenant_enabled() and await asyncio.to_thread(bypasses_row_security, state.workflow.engine):
                 logger.warning("database role bypasses row-level security; tenant isolation rests on application filters only (ADR 0023)")
+            from core.change_log import record_deploy
+            await asyncio.to_thread(record_deploy, state.workflow.engine, sha)
+            state.skills.change_engine = state.orchestrator.change_engine = state.workflow.engine
+            state.orchestrator.knowledge_version = state.kb.collection_version
             state.orchestrator.directory = state.workflow
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)

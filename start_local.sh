@@ -18,6 +18,7 @@ fi
 [[ -n "$CLI_IT_COPILOT_FRONTEND_PORT" ]] && IT_COPILOT_FRONTEND_PORT="$CLI_IT_COPILOT_FRONTEND_PORT"
 export IT_COPILOT_PORT="${IT_COPILOT_PORT:-8001}"
 export IT_COPILOT_FRONTEND_PORT="${IT_COPILOT_FRONTEND_PORT:-5173}"
+export IT_COPILOT_BUILD_SHA="$(git -C "$HERE" rev-parse --short HEAD)"
 export NO_PROXY="127.0.0.1,localhost"; export no_proxy="$NO_PROXY"
 
 # 优先使用项目虚拟环境；没有时才退回系统 Python。

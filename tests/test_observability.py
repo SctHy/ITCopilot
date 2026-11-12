@@ -53,11 +53,11 @@ def test_agent_metrics_record_status_tokens_and_tool_calls():
         orchestrator.directory = SimpleNamespace(employee=lambda eid, tenant: {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}], "tickets": []})
         labels = {"status": "success", "error_code": "none"}
         before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input"),
-                  sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success"))
+                  sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success"))
         await orchestrator._execute(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001", tenant="default")))
         assert sample("it_copilot_agent_requests_total", **labels) == before[0] + 1
         assert sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input") == before[1] + 11
-        assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success") == before[2] + 1
+        assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success") == before[2] + 1
     asyncio.run(run())
 
 
@@ -69,7 +69,7 @@ def test_agent_failure_reason_is_classified():
         orchestrator = orchestrator_with(FunctionModel(loop_forever))
         before = sample("it_copilot_agent_failures_total", reason="round_limit")
         response = await orchestrator._execute(Request("VPN 状态"))
-        assert response.error_code == "agent_failed"
+        assert response.error_code == "round_limit"
         assert sample("it_copilot_agent_failures_total", reason="round_limit") == before + 1
     asyncio.run(run())
 

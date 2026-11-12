@@ -68,13 +68,13 @@ def test_old_settled_messages_and_memories_are_deleted_in_batches(env):
         memory(db, "profile-old", collection="profile")      # merged in place, never swept
         memory(db, "kb-old", collection="knowledge_base")
     report = sweeper.sweep()
-    assert report == {"channel_inbox": 5, "channel_outbox": 2, "episodic_memory": 1}
+    assert report == {"channel_inbox": 5, "channel_outbox": 2, "episodic_memory": 1, "turn_records": 0}
     assert ids(store, channel_inbox) == {"recent", "failed", "processing"}
     assert ids(store, channel_outbox) == {"queued-old", "sent-recent"}
     with store.engine.connect() as db:
         left = set(db.execute(select(vector_documents.c.collection, vector_documents.c.id)).all())
     assert left == {("episodic", "turn-recent"), ("profile", "profile-old"), ("knowledge_base", "kb-old")}
-    assert sweeper.sweep() == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0}
+    assert sweeper.sweep() == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0, "turn_records": 0}
 
 
 def test_messages_behind_an_open_approval_are_kept_until_it_settles(env):
@@ -117,5 +117,5 @@ def test_admin_can_run_a_sweep(env, monkeypatch):
     http = TestClient(api.app)
     assert http.post("/ops/retention/run", headers=auth("alice")).status_code == 403
     body = http.post("/ops/retention/run", headers=auth("erin")).json()
-    assert body["deleted"] == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0}
-    assert body["policy"] == {"channel_days": 30, "episodic_days": 90}
+    assert body["deleted"] == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0, "turn_records": 0}
+    assert body["policy"] == {"channel_days": 30, "episodic_days": 90, "turn_days": 90}

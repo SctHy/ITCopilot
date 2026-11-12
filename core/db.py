@@ -247,6 +247,61 @@ tenants = Table(
     Column("updated_at", Float, nullable=False),
 )
 
+# Turn metadata outlives Redis traces; message bodies remain in short-lived memory.
+turn_records = Table(
+    "turn_records", metadata,
+    Column("request_id", String(200), primary_key=True),
+    Column("tenant", String(80), nullable=False),
+    Column("owner", String(300), nullable=False),
+    Column("channel", String(40), nullable=False),
+    Column("conv_id", String(200)),
+    Column("task_id", String(64)),
+    Column("created_at", Float, nullable=False),
+    Column("status", String(30), nullable=False),
+    Column("error_code", String(80)),
+    Column("outcome", String(30), nullable=False),
+    Column("intent", String(80), nullable=False),
+    Column("intent_group", String(80), nullable=False),
+    Column("intent_source", String(80), nullable=False),
+    Column("intent_confidence", Float, nullable=False),
+    Column("agent_spec", String(80), nullable=False),
+    Column("agent_version", String(120), nullable=False),
+    Column("model", String(120), nullable=False),
+    Column("route", String(80), nullable=False),
+    Column("route_reason", String(80), nullable=False),
+    Column("prompt_fp", String(64), nullable=False),
+    Column("skill_fp", String(64), nullable=False),
+    Column("tools_fp", String(64), nullable=False),
+    Column("policy_version", String(100), nullable=False),
+    Column("kb_version", String(80), nullable=False),
+    Column("build_sha", String(80), nullable=False),
+    Column("model_requests", Integer, nullable=False),
+    Column("input_tokens", Integer, nullable=False),
+    Column("output_tokens", Integer, nullable=False),
+    Column("cache_read_tokens", Integer, nullable=False),
+    Column("cost_usd", Float),
+    Column("latency_ms", Float, nullable=False),
+    Column("first_token_ms", Float),
+    Column("stage_ms", JSON, nullable=False),
+    Column("tools", JSON, nullable=False),
+    Column("signals", JSON, nullable=False),
+    Column("approval_id", String(200)),
+)
+Index("ix_turn_records_tenant_created", turn_records.c.tenant, turn_records.c.created_at)
+Index("ix_turn_records_task", turn_records.c.task_id)
+
+change_events = Table(
+    "change_events", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("at", Float, nullable=False),
+    Column("tenant", String(80)),
+    Column("kind", String(40), nullable=False),
+    Column("ref", String(200), nullable=False),
+    Column("detail", JSON, nullable=False),
+    Column("actor", String(200), nullable=False),
+)
+Index("ix_change_events_at", change_events.c.at)
+
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
 # Every directory row belongs to a tenant and the tenant is part of the key (migration 0004): the

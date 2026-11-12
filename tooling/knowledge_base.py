@@ -406,6 +406,9 @@ class KnowledgeBase:
             raise TenantContextMissing("knowledge base access needs a tenant")
         return DEFAULT_TENANT
 
+    def collection_version(self, tenant: str) -> float:
+        return self.library(tenant)._collection.version()[1]
+
     def library(self, tenant: Optional[str] = None) -> KnowledgeLibrary:
         tenant = self.resolve(tenant)
         with self._lock:

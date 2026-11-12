@@ -13,6 +13,7 @@ concurrency:
 
 env:
   PYDANTIC_AI_NO_BANNER: "1"
+  IT_COPILOT_BUILD_SHA: ${{ github.sha }}
   IT_COPILOT_SEED_DEMO_DOCS: "false"
 
 jobs:

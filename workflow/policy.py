@@ -27,7 +27,10 @@ def fingerprint(data: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
-class PolicyViolation(ValueError):
+from tooling.executor import PolicyDenied
+
+
+class PolicyViolation(PolicyDenied):
     """The request is well-formed but not allowed by policy."""
 
 

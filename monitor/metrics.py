@@ -21,7 +21,7 @@ AGENT_FAILURES = Counter("it_copilot_agent_failures_total", "Agent 失败原因"
 AGENT_CLAIM_CHECKS = Counter("it_copilot_agent_claim_checks_total", "回答与本轮写操作结果不一致的处理：corrected 让模型纠正一次，noted 纠正后仍不一致、追加说明", ["outcome"])
 LLM_TOKENS = Counter("it_copilot_llm_tokens_total", "LLM token 消耗（direction=cache_read 为命中模型服务前缀缓存的输入）", ["model", "direction"])
 CACHE_LOOKUPS = Counter("it_copilot_cache_lookups_total", "应用内缓存查询（进程内，多进程不共享）", ["cache", "result"])
-AGENT_TOOL_CALLS = Counter("it_copilot_agent_tool_calls_total", "Agent 发起的工具调用", ["tool", "outcome"])
+AGENT_TOOL_CALLS = Counter("it_copilot_agent_tool_calls_total", "Agent 发起的工具调用", ["tool", "error_class"])
 
 # ── 工具治理层（MCPToolManager） ─────────────────────────────────────────────
 TOOL_CALLS = Counter("it_copilot_tool_calls_total", "治理层工具调用结果", ["tool", "outcome"])

@@ -24,6 +24,8 @@ class AgentOrchestrator:
         # 工具分三层，每次变更都从这三层重新组装，保证下线的外部工具会真正从 Agent 移除。
         self._shared_tools = build_shared_rag_tools(rag_tool_manager) if rag_tool_manager else {}
         self._external_tools: Dict[str, Any] = {}
+        self.change_engine = None
+        self.knowledge_version = lambda tenant: 0.0
         self.directory = None   # 台账读模型（WorkflowStore），由 API 装配时注入
         self._local_tools = agent_tools(lambda: self.directory)
         self.agent = BaseAgent(self._llm, model, skill_manager)
@@ -48,8 +50,13 @@ class AgentOrchestrator:
 
     def set_external_tools(self, tools):
         """外部 MCP 工具集合整体替换（连接/断开/工具列表变化时由 MCP 客户端回调）。"""
+        old = self.agent.fingerprints()["tools_fp"]
         self._external_tools = dict(tools or {})
         self._rebuild_tools()
+        current = self.agent.fingerprints()["tools_fp"]
+        if self.change_engine is not None and old != current:
+            from core.change_log import record_change
+            record_change(self.change_engine, "mcp_tools", current, {"tools": sorted(self._external_tools)})
 
     async def recognize_intent(self, message, history=None, previous_intent_group=None):
         return await self._intent_recognizer.recognize(message, history=history, previous_intent_group=previous_intent_group)
@@ -68,7 +75,7 @@ class AgentOrchestrator:
             request_id=req.request_id, response=response.content, intent=req.intent,
             escalated=response.escalate or req.intent == IntentCategory.HUMAN_HANDOFF, latency_ms=(time.monotonic() - started) * 1000,
             tools_used=response.tools_used, tool_traces=response.tool_traces, status=response.status,
-            error_code=response.error_code, token_usage=response.token_usage,
+            error_code=response.error_code, token_usage=response.token_usage, observability=response.observability,
         )
 
     def get_stats(self) -> Dict[str, Any]:

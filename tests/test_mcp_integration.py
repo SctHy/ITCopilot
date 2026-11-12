@@ -74,8 +74,10 @@ def test_client_discovers_registers_and_calls_remote_tool(mcp_url):
 
             cached = await spec.handler(Request("VPN 连不上"), {"query": "VPN-691", "top_k": 1})
             assert cached["cached"] is True                                   # 走治理层 TTL 缓存
-            invalid = await spec.handler(Request("x"), {"query": ""})
-            assert not invalid["success"] and "Schema" in invalid["error"]    # 远端 schema 在本地校验
+            from tooling.executor import ToolRemoteFailure
+            with pytest.raises(ToolRemoteFailure, match="Schema") as invalid:
+                await spec.handler(Request("x"), {"query": ""})
+            assert invalid.value.category == "input_invalid"    # 远端 schema 在本地校验
         finally:
             await client.close()
         assert client.summary()["servers"][0]["state"] == "closed"

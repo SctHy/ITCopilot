@@ -37,7 +37,7 @@ class TaskAgentRunner:
         slots = merge_state(previous, intent.intent_group, entities, event["text"], intent.missing_slots, intent=intent.intent.value) if requester_turn else previous
         req = Request(message=event["text"], user_id=principal.subject, principal=principal,
                       conv_id="task:" + task["id"], request_id=event["id"], department=task["department"],
-                      intent=intent.intent, intent_group=intent.intent_group, intent_confidence=intent.confidence,
+                      intent=intent.intent, intent_group=intent.intent_group, intent_confidence=intent.confidence, intent_source=intent.recognition_source,
                       urgency=intent.urgency, history=history, entities=known_entities(slots, entities), conversation_state=slots,
                       allowed_writes=intent.requested_actions if requester_turn else frozenset(),
                       hidden_tools=frozenset() if requester_turn else frozenset(UNSAFE_TOOLS))
@@ -79,7 +79,7 @@ class TaskAgentRunner:
             req, slots, progress = await self._prepare(task, event, transcript)
             if checkpoint:
                 names = ('message', 'user_id', 'conv_id', 'context', 'history', 'entities', 'intent_group',
-                         'intent_confidence', 'department', 'request_id', 'conversation_state', 'step_outputs')
+                         'intent_confidence', 'intent_source', 'department', 'request_id', 'conversation_state', 'step_outputs')
                 fields = {name: getattr(req, name) for name in names}
                 fields.update(intent=req.intent.value, urgency=req.urgency.value if req.urgency else None,
                               allowed_writes=sorted(req.allowed_writes) if req.allowed_writes is not None else None,
@@ -126,4 +126,7 @@ class TaskAgentRunner:
             except Exception:
                 # Failure to draft progress must not discard the main reply or approval.
                 extra = {'progress_advice_unavailable': True}
-        return {**extra, "usage_checkpointed": checkpoint is not None, "response": reply, "proposal": proposal, "token_usage": usage, "conversation_state": slots, "tool_traces": result.tool_traces}
+        from core.turn_records import build_record
+        record = build_record(req, result, channel="task", policy_version=load_policy(task["tenant"]).version,
+                              kb_version=await asyncio.to_thread(self.orchestrator.knowledge_version, task["tenant"]), task_id=task["id"], created_at=event["created_at"])
+        return {**extra, "turn_record": record, "usage_checkpointed": checkpoint is not None, "response": reply, "proposal": proposal, "token_usage": usage, "conversation_state": slots, "tool_traces": result.tool_traces}

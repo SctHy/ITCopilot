@@ -270,9 +270,11 @@ def test_task_agent_reads_only_shared_context_and_readonly_followups_cannot_writ
     claim = tasks.claim()
 
     class Agent:
+        knowledge_version = staticmethod(lambda tenant: 0.)
+
         async def recognize_intent(self, message, **kwargs):
             return SimpleNamespace(intent=IntentCategory.PASSWORD_RESET, intent_group="access", confidence=1,
-                                   urgency=UrgencyLevel.NORMAL, entities={}, missing_slots=[], requested_actions=["reset_password"])
+                                   urgency=UrgencyLevel.NORMAL, entities={}, missing_slots=[], recognition_source="test", requested_actions=["reset_password"])
 
         async def run(self, req):
             assert req.principal.subject == ALICE.subject
@@ -283,7 +285,7 @@ def test_task_agent_reads_only_shared_context_and_readonly_followups_cannot_writ
             with pytest.raises(ValueError):
                 await req.before_unsafe_tool("external_write")
             assert "PRIVATE_SECRET" not in str(req)
-            return SimpleNamespace(response="讨论不能代替审批", status="success", tool_traces=[], token_usage={})
+            return _recorded_result(req, "讨论不能代替审批")
 
     class PrivateMemory:
         def __getattr__(self, name):
@@ -358,21 +360,22 @@ def test_requester_can_propose_with_llm_intent_backend_and_approval_result_resum
     observed = []
 
     class Agent:
+        knowledge_version = staticmethod(lambda tenant: 0.)
+
         async def recognize_intent(self, message, **kwargs):
             # The LLM fallback does not provide Jev's requested_actions set.
             return SimpleNamespace(intent=IntentCategory.PERMISSION_REQUEST, intent_group="access", confidence=1,
                                    urgency=UrgencyLevel.NORMAL, entities={"system": ["GitLab"], "role": ["readonly"]},
-                                   missing_slots=[], requested_actions=None)
+                                   missing_slots=[], recognition_source="test", requested_actions=None)
 
         async def run(self, req):
             observed.append(req)
             if req.step_outputs:
                 assert req.allowed_writes == frozenset()
                 assert req.step_outputs["approval_result"]["execution"] == "succeeded"
-                return SimpleNamespace(response="权限已开通，继续排查访问问题。", status="success", tool_traces=[], token_usage={})
+                return _recorded_result(req, "权限已开通，继续排查访问问题。")
             await BaseAgent._guard_unsafe_tool(req, "request_access", access()["arguments"])
-            return SimpleNamespace(response="已整理权限申请。", status="success", token_usage={},
-                tool_traces=[{"tool_name": "request_access", "success": True, "input": access()["arguments"]}])
+            return _recorded_result(req, "已整理权限申请。", [{"tool_name": "request_access", "success": True, "input": access()["arguments"], "error_class": "success", "latency_ms": 0}])
 
     monkeypatch.setattr(state, "orchestrator", Agent())
     monkeypatch.setattr(state, "workflow", workflow)
@@ -506,3 +509,10 @@ def test_stopping_agent_keeps_formal_votes_and_business_results_visible(env):
     assert any(e["kind"] == "approval_vote" and e["actor"] == BOB.subject for e in body["events"])
     assert body["events"][-1]["data"]["execution"] == "succeeded"
     assert tasks.claim() is None
+
+
+def _recorded_result(req, text, traces=()):
+    from agents.base_agent import BaseAgent
+    from agents.types import OrchestratorResult
+    return OrchestratorResult(req.request_id, text, req.intent, tool_traces=list(traces),
+                              observability=BaseAgent(None, "test")._observability(req))

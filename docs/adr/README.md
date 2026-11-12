@@ -27,3 +27,4 @@
 | [0024](0024-per-tenant-knowledge-libraries.md) | 多租户阶段 2：每个租户一个知识库，检索时由代码注入租户，工具缓存 key 包含租户 | 已采纳 |
 | [0025](0025-tenant-policy-overlays-adapters-and-platform-admin.md) | 多租户阶段 3：只能收紧的租户策略覆盖、租户自己的目标系统与凭据、部署级操作需要平台管理员 | 已采纳 |
 | [0026](0026-resource-serialization-and-ledger-state.md) | 资源级串行化与台账期望状态 | 已采纳 |
+| [0027](0027-turn-records-and-change-events.md) | 持久回合元数据、版本指纹、工具错误类别与行为变更事件 | 已采纳 |
