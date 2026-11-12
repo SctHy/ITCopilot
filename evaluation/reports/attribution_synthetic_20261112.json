@@ -1,0 +1,1557 @@
+{
+  "suite": "deterministic_attribution",
+  "mode": "synthetic metadata; no model calls or production traffic",
+  "rate_scenario": {
+    "baseline": {
+      "n": 400,
+      "successes": 400,
+      "success_rate": 1.0,
+      "wilson_95": [
+        0.9904877056657034,
+        0.9999999999999999
+      ]
+    },
+    "current": {
+      "n": 400,
+      "successes": 240,
+      "success_rate": 0.6,
+      "wilson_95": [
+        0.5512590700269542,
+        0.6468384711061865
+      ]
+    },
+    "top_slices": [
+      {
+        "dimension": "model",
+        "value": "X",
+        "baseline_n": 200,
+        "current_n": 200,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.8,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "agent_version",
+        "value": "v1",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "route_reason",
+        "value": "primary",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "intent_group",
+        "value": "read",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "intent_source",
+        "value": "jev",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "channel",
+        "value": "web",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "tenant",
+        "value": "default",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "policy_version",
+        "value": "p1",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "kb_version",
+        "value": "k1",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "skill_fp",
+        "value": "s1",
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "rate": 0.4,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      }
+    ],
+    "dimensions": {
+      "agent_version": [
+        {
+          "dimension": "agent_version",
+          "value": "v1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "model": [
+        {
+          "dimension": "model",
+          "value": "X",
+          "baseline_n": 200,
+          "current_n": 200,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.8,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        },
+        {
+          "dimension": "model",
+          "value": "Y",
+          "baseline_n": 200,
+          "current_n": 200,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.0,
+          "rate": 0.0,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "route_reason": [
+        {
+          "dimension": "route_reason",
+          "value": "primary",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "intent_group": [
+        {
+          "dimension": "intent_group",
+          "value": "read",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "intent_source": [
+        {
+          "dimension": "intent_source",
+          "value": "jev",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "channel": [
+        {
+          "dimension": "channel",
+          "value": "web",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "tenant": [
+        {
+          "dimension": "tenant",
+          "value": "default",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "policy_version": [
+        {
+          "dimension": "policy_version",
+          "value": "p1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "kb_version": [
+        {
+          "dimension": "kb_version",
+          "value": "k1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "skill_fp": [
+        {
+          "dimension": "skill_fp",
+          "value": "s1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "prompt_fp": [
+        {
+          "dimension": "prompt_fp",
+          "value": "p1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "tools_fp": [
+        {
+          "dimension": "tools_fp",
+          "value": "t1",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "model_requests_bucket": [
+        {
+          "dimension": "model_requests_bucket",
+          "value": "2-3",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "input_tokens_bucket": [
+        {
+          "dimension": "input_tokens_bucket",
+          "value": "1k-4k",
+          "baseline_n": 400,
+          "current_n": 400,
+          "baseline_failure_rate": 0.0,
+          "current_failure_rate": 0.4,
+          "rate": 0.4,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ]
+    },
+    "contributions": {
+      "agent_version": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "model": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "route_reason": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "intent_group": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "intent_source": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "channel": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "tenant": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "policy_version": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "kb_version": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "skill_fp": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "prompt_fp": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "tools_fp": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "model_requests_bucket": {
+        "rate": 0.4,
+        "mix": 0.0
+      },
+      "input_tokens_bucket": {
+        "rate": 0.4,
+        "mix": 0.0
+      }
+    },
+    "dominant_dimension": "model",
+    "diagnosis": "rate",
+    "tool_errors": [],
+    "tokens": {
+      "baseline": {
+        "model_requests_median": 2.0,
+        "input_tokens_median": 1000.0,
+        "cache_read_ratio": 0.5
+      },
+      "current": {
+        "model_requests_median": 2.0,
+        "input_tokens_median": 1000.0,
+        "cache_read_ratio": 0.5
+      }
+    },
+    "timeline": [
+      {
+        "event": {
+          "at": 3500,
+          "kind": "model_route",
+          "ref": "synthetic-X"
+        },
+        "baseline_n": 400,
+        "current_n": 400,
+        "baseline_failure_rate": 0.0,
+        "current_failure_rate": 0.4,
+        "p_value": 2.0884875837626196e-45,
+        "significant": true,
+        "failure_increased": true
+      }
+    ],
+    "hourly": [
+      {
+        "at": 0,
+        "n": 400,
+        "successes": 400,
+        "success_rate": 1.0,
+        "wilson_95": [
+          0.9904877056657034,
+          0.9999999999999999
+        ]
+      },
+      {
+        "at": 3600,
+        "n": 400,
+        "successes": 240,
+        "success_rate": 0.6,
+        "wilson_95": [
+          0.5512590700269542,
+          0.6468384711061865
+        ]
+      }
+    ],
+    "samples": [
+      {
+        "dimension": "model",
+        "value": "X",
+        "requests": [
+          {
+            "request_id": "X-read-4000-0",
+            "trace": "/trace/X-read-4000-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-1",
+            "trace": "/trace/X-read-4000-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-2",
+            "trace": "/trace/X-read-4000-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-3",
+            "trace": "/trace/X-read-4000-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-4",
+            "trace": "/trace/X-read-4000-4",
+            "badcase_id": null
+          }
+        ]
+      },
+      {
+        "dimension": "agent_version",
+        "value": "v1",
+        "requests": [
+          {
+            "request_id": "X-read-4000-0",
+            "trace": "/trace/X-read-4000-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-1",
+            "trace": "/trace/X-read-4000-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-2",
+            "trace": "/trace/X-read-4000-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-3",
+            "trace": "/trace/X-read-4000-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-4",
+            "trace": "/trace/X-read-4000-4",
+            "badcase_id": null
+          }
+        ]
+      },
+      {
+        "dimension": "route_reason",
+        "value": "primary",
+        "requests": [
+          {
+            "request_id": "X-read-4000-0",
+            "trace": "/trace/X-read-4000-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-1",
+            "trace": "/trace/X-read-4000-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-2",
+            "trace": "/trace/X-read-4000-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-3",
+            "trace": "/trace/X-read-4000-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-4000-4",
+            "trace": "/trace/X-read-4000-4",
+            "badcase_id": null
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Change alignment is correlation, not causation.",
+      "Per-dimension decompositions overlap and must not be added together.",
+      "Event tests are exploratory, without multiple-comparison correction.",
+      "New slices lack a measured baseline and are assigned to mix."
+    ]
+  },
+  "mix_scenario": {
+    "baseline": {
+      "n": 200,
+      "successes": 100,
+      "success_rate": 0.5,
+      "wilson_95": [
+        0.43136085960389187,
+        0.5686391403961082
+      ]
+    },
+    "current": {
+      "n": 1000,
+      "successes": 180,
+      "success_rate": 0.18,
+      "wilson_95": [
+        0.15742689252874323,
+        0.20502223290201207
+      ]
+    },
+    "top_slices": [
+      {
+        "dimension": "agent_version",
+        "value": "v1",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "model",
+        "value": "X",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "route_reason",
+        "value": "primary",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "intent_source",
+        "value": "jev",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "channel",
+        "value": "web",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "tenant",
+        "value": "default",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "policy_version",
+        "value": "p1",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "kb_version",
+        "value": "k1",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "skill_fp",
+        "value": "s1",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      },
+      {
+        "dimension": "prompt_fp",
+        "value": "p1",
+        "baseline_n": 200,
+        "current_n": 1000,
+        "baseline_failure_rate": 0.5,
+        "current_failure_rate": 0.82,
+        "rate": 0.31999999999999995,
+        "mix": 0.0,
+        "baseline_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "current_tokens": {
+          "model_requests_median": 2.0,
+          "input_tokens_median": 1000.0,
+          "cache_read_ratio": 0.5
+        },
+        "comparable": true
+      }
+    ],
+    "dimensions": {
+      "agent_version": [
+        {
+          "dimension": "agent_version",
+          "value": "v1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "model": [
+        {
+          "dimension": "model",
+          "value": "X",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "route_reason": [
+        {
+          "dimension": "route_reason",
+          "value": "primary",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "intent_group": [
+        {
+          "dimension": "intent_group",
+          "value": "read",
+          "baseline_n": 100,
+          "current_n": 100,
+          "baseline_failure_rate": 0.1,
+          "current_failure_rate": 0.1,
+          "rate": 0.0,
+          "mix": -0.04000000000000001,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        },
+        {
+          "dimension": "intent_group",
+          "value": "write",
+          "baseline_n": 100,
+          "current_n": 900,
+          "baseline_failure_rate": 0.9,
+          "current_failure_rate": 0.9,
+          "rate": 0.0,
+          "mix": 0.36000000000000004,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "intent_source": [
+        {
+          "dimension": "intent_source",
+          "value": "jev",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "channel": [
+        {
+          "dimension": "channel",
+          "value": "web",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "tenant": [
+        {
+          "dimension": "tenant",
+          "value": "default",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "policy_version": [
+        {
+          "dimension": "policy_version",
+          "value": "p1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "kb_version": [
+        {
+          "dimension": "kb_version",
+          "value": "k1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "skill_fp": [
+        {
+          "dimension": "skill_fp",
+          "value": "s1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "prompt_fp": [
+        {
+          "dimension": "prompt_fp",
+          "value": "p1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "tools_fp": [
+        {
+          "dimension": "tools_fp",
+          "value": "t1",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "model_requests_bucket": [
+        {
+          "dimension": "model_requests_bucket",
+          "value": "2-3",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ],
+      "input_tokens_bucket": [
+        {
+          "dimension": "input_tokens_bucket",
+          "value": "1k-4k",
+          "baseline_n": 200,
+          "current_n": 1000,
+          "baseline_failure_rate": 0.5,
+          "current_failure_rate": 0.82,
+          "rate": 0.31999999999999995,
+          "mix": 0.0,
+          "baseline_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "current_tokens": {
+            "model_requests_median": 2.0,
+            "input_tokens_median": 1000.0,
+            "cache_read_ratio": 0.5
+          },
+          "comparable": true
+        }
+      ]
+    },
+    "contributions": {
+      "agent_version": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "model": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "route_reason": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "intent_group": {
+        "rate": 0.0,
+        "mix": 0.32000000000000006
+      },
+      "intent_source": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "channel": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "tenant": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "policy_version": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "kb_version": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "skill_fp": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "prompt_fp": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "tools_fp": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "model_requests_bucket": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      },
+      "input_tokens_bucket": {
+        "rate": 0.31999999999999995,
+        "mix": 0.0
+      }
+    },
+    "dominant_dimension": "intent_group",
+    "diagnosis": "mix",
+    "tool_errors": [],
+    "tokens": {
+      "baseline": {
+        "model_requests_median": 2.0,
+        "input_tokens_median": 1000.0,
+        "cache_read_ratio": 0.5
+      },
+      "current": {
+        "model_requests_median": 2.0,
+        "input_tokens_median": 1000.0,
+        "cache_read_ratio": 0.5
+      }
+    },
+    "timeline": [],
+    "hourly": [
+      {
+        "at": 0,
+        "n": 1200,
+        "successes": 280,
+        "success_rate": 0.23333333333333334,
+        "wilson_95": [
+          0.21027697421450603,
+          0.25809155944028594
+        ]
+      }
+    ],
+    "samples": [
+      {
+        "dimension": "agent_version",
+        "value": "v1",
+        "requests": [
+          {
+            "request_id": "X-read-0-0",
+            "trace": "/trace/X-read-0-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-1",
+            "trace": "/trace/X-read-0-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-2",
+            "trace": "/trace/X-read-0-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-3",
+            "trace": "/trace/X-read-0-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-4",
+            "trace": "/trace/X-read-0-4",
+            "badcase_id": null
+          }
+        ]
+      },
+      {
+        "dimension": "model",
+        "value": "X",
+        "requests": [
+          {
+            "request_id": "X-read-0-0",
+            "trace": "/trace/X-read-0-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-1",
+            "trace": "/trace/X-read-0-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-2",
+            "trace": "/trace/X-read-0-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-3",
+            "trace": "/trace/X-read-0-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-4",
+            "trace": "/trace/X-read-0-4",
+            "badcase_id": null
+          }
+        ]
+      },
+      {
+        "dimension": "route_reason",
+        "value": "primary",
+        "requests": [
+          {
+            "request_id": "X-read-0-0",
+            "trace": "/trace/X-read-0-0",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-1",
+            "trace": "/trace/X-read-0-1",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-2",
+            "trace": "/trace/X-read-0-2",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-3",
+            "trace": "/trace/X-read-0-3",
+            "badcase_id": null
+          },
+          {
+            "request_id": "X-read-0-4",
+            "trace": "/trace/X-read-0-4",
+            "badcase_id": null
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "Change alignment is correlation, not causation.",
+      "Per-dimension decompositions overlap and must not be added together.",
+      "Event tests are exploratory, without multiple-comparison correction.",
+      "New slices lack a measured baseline and are assigned to mix."
+    ]
+  }
+}
