@@ -27,6 +27,13 @@ def test_someone_elses_device_looks_like_a_missing_one():
     assert result["found"] is False and "locked" not in result and result["own_devices"] == ["DEV-1001"]
 
 
+def test_asset_lookup_without_id_lists_only_own_devices():
+    assert lookup_asset(req(), {}, DIRECTORY)["devices"] == [{"asset_id": "DEV-1001", "kind": "laptop", "locked": False}]
+    # 模型传入别人的工号也不影响：只按登录身份查。
+    assert [d["asset_id"] for d in lookup_asset(req("1002"), {"employee_id": "1001"}, DIRECTORY)["devices"]] == ["DEV-1002"]
+    assert lookup_asset(req("9999"), {}, DIRECTORY)["found"] is False
+
+
 def test_ticket_query_lists_or_filters_own_tickets():
     assert [t["ticket_id"] for t in query_ticket(req(), {}, DIRECTORY)["tickets"]] == ["INC-AAA", "INC-BBB"]
     assert query_ticket(req(), {"ticket_id": "inc-bbb"}, DIRECTORY)["tickets"] == [{"ticket_id": "INC-BBB", "title": "键盘失灵"}]

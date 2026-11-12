@@ -72,6 +72,8 @@ class IntentClassification(BaseModel):
     urgency: UrgencyLevel = UrgencyLevel.NORMAL
     reasoning: str = ""
     entities: IntentEntitiesOutput = Field(default_factory=IntentEntitiesOutput)
+    requested_actions: Optional[List[str]] = Field(None, description=(
+        "用户这一轮明确要求办理的写操作，取值 " + "、".join(sorted(WRITE_ACTIONS)) + "；只是咨询、没要求办理时填 []"))
 
 
 @dataclass
@@ -120,6 +122,11 @@ class IntentRecognizer:
 
     def metrics(self) -> Dict[str, Any]:
         return dict(self._metrics)
+
+    def start(self) -> None:
+        """应用启动后调用：预建并保持 Jev 连接（IT_INTENT_JEV_KEEPALIVE_S，默认 20 s，0 关闭）。"""
+        if self._jev and hasattr(self._jev, "start_keepalive"):
+            self._jev.start_keepalive(env_float("IT_INTENT_JEV_KEEPALIVE_S", 20))
 
     async def aclose(self) -> None:
         if self._jev:
@@ -185,11 +192,15 @@ class IntentRecognizer:
             llm_used=bool(llm.get("_llm_used")),
             recognition_source=llm.get("_source", "fallback"),
         )
+        # 意图本身就是写操作时也算用户要求了。
+        implied = {INTENT_WRITE_ACTION[intent]} if intent in INTENT_WRITE_ACTION else set()
         if jev:
-            # 即使意图转给了 LLM，Jev 的这两项判断仍然可用；意图本身就是写操作时也算用户要求了。
-            implied = {INTENT_WRITE_ACTION[intent]} if intent in INTENT_WRITE_ACTION else set()
+            # 即使意图转给了 LLM，Jev 的这两项判断仍然可用。
             result.requested_actions = frozenset(jev["_actions"] | implied)
             result.needs_knowledge = jev["_needs_sop"]
+        elif llm.get("_actions") is not None:
+            # Jev 不可用（超时/未配置）时由 LLM 分类给出；LLM 没填这一项时保持 None（不拦写操作）。
+            result.requested_actions = frozenset(llm["_actions"] | implied)
         metrics.INTENT_RECOGNITIONS.labels(source=result.recognition_source, intent_group=group).inc()
         if result.clarification_needed:
             metrics.INTENT_CLARIFICATIONS.labels(intent_group=group).inc()
@@ -284,6 +295,7 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
         return {
             "intent": data.intent, "confidence": confidence, "urgency": data.urgency, "reasoning": data.reasoning[:500],
             "entities": clean_entities(data.entities.model_dump()), "_llm_used": True, "_source": "llm_tool_use",
+            "_actions": None if data.requested_actions is None else set(data.requested_actions) & set(WRITE_ACTIONS),
         }
 
 

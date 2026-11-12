@@ -280,6 +280,9 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
+        def start(self):
+            pass
+
         async def aclose(self):
             closed.append("orchestrator")
 

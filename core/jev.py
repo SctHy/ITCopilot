@@ -12,6 +12,11 @@ from typing import Any, Dict, Optional
 
 import httpx2
 
+# 意图识别的 2 s 时延预算装不下一次新建连接（DNS + TCP + TLS，实测 0.6–2 s+），连接必须是热的。
+# httpx 默认空闲 5 s 就关连接，而用户两轮之间远超 5 s；Jev 服务端约 20–45 s 关闭空闲连接。
+# 所以客户端把空闲上限放宽到 KEEPALIVE_EXPIRY_S，并每 IT_INTENT_JEV_KEEPALIVE_S 秒发一次 GET 保活：
+# 该端点对 GET 直接回 405，不做推理、不计费，只用来维持（以及启动时预建）连接。
+KEEPALIVE_EXPIRY_S = 120.
 API_URL = "https://api.typesafe.ai/v1/systemone"
 
 
@@ -30,7 +35,9 @@ class JevClient:
         self._url = url or os.getenv("TYPESAFE_API_URL", API_URL)
         self._timeout_s = timeout_s
         self._retries = retries
-        self._client = httpx2.AsyncClient(headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout_s)
+        self._client = httpx2.AsyncClient(headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout_s,
+                                          limits=httpx2.Limits(keepalive_expiry=KEEPALIVE_EXPIRY_S))
+        self._keepalive: Optional[asyncio.Task] = None
 
     @classmethod
     def from_env(cls, **kwargs) -> Optional["JevClient"]:
@@ -38,7 +45,31 @@ class JevClient:
         return cls(key, model=os.getenv("TYPESAFE_MODEL", "jev-latest"), **kwargs) if key else None
 
     async def aclose(self) -> None:
+        if self._keepalive:
+            self._keepalive.cancel()
+            await asyncio.gather(self._keepalive, return_exceptions=True)
+            self._keepalive = None
         await self._client.aclose()
+
+    async def ping(self) -> bool:
+        """建立或保持一条到 Jev 的连接；不发起推理。失败只说明这次没连上，不影响后续请求。"""
+        try:
+            await self._client.get(self._url, timeout=10)
+            return True
+        except Exception:
+            return False
+
+    def start_keepalive(self, interval_s: float) -> None:
+        """立即预建连接，之后每 interval_s 秒保活一次；interval_s <= 0 时不启动。需在事件循环内调用。"""
+        if interval_s <= 0 or self._keepalive:
+            return
+
+        async def loop():
+            while True:
+                await self.ping()
+                await asyncio.sleep(interval_s)
+
+        self._keepalive = asyncio.get_running_loop().create_task(loop(), name="jev-keepalive")
 
     async def ask(self, state: str, questions: Dict[str, Dict[str, Any]]) -> JevResponse:
         payload = {"model": self.model, "state": state, "questions": questions}

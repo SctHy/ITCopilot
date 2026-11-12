@@ -126,6 +126,7 @@ async def lifespan(app: FastAPI):
             ))
             state.orchestrator = AgentOrchestrator(**llm, skill_manager=state.skills, rag_tool_manager=state.tool_manager)
             resources.push_async_callback(state.orchestrator.aclose)
+            state.orchestrator.start()
             try:
                 state.memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=db_url, **llm)
                 resources.push_async_callback(state.memory.close)

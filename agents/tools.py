@@ -36,6 +36,10 @@ def _own_record(req, directory):
 def lookup_asset(req, args, directory):
     asset_id = str(args.get("asset_id", "")).strip().upper()
     devices = _own_record(req, directory)["devices"]
+    if not asset_id:
+        # 用户问“我名下有哪些设备/资产号是多少”：只列本人台账，模型传入的工号不参与查询。
+        return {"devices": [{"asset_id": d["device_id"], "kind": d["kind"], "locked": d["locked"]} for d in devices],
+                "found": bool(devices), "source": "device_ledger", "message": "" if devices else "你名下的设备台账里没有设备"}
     device = next((d for d in devices if d["device_id"].upper() == asset_id), None)
     if device is None:
         # 不区分“不存在”和“属于他人”，避免借工具探测别人的设备。
@@ -135,8 +139,8 @@ def agent_tools(directory=lambda: None) -> ToolSet:
         "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "不得把管理员等其他角色换成这里的角色"},
         "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "有效期（小时）；用户没说就省略"}}
     return _toolset(
-        make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001。", _strings("asset_id"),
-                  lambda req, args: lookup_asset(req, args, directory()), required=["asset_id"]),
+        make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001；不传 asset_id 时列出本人名下全部设备。",
+                  _strings("asset_id"), lambda req, args: lookup_asset(req, args, directory())),
         make_tool("query_ticket", "查询本人名下已创建的工单；不传 ticket_id 时列出全部。", _strings("ticket_id"),
                   lambda req, args: query_ticket(req, args, directory())),
         make_tool("lock_device", "设备丢失或被盗时，创建远程锁定待审批请求；只能锁本人设备，device_id 如 DEV-1001。",

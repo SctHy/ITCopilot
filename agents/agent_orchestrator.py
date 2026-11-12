@@ -30,6 +30,10 @@ class AgentOrchestrator:
         self.agent.executor = self.tool_executor
         self._rebuild_tools()
 
+    def start(self) -> None:
+        """在事件循环内启动后台连接保活（意图识别的 Jev）。"""
+        self._intent_recognizer.start()
+
     async def aclose(self) -> None:
         """释放外部客户端（意图识别的 Jev 连接池）。"""
         await self._intent_recognizer.aclose()

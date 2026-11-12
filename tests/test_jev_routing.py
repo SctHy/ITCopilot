@@ -59,6 +59,22 @@ def test_without_jev_nothing_is_gated_or_prefetched():
     assert result.requested_actions is None and result.needs_knowledge is None
 
 
+@pytest.mark.parametrize("actions,expected", [(None, None), ([], frozenset({"create_ticket"})),
+                                              (["request_access", "not_a_tool"], frozenset({"request_access", "create_ticket"}))])
+def test_llm_supplies_the_write_gate_when_jev_is_unavailable(actions, expected):
+    class Down:
+        async def ask(self, state, questions):
+            raise TimeoutError
+
+    async def llm(message, history):
+        return {"intent": IntentCategory.TICKET_CREATE, "confidence": .9, "entities": {}, "_llm_used": True,
+                "_source": "llm_tool_use", "_actions": None if actions is None else set(actions) & set(WRITE_ACTIONS)}
+
+    result = recognize(Down(), llm=llm)
+    assert result.recognition_source == "llm_tool_use" and result.requested_actions == expected
+    assert result.needs_knowledge is None
+
+
 @pytest.mark.parametrize("allowed,succeeds", [(None, True), (frozenset({"create_ticket"}), True), (frozenset(), False)])
 def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
     from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
@@ -81,7 +97,7 @@ def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
         assert "没有要求" in trace["error"]
 
 
-def test_chat_turn_prefetches_knowledge_only_when_jev_says_so(monkeypatch):
+def test_chat_turn_skips_prefetched_knowledge_only_when_jev_says_no(monkeypatch):
     from agents.intent.recognizer import IntentResult
     from api import state
     from api.routes import chat as chat_routes
@@ -109,7 +125,9 @@ def test_chat_turn_prefetches_knowledge_only_when_jev_says_so(monkeypatch):
             return req
 
     alice = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
-    for needs, expected in ((True, [{"title": "VPN-691认证排障", "content": "检查账号锁定。", "updated_at": "2026-10-28", "citation": "VPN-691认证排障 · 54f69075:0"}]), (False, [])):
+    slim = [{"title": "VPN-691认证排障", "content": "检查账号锁定。", "updated_at": "2026-10-28", "citation": "VPN-691认证排障 · 54f69075:0"}]
+    # None：Jev 不可用、没有判断，照样附上预取结果，省掉 Agent 自己再检索的一轮。
+    for needs, expected in ((True, slim), (None, slim), (False, [])):
         orchestrator, tools = Orchestrator(needs), Tools()
         for name, value in {"orchestrator": orchestrator, "memory": None, "tool_manager": tools}.items():
             monkeypatch.setattr(state, name, value)

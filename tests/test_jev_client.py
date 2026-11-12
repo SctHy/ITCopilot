@@ -131,3 +131,33 @@ def test_top_choice_uses_probability_of_choice_and_falls_back_to_confidence():
     assert top_choice(ANSWERS["intent"]) == ("vpn_issue", .9)
     assert top_choice({"choice": "none", "confidence": .4}) == ("none", .4)
     assert top_choice({"choice": "a", "probabilities": {}}) == ("a", 0.)
+
+
+def test_keepalive_warms_the_connection_with_get_and_stops_on_close():
+    seen = []
+
+    def handler(request):
+        seen.append(request.method)
+        return httpx2.Response(405, json={"detail": "Method Not Allowed"})
+
+    async def run():
+        client = client_with(handler)
+        client.start_keepalive(0.01)
+        await asyncio.sleep(0.05)
+        await client.aclose()
+        count = len(seen)
+        await asyncio.sleep(0.03)
+        return count
+
+    count = asyncio.run(run())
+    assert count >= 2 and set(seen) == {"GET"} and len(seen) == count
+
+
+def test_keepalive_disabled_with_zero_interval():
+    async def run():
+        client = client_with(lambda request: ok())
+        client.start_keepalive(0)
+        assert client._keepalive is None
+        await client.aclose()
+
+    asyncio.run(run())

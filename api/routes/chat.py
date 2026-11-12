@@ -80,7 +80,8 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
         history=history, entities=intent_result.entities, intent=intent_result.intent, intent_group=intent_result.intent_group,
         urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=principal.department, request_id=rid,
         principal=principal, emit=emit, allowed_writes=intent_result.requested_actions,
-        knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge and prefetched and prefetched.success else [],
+        # needs_knowledge 为 None（Jev 不可用、没有判断）时也附上：多几百个输入 token，远比 Agent 自己再检索一轮便宜。
+        knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge is not False and prefetched and prefetched.success else [],
     )
     req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
     if state.task_recall:
