@@ -5,7 +5,6 @@
     IT_COPILOT_TEST_GITEA_URL=http://127.0.0.1:3001 IT_COPILOT_TEST_GITEA_PASSWORD=... \
     pytest tests/test_integration_live.py
 """
-import asyncio
 import os
 
 import httpx2
@@ -16,6 +15,7 @@ from workflow.adapters.gitea import GiteaAdapter
 from workflow.adapters.local import LocalDirectoryAdapter
 from core.identity import AuthError, principal_from_token
 from tests.test_workflow import ALICE, BOB, Clock, access
+from tests.conftest import run_in_tenant
 from workflow.store import WorkflowStore
 from workflow.worker import ExecutionWorker
 
@@ -96,4 +96,4 @@ def test_real_gitea_grant_expiry_and_drift(tmp_path):
         await gitea._request("DELETE", "/repos/it-sandbox/platform/collaborators/alice")
         await gitea.close()
 
-    asyncio.run(run())
+    run_in_tenant(run())

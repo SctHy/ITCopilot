@@ -193,13 +193,14 @@ export interface ProgressStep { title: string; status: 'todo' | 'working' | 'don
 export interface TaskProgress { version: number; goal: string; steps: ProgressStep[]; blocker?: string; next_action?: string; resolution?: string }
 export interface TaskSuggestion { id: string; status: 'pending' | 'accepted' | 'dismissed' | (string & {}); base_version: number; payload: TaskProgress }
 export interface AccessCheck { kind?: string; system: string; role: string }
+export type GoalCheck = AccessCheck | { kind: 'device_locked'; device_id: string } | { kind: 'ticket_open'; ticket_id: string }
 export interface VerificationRecord {
   id: string
   status: string
-  observations: { system?: string; status: string; reason?: string; actual?: string; expected?: string; role?: string }[]
+  observations: { system?: string; device_id?: string; ticket_id?: string; status: string; reason?: string; actual?: string | boolean | null; expected?: string | boolean; role?: string }[]
 }
 export interface TaskVerification {
-  goal: { version: number; checks: AccessCheck[]; replans_used: number; replan_limit: number; latest_id?: string | null }
+  goal: { version: number; checks: GoalCheck[]; replans_used: number; replan_limit: number; latest_id?: string | null }
   history: VerificationRecord[]
   catalog: { system: string; roles: string[] }[]
   acceptable: boolean

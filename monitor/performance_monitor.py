@@ -211,10 +211,11 @@ class Thresholds:
 class PerformanceMonitor:
     def __init__(self, orchestrator, tool_manager, mcp_client=None, *, interval_s: Optional[float] = None, webhook_url: Optional[str] = None,
                  availability_target: Optional[float] = None, latency_target: Optional[float] = None, latency_threshold_s: Optional[float] = None,
-                 thresholds: Optional[Thresholds] = None, agent_rollouts=None):
+                 thresholds: Optional[Thresholds] = None, workflow=None, agent_rollouts=None):
         self._orchestrator = orchestrator
         self._tool_manager = tool_manager
         self._mcp_client = mcp_client
+        self._workflow = workflow
         self._agent_rollouts = agent_rollouts
         self._rollout_checked_at = -float("inf")
         self._rollout_conditions = {}
@@ -274,6 +275,7 @@ class PerformanceMonitor:
         active.update(self._agent_conditions())
         active.update(self._tool_conditions(now))
         active.update(self._mcp_conditions())
+        active.update(self._workflow_conditions())
         if self._agent_rollouts is not None and now - self._rollout_checked_at >= 60:
             self._rollout_checked_at = now
             for key in list(self._rollout_conditions):
@@ -287,6 +289,22 @@ class PerformanceMonitor:
         self.alerts.evaluate(active)
         self.last_tick = _now_iso()
         return active
+
+    def _workflow_conditions(self):
+        if self._workflow is None:
+            return {}
+        ages = self._workflow.action_ages()
+        out = {}
+        unknown = ages["oldest_unknown_action_age_s"]
+        queued = ages["oldest_queued_due_action_age_s"]
+        if unknown > 3600:
+            out["oldest_unknown_action_age_s"] = Condition("workflow_oldest_unknown", "critical" if unknown > 86400 else "warning",
+                "工作流结果未知或等待人工复核超过处理时限", unknown, 86400 if unknown > 86400 else 3600,
+                "核查目标系统实际状态，再对审批执行 reconcile。")
+        if queued > 600:
+            out["oldest_queued_due_action_age_s"] = Condition("workflow_oldest_queued_due", "warning",
+                "已到期动作排队超过 10 分钟", queued, 600, "检查 worker 运行状态与同资源的执行租约。")
+        return out
 
     def _slo_conditions(self, now: float) -> Dict[str, Condition]:
         out = {}
@@ -361,6 +379,10 @@ class PerformanceMonitor:
     # ── 通知 ──────────────────────────────────────────────────────────────────
 
     def _notify(self, event: str, alert: Alert) -> None:
+        if self._workflow is not None and alert.rule == "tool_circuit" and alert.severity == "critical" and event in {"firing", "escalated"}:
+            from core.change_log import record_change
+            record_change(self._workflow.engine, "circuit_open", alert.key,
+                          {"message": alert.message, "value": alert.value})
         if not self._webhook:
             return
         try:

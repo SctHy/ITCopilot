@@ -102,7 +102,7 @@ class LocalDirectoryAdapter:
                 result["device_id"] = args["device_id"]
             elif name == "create_ticket":
                 ticket = "INC-" + action_id[:12]
-                db.execute(insert(T).values(tenant=tenant, id=ticket, employee_id=employee, title=args["title"], description=args["description"]))
+                db.execute(insert(T).values(tenant=tenant, id=ticket, employee_id=employee, title=args["title"], description=args["description"], status="open"))
                 result["ticket_id"] = ticket
             else:
                 raise PermanentError(f"本地适配器不支持 {name}")

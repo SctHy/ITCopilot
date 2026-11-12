@@ -217,7 +217,8 @@ def test_ambiguous_outcome_is_reconciled_before_retry(env, applied_before_error,
 
 def test_worker_crash_after_effect_is_recovered_without_repeating(db_url):
     url = db_url
-    store = WorkflowStore(url)
+    clock = Clock()
+    store = WorkflowStore(url, clock=clock)
     pending = create(store, actions=[{"tool_name": "reset_password", "arguments": {"employee_id": "1001"}}])
     store.decide("a", "approved", BOB, pending["payload_hash"])
     script = """
@@ -226,18 +227,19 @@ from workflow.adapters import AdapterRegistry
 from workflow.adapters.local import LocalDirectoryAdapter
 from workflow.store import WorkflowStore
 from workflow.worker import ExecutionWorker
-store = WorkflowStore(sys.argv[1])
+store = WorkflowStore(sys.argv[1], clock=lambda: float(sys.argv[2]))
 adapter = LocalDirectoryAdapter(store.engine)
 original = adapter.apply
 async def crash(*args):
     await original(*args)
     os._exit(71)
 adapter.apply = crash
-asyncio.run(ExecutionWorker(store, AdapterRegistry(adapter), worker_id="doomed", lease_s=0).run_once())
+asyncio.run(ExecutionWorker(store, AdapterRegistry(adapter), worker_id="doomed", lease_s=10).run_once())
 """
-    assert subprocess.run([sys.executable, "-c", script, url], check=False).returncode == 71
+    assert subprocess.run([sys.executable, "-c", script, url, str(clock.t)], check=False).returncode == 71
     assert store.get("a")["results"][0]["status"] == "executing"  # lease held by a dead worker
-    recovered = WorkflowStore(url)
+    clock.t += 11
+    recovered = WorkflowStore(url, clock=clock)
     run(ExecutionWorker(recovered, AdapterRegistry(LocalDirectoryAdapter(recovered.engine)), worker_id="w2"))
     body = recovered.get("a")
     assert body["execution"] == "succeeded" and body["results"][0]["reconciled"] is True

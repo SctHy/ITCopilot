@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import random
 import socket
@@ -65,6 +66,12 @@ class ExecutionWorker:
         self._task: Optional[asyncio.Task] = None
         self.lifecycle = SERVICE.start()
         self._policy_version: Optional[str] = None  # version the last revalidation sweep ran against
+        from workflow.reconciler import GrantReconciler
+        self.reconcile_interval_s = float(os.environ.get("IT_COPILOT_RECONCILE_INTERVAL_S", "900"))
+        if not math.isfinite(self.reconcile_interval_s) or self.reconcile_interval_s <= 0:
+            raise ValueError("IT_COPILOT_RECONCILE_INTERVAL_S must be a positive finite number")
+        self.reconciler = GrantReconciler(store, registry)
+        self._last_reconcile = None
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -113,8 +120,15 @@ class ExecutionWorker:
             return await self._run_once(limit)
 
     async def _run_once(self, limit: int) -> int:
+        ages = await asyncio.to_thread(self.store.action_ages)
+        metrics.WORKFLOW_OLDEST_AGE.labels(state="unknown").set(ages["oldest_unknown_action_age_s"])
+        metrics.WORKFLOW_OLDEST_AGE.labels(state="queued_due").set(ages["oldest_queued_due_action_age_s"])
         await asyncio.to_thread(self.store.expire_pending)
         await self._revalidate_on_policy_change()
+        now = self.store.clock()
+        if self._last_reconcile is None or now - self._last_reconcile >= self.reconcile_interval_s:
+            await self.reconciler.run_once()
+            self._last_reconcile = now
         processed = 0
         seen = set()
         for _ in range(limit):
@@ -484,6 +498,8 @@ async def _main() -> None:
     registry = build_registry(store)
     store.route = lambda action: registry.for_action(action).name
     worker = ExecutionWorker(store, registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))
+    from workflow.tasks import TaskStore
+    worker.reconciler.tasks = TaskStore(store.engine, clock=store.clock)
     import redis.asyncio as redis
     from workflow.badcase_miner import BadcaseMiner, RedisTurnSnapshots
     snapshots = redis.from_url(os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), decode_responses=True)

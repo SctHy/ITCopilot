@@ -348,6 +348,7 @@ directory_tickets = Table(
     Column("employee_id", String(64), nullable=False),
     Column("title", Text, nullable=False),
     Column("description", Text, nullable=False),
+    Column("status", String(20), nullable=False),
     PrimaryKeyConstraint("tenant", "id", name="pk_directory_tickets"),
 )
 

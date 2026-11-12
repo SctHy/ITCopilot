@@ -11,6 +11,7 @@ from agents.intent.taxonomy import IntentCategory, UrgencyLevel
 from agents.task_runner import TaskAgentRunner
 from agents.types import AgentResponse
 from core.identity import Principal
+from core.tenant_context import tenant_scope
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.local import LocalDirectoryAdapter
 from workflow.goal_verifiers import AccessGoalVerifier
@@ -36,18 +37,20 @@ def compose(url, clock):
 async def child(url, phase, calls_path, checkpoints):
     """Parent SIGKILLs while the progress advisor runs, after the agent step's durable save."""
     workflow, tasks, caps = compose(url, lambda: 1000.0 if phase == 'crash' else 1006.0)
-    orchestrator = AgentOrchestrator.__new__(AgentOrchestrator)
+    orchestrator = AgentOrchestrator("sk-local")
 
     async def recognize(*args, **kwargs):
         return SimpleNamespace(intent=IntentCategory.ACCESS_REVIEW, intent_group='access', confidence=1,
-            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset())
+            urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], requested_actions=frozenset(), recognition_source='deterministic')
 
     async def execute(req):
+        req.route_metadata = {'model': 'deterministic_specialist', 'route': 'agent_read', 'route_reason': 'primary'}
         with Path(calls_path).open('a') as output:
             output.write(json.dumps({'phase': phase, 'step': 'agent'}) + '\n')
             output.flush()
             os.fsync(output.fileno())
-        return AgentResponse('确定性诊断结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3})
+        return AgentResponse('确定性诊断结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3},
+                             observability=orchestrator.agent._observability(req))
 
     class Advisor:
         async def suggest(self, *args):
@@ -122,7 +125,8 @@ async def verification_trial(directory, scenario):
         caps.goals.configure(task['id'], APPLICANT, 0, CHECKS, 2)
         if scenario == 'actual_entitlement':
             adapter = LocalDirectoryAdapter(workflow.engine)
-            await adapter.apply('grant', {'tool_name': 'request_access', 'arguments': {'employee_id': '1001', 'system': 'gitlab', 'role': 'readonly'}})
+            with tenant_scope('default'):
+                await adapter.apply('grant', {'tool_name': 'request_access', 'arguments': {'employee_id': '1001', 'system': 'gitlab', 'role': 'readonly'}})
         if scenario == 'unavailable_verifier':
             async def unavailable(*args):
                 raise OSError('injected read failure')

@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
     from workflow.task_ports import CompositeTaskEffects
     from workflow.task_notifications import TaskNotificationWorker
     from workflow.task_verification import TaskVerificationWorker
-    from workflow.goal_verifiers import AccessGoalVerifier
+    from workflow.goal_verifiers import GoalVerifiers
     from intake.task_delivery import configured_task_delivery
     from agents.task_progress_advisor import TaskProgressAdvisor
     from agents.task_recall import TaskRecall
@@ -194,7 +194,8 @@ async def lifespan(app: FastAPI):
                 state.agent_rollouts.choose(principal.tenant, intent_group, principal.scope_key, chosen)
                 return chosen
             state.tasks.choose_agent_version = task_agent_version
-            state.task_capabilities = TaskCapabilities(state.tasks, state.tasks.effects.view, AccessGoalVerifier(state.registry))
+            state.worker.reconciler.tasks = state.tasks
+            state.task_capabilities = TaskCapabilities(state.tasks, state.tasks.effects.view, GoalVerifiers(state.registry, state.workflow.engine))
             state.tasks.governance = state.task_capabilities.governance
             state.task_recall = TaskRecall(state.task_capabilities.history.recall_owned)
             state.request_recall = RequestRecall(state.workflow.requester_items)
@@ -251,7 +252,7 @@ async def lifespan(app: FastAPI):
             state.mcp_client = await _start_mcp_client()
             if state.mcp_client:
                 resources.push_async_callback(state.mcp_client.close)
-            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, agent_rollouts=state.agent_rollouts)
+            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, workflow=state.workflow, agent_rollouts=state.agent_rollouts)
             services.push_async_callback(state.monitor.stop)
             await state.monitor.start()
             state.lifecycle.send("ready" if state.memory else "degrade")

@@ -9,32 +9,41 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evaluation.long_tasks import child, recovery_trial, verification_trial  # noqa: E402
+from evaluation.worker_faults import worker_child, worker_trial  # noqa: E402
 
 
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--output', default='/tmp/it-copilot-long-tasks.json')
-    parser.add_argument('--child', choices=['crash', 'resume'], help=argparse.SUPPRESS)
+    parser.add_argument('--child', choices=['crash', 'resume', 'worker-crash', 'worker-resume'], help=argparse.SUPPRESS)
+    parser.add_argument('--worker-scenario', help=argparse.SUPPRESS)
+    parser.add_argument('--fault-action', help=argparse.SUPPRESS)
     parser.add_argument('--database', help=argparse.SUPPRESS)
     parser.add_argument('--calls-path', help=argparse.SUPPRESS)
     parser.add_argument('--checkpoints', type=int, default=1, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.child:
+        if args.child.startswith('worker-'):
+            await worker_child(args.database, args.calls_path, args.worker_scenario, args.child[7:], args.fault_action)
+            return 0
         await child(args.database, args.child, args.calls_path, bool(args.checkpoints))
         return 0
     if args.repeats < 1:
         parser.error('repeats must be positive')
-    report = {'suite': 'long-task-infrastructure-v1', 'started_at': datetime.now(timezone.utc).isoformat(),
+    report = {'suite': 'long-task-infrastructure-v2', 'started_at': datetime.now(timezone.utc).isoformat(),
               'model': 'deterministic_specialists', 'database': 'isolated_SQLite',
               'limitations': 'Real SIGKILL, logical lease expiry, local adapters. This measures infrastructure contracts, not model intelligence, real provider cost, or production availability.',
               'trials': []}
     with tempfile.TemporaryDirectory(prefix='it-long-tasks-') as root:
         for repeat in range(args.repeats):
-            for scenario in ('recovery_baseline', 'recovery_checkpoints', 'false_completion', 'actual_entitlement', 'unavailable_verifier'):
+            for scenario in ('recovery_baseline', 'recovery_checkpoints', 'false_completion', 'actual_entitlement', 'unavailable_verifier',
+                             'worker_apply', 'worker_batch_second', 'worker_revoke'):
                 directory = Path(root) / f'{repeat}-{scenario}'
                 directory.mkdir()
-                if scenario.startswith('recovery_'):
+                if scenario.startswith('worker_'):
+                    row = await worker_trial(directory, scenario)
+                elif scenario.startswith('recovery_'):
                     row = await recovery_trial(directory, scenario == 'recovery_checkpoints')
                 else:
                     row = await verification_trial(directory, scenario)

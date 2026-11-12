@@ -1111,6 +1111,16 @@ class WorkflowStore:
         with schema.read(self.engine) as db:
             return db.execute(query).scalar()
 
+    def action_ages(self):
+        now = self.clock()
+        with schema.read(self.engine) as db:
+            unknown = db.execute(select(func.min(actions.c.updated_at)).where(
+                actions.c.status.in_((ActionStatus.UNKNOWN, ActionStatus.MANUAL_REVIEW)))).scalar()
+            queued = db.execute(select(func.min(actions.c.not_before)).where(
+                actions.c.status == ActionStatus.QUEUED, actions.c.not_before <= now)).scalar()
+        return {"oldest_unknown_action_age_s": max(0, now - unknown) if unknown is not None else 0,
+                "oldest_queued_due_action_age_s": max(0, now - queued) if queued is not None else 0}
+
     # ── Read models ─────────────────────────────────────────────────────────
 
     def employee(self, employee_id: str, tenant: str) -> Optional[Dict[str, Any]]:

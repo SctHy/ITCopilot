@@ -1,5 +1,5 @@
 """Shared task execution controls; no model-controlled goal or acceptance mutations."""
-from typing import Literal
+from typing import Annotated, Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from api.deps import current_principal
@@ -16,9 +16,21 @@ class Check(BaseModel):
     role: Short
 
 
+class DeviceCheck(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['device_locked']
+    device_id: Short
+
+
+class TicketCheck(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['ticket_open']
+    ticket_id: Short
+
+
 class Goal(BaseModel):
     version: int = Field(ge=0)
-    checks: list[Check] = Field(max_length=10)
+    checks: list[Annotated[Check | DeviceCheck | TicketCheck, Field(discriminator='kind')]] = Field(max_length=10)
     replan_limit: int = Field(default=2, ge=0, le=2)
 
 
