@@ -12,157 +12,13 @@
     0.7575059933447592,
     1.0
   ],
-  "p95_s": 1.4033569159801118,
-  "cost_per_success_usd": 0.00013749,
+  "p95_s": 1.5640242919907905,
+  "cost_per_success_usd": 0.000130418,
   "route_calls": 12,
   "cases": [
     {
       "id": "rewrite-vpn",
       "repeat": 0,
-      "passed": true,
-      "cost_usd": 0.00019289999999999997,
-      "output": [
-        "VPN报错691，如何检查账号是否被锁定？",
-        "VPN错误码691的常见原因和排查步骤是什么？",
-        "VPN 691错误与账号锁定、密码过期、域账号状态的关系及检查方法"
-      ],
-      "usage": {
-        "input_tokens": 315,
-        "output_tokens": 82,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 0.8164529590285383
-    },
-    {
-      "id": "rewrite-dns",
-      "repeat": 0,
-      "passed": true,
-      "cost_usd": 0.000144468,
-      "output": [
-        "DNS lookup failed for internal.company 怎么排查？",
-        "internal.company 域名 DNS 解析失败的原因和排查步骤",
-        "internal.company DNS lookup failed 错误码含义及解决方法"
-      ],
-      "usage": {
-        "input_tokens": 315,
-        "output_tokens": 73,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 0.7058082500007004
-    },
-    {
-      "id": "rerank-vpn",
-      "repeat": 0,
-      "passed": true,
-      "cost_usd": 0.00015240000000000002,
-      "output": [
-        1,
-        0,
-        2
-      ],
-      "usage": {
-        "input_tokens": 344,
-        "output_tokens": 41,
-        "cache_read_tokens": 0,
-        "requests": 1
-      },
-      "latency_s": 1.4033569159801118
-    },
-    {
-      "id": "rerank-disk",
-      "repeat": 0,
-      "passed": true,
-      "cost_usd": 0.000114768,
-      "output": [
-        2,
-        0,
-        1
-      ],
-      "usage": {
-        "input_tokens": 344,
-        "output_tokens": 41,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.0504201249568723
-    },
-    {
-      "id": "rewrite-vpn",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.00015046799999999998,
-      "output": [
-        "VPN报错691，如何检查账号是否被锁定？",
-        "VPN错误码691的常见原因和排查步骤是什么？",
-        "VPN 691报错时如何检查账号状态和密码是否正确？"
-      ],
-      "usage": {
-        "input_tokens": 315,
-        "output_tokens": 78,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.124937749991659
-    },
-    {
-      "id": "rewrite-dns",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.000143268,
-      "output": [
-        "DNS lookup failed for internal.company 怎么排查？",
-        "internal.company 域名 DNS 解析失败的原因有哪些？",
-        "DNS lookup failed 错误码如何排查和解决？"
-      ],
-      "usage": {
-        "input_tokens": 315,
-        "output_tokens": 72,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 1.0494727920158766
-    },
-    {
-      "id": "rerank-vpn",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.000114768,
-      "output": [
-        1,
-        0,
-        2
-      ],
-      "usage": {
-        "input_tokens": 344,
-        "output_tokens": 41,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 0.7452272499795072
-    },
-    {
-      "id": "rerank-disk",
-      "repeat": 1,
-      "passed": true,
-      "cost_usd": 0.000114768,
-      "output": [
-        2,
-        0,
-        1
-      ],
-      "usage": {
-        "input_tokens": 344,
-        "output_tokens": 41,
-        "cache_read_tokens": 128,
-        "requests": 1
-      },
-      "latency_s": 0.7849064170150086
-    },
-    {
-      "id": "rewrite-vpn",
-      "repeat": 2,
       "passed": true,
       "cost_usd": 0.000149268,
       "output": [
@@ -176,11 +32,83 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 1.3013703749747947
+      "latency_s": 1.2275760839693248
     },
     {
       "id": "rewrite-dns",
-      "repeat": 2,
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000143268,
+      "output": [
+        "DNS lookup failed for internal.company 怎么排查？",
+        "internal.company 域名 DNS 解析失败的原因有哪些？",
+        "DNS lookup failed 错误码如何定位和解决？"
+      ],
+      "usage": {
+        "input_tokens": 315,
+        "output_tokens": 72,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 0.9427267500432208
+    },
+    {
+      "id": "rerank-vpn",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000114768,
+      "output": [
+        1,
+        0,
+        2
+      ],
+      "usage": {
+        "input_tokens": 344,
+        "output_tokens": 41,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 0.6299863750464283
+    },
+    {
+      "id": "rerank-disk",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000114768,
+      "output": [
+        2,
+        0,
+        1
+      ],
+      "usage": {
+        "input_tokens": 344,
+        "output_tokens": 41,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 0.7759087919839658
+    },
+    {
+      "id": "rewrite-vpn",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000148068,
+      "output": [
+        "VPN报错691，如何检查账号是否被锁定？",
+        "VPN错误码691的常见原因和排查步骤是什么？",
+        "VPN 691错误如何检查账号状态和密码是否正确？"
+      ],
+      "usage": {
+        "input_tokens": 315,
+        "output_tokens": 76,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.0424916250049137
+    },
+    {
+      "id": "rewrite-dns",
+      "repeat": 1,
       "passed": true,
       "cost_usd": 0.000143268,
       "output": [
@@ -194,7 +122,79 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.5928402909776196
+      "latency_s": 1.5640242919907905
+    },
+    {
+      "id": "rerank-vpn",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000114768,
+      "output": [
+        1,
+        0,
+        2
+      ],
+      "usage": {
+        "input_tokens": 344,
+        "output_tokens": 41,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.093628250004258
+    },
+    {
+      "id": "rerank-disk",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000114768,
+      "output": [
+        2,
+        0,
+        1
+      ],
+      "usage": {
+        "input_tokens": 344,
+        "output_tokens": 41,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 0.7956051249639131
+    },
+    {
+      "id": "rewrite-vpn",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000149268,
+      "output": [
+        "VPN报错691，如何检查账号是否被锁定？",
+        "VPN错误码691的常见原因和排查步骤是什么？",
+        "VPN 691错误如何检查账号锁定状态和密码过期？"
+      ],
+      "usage": {
+        "input_tokens": 315,
+        "output_tokens": 77,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 1.1000642919680104
+    },
+    {
+      "id": "rewrite-dns",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000143268,
+      "output": [
+        "DNS lookup failed for internal.company 怎么排查？",
+        "internal.company 域名 DNS 解析失败的原因有哪些？",
+        "DNS lookup failed 错误码的排查步骤和解决方法"
+      ],
+      "usage": {
+        "input_tokens": 315,
+        "output_tokens": 72,
+        "cache_read_tokens": 128,
+        "requests": 1
+      },
+      "latency_s": 0.9677149169729091
     },
     {
       "id": "rerank-vpn",
@@ -212,7 +212,7 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.9663254169863649
+      "latency_s": 0.7504443329526111
     },
     {
       "id": "rerank-disk",
@@ -230,7 +230,7 @@
         "cache_read_tokens": 128,
         "requests": 1
       },
-      "latency_s": 0.9641730830189772
+      "latency_s": 0.909333040995989
     }
   ],
   "dataset_sha256": "96a81a26369dcdacd581da4763e8a3d13196f9fba86bc9e25a4e7403055ad87e",

@@ -37,5 +37,9 @@ logs/
 Thumbs.db
 
 
-# 评测报告：本地生成，不入库
-evaluation/reports/
+# 大型原始评测留在本地；CI 必需的候选资格摘要随配置交付。
+evaluation/reports/*
+!evaluation/reports/routing/
+evaluation/reports/routing/*
+!evaluation/reports/routing/*__*.json
+evaluation/reports/routing/*_application.json
