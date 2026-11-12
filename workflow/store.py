@@ -37,9 +37,10 @@ from core.db import (
     directory_tickets,
 )
 from core.identity import Principal
+from workflow.actions import WRITE_ACTIONS
 from workflow.policy import AccessPolicy, PolicyViolation, load_policy
 from workflow.lifecycle import approval_phase, work_phase, WorkPhase
-from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
+from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, OPEN, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
 
 
 # Sandbox directory. Usernames double as Gitea accounts in the compose deployment.
@@ -68,6 +69,11 @@ class LeaseLost(RuntimeError):
 
 class _Retry(Exception):
     pass
+
+
+def _reversible(tool_name: str) -> bool:
+    action = WRITE_ACTIONS.get(tool_name)
+    return bool(action and action.reversible)
 
 
 def canonical(value) -> str:
@@ -172,31 +178,46 @@ class WorkflowStore:
         now = self.clock()
         with schema.read(self.engine) as db:
             ids = db.execute(select(approvals.c.id).where(
-                approvals.c.status == ApprovalStatus.PENDING, approvals.c.expires_at <= now
+                approvals.c.status.in_(OPEN), approvals.c.expires_at <= now
             ).order_by(approvals.c.expires_at).limit(limit)).scalars().all()
         expired = 0
         for approval_id in ids:
             try:
                 with self.engine.begin() as db:
                     row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-                    if row is None or row["status"] != ApprovalStatus.PENDING or row["expires_at"] > now:
+                    if row is None or row["status"] not in OPEN or row["expires_at"] > now:
                         continue
-                    self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
-                    self._audit(db, approval_id, "expired", "system")
-                    self._notify(db, approval_id, "expired")
+                    self._expire(db, row, now)
                 expired += 1
             except _Retry:
                 continue
         return expired
 
+    def _expire(self, db, row, now) -> None:
+        """An unconfirmed draft just lapses; only a request approvers were waiting on gets a notice."""
+        self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
+        draft = row["status"] == ApprovalStatus.DRAFT
+        self._audit(db, row["id"], "expired", "system", detail={"draft": True} if draft else None)
+        if not draft:
+            self._notify(db, row["id"], "expired")
+
     def create(self, approval_id: str, *, request_id: str, conv_id: str, principal: Principal,
-               action_requests: List[Dict[str, Any]], summary: Optional[Dict[str, Any]] = None, connection=None) -> Dict[str, Any]:
+               action_requests: List[Dict[str, Any]], summary: Optional[Dict[str, Any]] = None, connection=None,
+               ask_requester: bool = False, provenance: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Freeze and store a request.
+
+        ``ask_requester``: the caller can show the request back to its requester (chat, IM, shared
+        task), so actions the policy lists under ``requester_confirmation`` start as a ``draft``
+        that only enters the approver queue once the requester confirms it (``confirm``).
+        ``provenance``: why the Agent proposed it (``workflow.approval.provenance``); written to the
+        immutable ``created`` audit entry, outside the hash."""
         if not action_requests:
             raise ValueError("审批必须包含冻结的工具名称和参数")
         frozen_actions = [self.policy.normalise(a) for a in action_requests]
         for action in frozen_actions:
             self.policy.check_requester(action, principal.employee_id, principal.roles)
         required = max(self.policy.requirement(a).approvals for a in frozen_actions)
+        draft = ask_requester and self.policy.needs_confirmation(frozen_actions)
         frozen = {"request_id": request_id, "requester": principal.subject, "tenant": principal.tenant, "conv_id": conv_id,
                   "action_requests": frozen_actions, "policy_version": self.policy.version}
         digest = hashlib.sha256(canonical(frozen).encode()).hexdigest()
@@ -212,12 +233,20 @@ class WorkflowStore:
                     db.execute(insert(approvals).values(
                         id=approval_id, request_id=request_id, conv_id=conv_id, requester=principal.subject, requester_name=principal.username,
                         requester_employee_id=principal.employee_id, department=principal.department, tenant=principal.tenant,
-                        status=ApprovalStatus.PENDING, execution=Execution.NOT_EXECUTED, payload_hash=digest, policy_version=self.policy.version,
+                        status=ApprovalStatus.DRAFT if draft else ApprovalStatus.PENDING, execution=Execution.NOT_EXECUTED,
+                        payload_hash=digest, policy_version=self.policy.version,
                         approvals_required=required, payload=payload, version=0, created_at=now,
-                        expires_at=now + self.policy.approval_ttl_hours * 3600,
+                        expires_at=now + (self.policy.confirmation_ttl_hours if draft else self.policy.approval_ttl_hours) * 3600,
+                        confirmed_at=None if draft else now,
                     ))
-                    self._audit(db, approval_id, "created", principal.subject, detail={"policy_version": self.policy.version, "approvals_required": required})
-                    superseded = self._supersede(db, approval_id, conv_id, principal.subject, principal.tenant, frozen_actions, now)
+                    detail = {"policy_version": self.policy.version, "approvals_required": required, "awaiting_confirmation": draft}
+                    if provenance:
+                        detail["provenance"] = provenance
+                    self._audit(db, approval_id, "created", principal.subject, detail=detail)
+                    # A new draft only replaces older drafts: a pending request stays until the
+                    # requester confirms its replacement, so walking away from a draft loses nothing.
+                    superseded = self._supersede(db, approval_id, conv_id, principal.subject, principal.tenant, frozen_actions, now,
+                                                 statuses=(ApprovalStatus.DRAFT,) if draft else tuple(OPEN))
                 row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
                 decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
                 rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
@@ -231,7 +260,7 @@ class WorkflowStore:
             raise ApprovalConflict("同一审批 ID 的参数不可修改；请创建新申请")
         return {**body, "superseded": superseded}
 
-    def _supersede(self, db, approval_id, conv_id, requester, tenant, frozen_actions, now) -> List[str]:
+    def _supersede(self, db, approval_id, conv_id, requester, tenant, frozen_actions, now, statuses=(ApprovalStatus.PENDING,)) -> List[str]:
         """A requester who amends a request in the same conversation (adds details, says
         "confirm" again) replaces the still-pending one instead of queueing a duplicate.
         Only approvals whose every action is covered by the new one are replaced, so
@@ -240,13 +269,13 @@ class WorkflowStore:
             return []
         keys = {_action_key(a) for a in frozen_actions}
         rows = db.execute(select(approvals).where(approvals.c.conv_id == conv_id, approvals.c.requester == requester, approvals.c.tenant == tenant,
-                                                  approvals.c.status == ApprovalStatus.PENDING, approvals.c.id != approval_id)).mappings().all()
+                                                  approvals.c.status.in_(statuses), approvals.c.id != approval_id)).mappings().all()
         replaced = []
         for row in rows:
             if {_action_key(a) for a in row["payload"]["action_requests"]} <= keys:
                 # Version-guarded: an approver deciding concurrently wins and the row is left as decided.
                 done = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"],
-                                                          approvals.c.status == ApprovalStatus.PENDING)
+                                                          approvals.c.status == row["status"])
                                   .values(status=ApprovalStatus.SUPERSEDED, decided_at=now, version=row["version"] + 1)).rowcount
                 if not done:
                     continue
@@ -286,6 +315,7 @@ class WorkflowStore:
             "requester_name": row["requester_name"] or row["requester"],
             "decisions": [{"actor": d["actor"], "actor_name": d["actor_name"] or d["actor"], "decision": d["decision"], "at": _iso(d["at"])} for d in decisions],
             "created_at": _iso(row["created_at"]), "expires_at": _iso(row["expires_at"]), "decided_at": _iso(row["decided_at"]),
+            "awaiting_confirmation": row["status"] == ApprovalStatus.DRAFT, "confirmed_at": _iso(row.get("confirmed_at")),
             "results": [view(a) for a in rows if a["kind"] == "apply"],
             "revocations": [view(a) for a in rows if a["kind"] == "revoke"],
         }
@@ -300,6 +330,9 @@ class WorkflowStore:
         shared = approvals.c.conv_id.startswith('task:')
         query = select(approvals.c.id).where(approvals.c.tenant == principal.tenant,
             or_(and_(shared, shared_scope), and_(or_(approvals.c.conv_id.is_(None), ~shared), private_scope)))
+        # A private draft is the requester's until confirmed: approvers do not see it in their queue.
+        # Shared-task drafts stay visible to the room (members see the card waiting on the requester).
+        query = query.where(or_(shared, approvals.c.status != ApprovalStatus.DRAFT, approvals.c.requester == principal.subject, principal.can_read_all))
         if status:
             query = query.where(approvals.c.status == status)
         query = query.order_by(approvals.c.created_at.desc()).limit(limit)
@@ -310,6 +343,8 @@ class WorkflowStore:
     def can_read(self, body: Dict[str, Any], principal: Principal) -> bool:
         if self.shared_access and (body.get('conv_id') or '').startswith('task:'):
             return self._shared_scope(body, principal)
+        if body["status"] == ApprovalStatus.DRAFT:  # not yet submitted: the requester's own business
+            return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all)
         return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all
                 or bool(self.policy.approver_roles.intersection(principal.roles)))
 
@@ -351,12 +386,12 @@ class WorkflowStore:
                 raise ApprovalForbidden("无权处理该审批")
             if payload_hash != row["payload_hash"]:
                 raise ApprovalConflict("审批内容哈希不匹配")
+            if row["status"] == ApprovalStatus.DRAFT:
+                raise ApprovalStateConflict("申请人尚未确认提交这条申请，暂不能审批")
             if row["status"] != ApprovalStatus.PENDING:
                 return True  # idempotent: the decision already happened
             if now >= row["expires_at"]:
-                self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
-                self._audit(db, approval_id, "expired", "system")
-                self._notify(db, approval_id, "expired")
+                self._expire(db, row, now)
                 return True
             if row["policy_version"] != self.policy.version:
                 # Frozen under an older policy: re-check before any vote counts.
@@ -420,27 +455,80 @@ class WorkflowStore:
                 raise ApprovalForbidden("只有申请人本人可以撤回申请")
             if row["status"] == ApprovalStatus.WITHDRAWN:
                 return True  # idempotent
-            if row["status"] != ApprovalStatus.PENDING:
+            if row["status"] not in OPEN:
                 raise ApprovalStateConflict(f"申请已是 {row['status']} 状态，不能撤回")
             if now >= row["expires_at"]:
-                self._cas(db, row, status=ApprovalStatus.EXPIRED, decided_at=now)
-                self._audit(db, approval_id, "expired", "system")
-                self._notify(db, approval_id, "expired")
+                self._expire(db, row, now)
                 return True
+            draft = row["status"] == ApprovalStatus.DRAFT
             self._cas(db, row, status=ApprovalStatus.WITHDRAWN, decided_at=now)
-            self._audit(db, approval_id, "withdrawn", principal.subject, detail={"reason": reason} if reason else None)
-            self._notify(db, approval_id, "withdrawn", {"reason": reason})
+            detail = {**({"reason": reason} if reason else {}), **({"draft": True} if draft else {})}
+            self._audit(db, approval_id, "withdrawn", principal.subject, detail=detail or None)
+            if not draft:  # nobody but the requester ever saw a draft: no notice to send
+                self._notify(db, approval_id, "withdrawn", {"reason": reason})
         return True
 
+    def confirm(self, approval_id: str, principal: Principal, payload_hash: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """The requester confirms a draft: it enters the approver queue with a fresh approval TTL.
+
+        ``payload_hash`` binds the confirmation to what the requester was shown (the card); the
+        typed "确认" path omits it and confirms the conversation's current draft, which the
+        conversation lease keeps from changing underneath. Re-checks the policy like a decision
+        does, then supersedes the older pending requests this one covers."""
+        for _ in range(8):
+            try:
+                found = self._confirm_once(approval_id, principal, payload_hash)
+            except _Retry:
+                continue
+            return self.get(approval_id) if found else None
+        raise RuntimeError("审批并发冲突重试次数耗尽")
+
+    def _confirm_once(self, approval_id: str, principal: Principal, payload_hash: Optional[str]) -> bool:
+        now = self.clock()
+        with self.engine.begin() as db:
+            row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+            if not row:
+                return False
+            if row["tenant"] != principal.tenant or row["requester"] != principal.subject:
+                raise ApprovalForbidden("只有申请人本人可以确认提交")
+            if payload_hash is not None and payload_hash != row["payload_hash"]:
+                raise ApprovalConflict("申请内容哈希不匹配")
+            if row["status"] == ApprovalStatus.PENDING and row["confirmed_at"] is not None:
+                return True  # idempotent
+            if row["status"] != ApprovalStatus.DRAFT:
+                raise ApprovalStateConflict(f"申请已是 {row['status']} 状态，不能确认提交")
+            if now >= row["expires_at"]:
+                self._expire(db, row, now)
+                return True
+            if row["policy_version"] != self.policy.version:
+                row = self._revalidate_pending(db, row, now)
+                if row is None:
+                    return True
+            self._cas(db, row, status=ApprovalStatus.PENDING, confirmed_at=now,
+                      expires_at=now + self.policy.approval_ttl_hours * 3600)
+            self._audit(db, approval_id, "confirmed", principal.subject, detail={"via": "card" if payload_hash else "message"})
+            self._supersede(db, approval_id, row["conv_id"], row["requester"], row["tenant"], row["payload"]["action_requests"], now)
+            self._notify(db, approval_id, "confirmed")
+        return True
+
+    def drafts(self, principal: Principal, conv_id: str) -> List[Dict[str, Any]]:
+        """This requester's unconfirmed, unexpired drafts in one conversation, oldest first."""
+        with schema.read(self.engine) as db:
+            ids = db.execute(select(approvals.c.id).where(
+                approvals.c.tenant == principal.tenant, approvals.c.requester == principal.subject, approvals.c.conv_id == conv_id,
+                approvals.c.status == ApprovalStatus.DRAFT, approvals.c.expires_at > self.clock(),
+            ).order_by(approvals.c.created_at, approvals.c.id)).scalars().all()
+        return [{**body, "description": _describe(body["action_requests"])} for body in map(self.get, ids)]
+
     def requester_items(self, principal: Principal, limit: int = 5) -> List[Dict[str, Any]]:
-        """What this person could take back right now: own pending requests (withdraw) and live
-        time-limited grants they requested or hold (release). Read-only; the same checks run
+        """What this person could act on right now: own drafts (confirm or cancel), own pending
+        requests (withdraw) and live time-limited grants they requested or hold (release). Read-only; the same checks run
         again when the button is pressed."""
         now = self.clock()
         with schema.read(self.engine) as db:
             pending = db.execute(select(approvals).where(
                 approvals.c.tenant == principal.tenant, approvals.c.requester == principal.subject,
-                approvals.c.status == ApprovalStatus.PENDING, approvals.c.expires_at > now,
+                approvals.c.status.in_(OPEN), approvals.c.expires_at > now,
             ).order_by(approvals.c.created_at.desc()).limit(limit)).mappings().all()
             mine = or_(approvals.c.requester == principal.subject,
                        access_grants.c.employee_id == principal.employee_id if principal.employee_id else false())
@@ -450,7 +538,8 @@ class WorkflowStore:
                                 .where(approvals.c.tenant == principal.tenant, mine, access_grants.c.status == GrantStatus.ACTIVE,
                                        actions.c.status == ActionStatus.QUEUED, actions.c.not_before > now)
                                 .order_by(access_grants.c.expires_at).limit(limit)).mappings().all()
-        items = [{"approval_id": row["id"], "kind": "withdraw", "summary": _describe(row["payload"]["action_requests"]),
+        items = [{"approval_id": row["id"], "kind": "confirm" if row["status"] == ApprovalStatus.DRAFT else "withdraw",
+                  "summary": _describe(row["payload"]["action_requests"]),
                   "created_at": _iso(row["created_at"]), "expires_at": _iso(row["expires_at"])} for row in pending]
         items += [{"approval_id": g["approval_id"], "kind": "release", "summary": f"{g['system']} {g['role']} 权限（工号 {g['employee_id']}）",
                    "created_at": _iso(g["filed_at"]), "expires_at": _iso(g["expires_at"])} for g in grants]
@@ -510,7 +599,7 @@ class WorkflowStore:
         report: Dict[str, Any] = {"policy_version": policy.version, "invalidated": [], "quorum_raised": [], "cancelled": [],
                                   "grants_revoked": [], "grants_shortened": []}
         with schema.read(self.engine) as db:
-            pending = db.execute(select(approvals.c.id).where(approvals.c.status == ApprovalStatus.PENDING, approvals.c.policy_version != policy.version)).scalars().all()
+            pending = db.execute(select(approvals.c.id).where(approvals.c.status.in_(OPEN), approvals.c.policy_version != policy.version)).scalars().all()
             queued = db.execute(select(approvals.c.id).where(approvals.c.status == ApprovalStatus.APPROVED, approvals.c.policy_version != policy.version,
                                                              approvals.c.execution.in_((Execution.QUEUED, Execution.EXECUTING)))).scalars().all()
             grants = db.execute(select(access_grants.c.action_id).join(approvals, approvals.c.id == access_grants.c.approval_id)
@@ -519,7 +608,7 @@ class WorkflowStore:
             try:
                 with self.engine.begin() as db:
                     row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-                    if row["status"] != ApprovalStatus.PENDING:
+                    if row["status"] not in OPEN:
                         continue
                     before = row["approvals_required"]
                     after = self._revalidate_pending(db, row, now)
@@ -801,7 +890,7 @@ class WorkflowStore:
             state = Execution.SUCCEEDED
         elif any(s not in SETTLED for s in statuses):
             state = Execution.QUEUED if all(s == ActionStatus.QUEUED for s in statuses) else Execution.EXECUTING
-        elif ActionStatus.MANUAL_REVIEW in statuses or any(r.status == ActionStatus.SUCCEEDED and r.tool_name != "request_access" for r in rows):
+        elif ActionStatus.MANUAL_REVIEW in statuses or any(r.status == ActionStatus.SUCCEEDED and not _reversible(r.tool_name) for r in rows):
             # A failure after a non-reversible effect (password reset, ticket) needs a human.
             state = Execution.MANUAL_REVIEW
         else:

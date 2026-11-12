@@ -1,6 +1,8 @@
 """Versioned access policy: what may be requested, by whom, and how many approvals it needs."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import pathlib
@@ -10,16 +12,18 @@ from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 import yaml
 
+from workflow.actions import WRITE_ACTIONS
+
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
 
-REQUIRED_ARGS = {
-    "request_access": ("employee_id", "system", "role", "reason"),
-    "reset_password": ("employee_id",),
-    "unlock_account": ("employee_id",),
-    "create_ticket": ("employee_id", "title", "description"),
-    "lock_device": ("employee_id", "device_id", "reason"),
-}
+REQUIRED_ARGS = {name: action.required_args for name, action in WRITE_ACTIONS.items()}
+
+
+def fingerprint(data: Dict[str, Any]) -> str:
+    """Short hash of the parsed rules (not the file text), stable across comment and formatting edits."""
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
 class PolicyViolation(ValueError):
@@ -35,8 +39,17 @@ class ActionRequirement:
 class AccessPolicy:
     def __init__(self, data: Dict[str, Any]):
         self.data = data
-        self.version = str(data["version"])
+        # The identity of a policy is its declared label *and* its rules. Every approval, grant and
+        # revalidation compares this string, so editing a rule without bumping ``version`` still
+        # reads as a new policy and open work gets re-checked (comments and key order do not count).
+        self.declared_version = str(data["version"])
+        self.fingerprint = fingerprint(data)
+        self.version = f"{self.declared_version}+{self.fingerprint}"
         self.approval_ttl_hours = int(data.get("approval_ttl_hours", 72))
+        # Actions whose drafted request the requester must confirm before approvers see it, and how
+        # long an unconfirmed draft lives (ADR 0020).
+        self.requester_confirmation = frozenset(data.get("requester_confirmation", []))
+        self.confirmation_ttl_hours = int(data.get("confirmation_ttl_hours", 24))
         self.on_behalf_roles = frozenset(data.get("on_behalf_roles", []))
         self.approver_roles = frozenset(data.get("approver_roles", []))
         self.role_aliases = {str(k).casefold(): v for k, v in (data.get("role_aliases") or {}).items()}
@@ -64,6 +77,9 @@ class AccessPolicy:
         elif name == "lock_device":
             args["device_id"] = args["device_id"].upper()  # asset tags are matched exactly downstream
         return {"tool_name": name, "arguments": args}
+
+    def needs_confirmation(self, actions) -> bool:
+        return any(a["tool_name"] in self.requester_confirmation for a in actions)
 
     def requirement(self, action: Dict[str, Any]) -> ActionRequirement:
         name, args = action["tool_name"], action["arguments"]

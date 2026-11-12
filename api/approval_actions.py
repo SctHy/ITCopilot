@@ -8,7 +8,7 @@ from api.deps import require_workflow
 from core.env import env_float
 from monitor import metrics
 from workflow.approval_service import ApprovalService
-from workflow.store import ApprovalForbidden, ApprovalStateConflict
+from workflow.store import ApprovalConflict, ApprovalForbidden, ApprovalStateConflict
 
 
 async def submit_decision(approval_id, payload, principal):
@@ -18,10 +18,32 @@ async def submit_decision(approval_id, payload, principal):
     except ApprovalForbidden as exc:
         metrics.AUTH_FAILURES.labels(reason="separation_of_duties").inc()
         raise HTTPException(403, str(exc)) from exc
+    except ApprovalStateConflict as exc:  # e.g. a draft the requester has not confirmed yet
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
+    if state.task_event_pump:
+        state.task_event_pump.kick()
+    return body
+
+
+async def confirm_approval(approval_id, payload_hash, principal):
+    """申请人确认草稿：进入审批人队列。与审批决定共用 CAS 与审计；再次确认幂等。"""
+    store = require_workflow()
+    try:
+        body = await asyncio.to_thread(store.confirm, approval_id, principal, payload_hash)
+    except ApprovalForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ApprovalConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ApprovalStateConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not body:
+        raise HTTPException(404, "approval not found")
+    if body["status"] == "pending":
+        metrics.APPROVALS.labels(event="confirmed").inc()
     if state.task_event_pump:
         state.task_event_pump.kick()
     return body
@@ -39,7 +61,7 @@ async def withdraw_approval(approval_id, reason, principal):
         raise HTTPException(409, str(exc)) from exc
     if not body:
         raise HTTPException(404, "approval not found")
-    if before and before["status"] == "pending" and body["status"] != "pending":
+    if before and before["status"] in {"draft", "pending"} and body["status"] != before["status"]:
         metrics.APPROVALS.labels(event=body["status"]).inc()
     if state.task_event_pump:
         state.task_event_pump.kick()

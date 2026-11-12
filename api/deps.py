@@ -4,7 +4,8 @@ import logging
 import math
 import os
 import uuid
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
 from fastapi import Depends, Header, HTTPException
 
@@ -46,13 +47,35 @@ async def enforce_rate_limit(principal: Principal, bucket: str, channel: str = "
         raise HTTPException(429, f"请求过于频繁，请 {retry} 秒后再试", headers={"Retry-After": str(retry)})
 
 
-async def record_admin_change(principal: Principal, event: str, subject: Optional[str] = None, detail=None) -> None:
-    """Append to ``admin_audit`` after an administrative change succeeded (no-op without a database)."""
-    if state.workflow is None:
-        return
-    from core.admin_audit import record
+class AdminChange:
+    """What the audit entry will say once the change finished; the route fills in results."""
 
-    await asyncio.to_thread(record, state.workflow.engine, principal, event, subject, detail)
+    def __init__(self, subject: Optional[str], detail: Optional[Dict[str, Any]]):
+        self.subject, self.detail = subject, dict(detail or {})
+
+
+@asynccontextmanager
+async def admin_change(principal: Principal, event: str, subject: Optional[str] = None, detail: Optional[Dict[str, Any]] = None):
+    """Audit an administrative change write-ahead (``core.admin_audit``): ``started`` before the body
+    runs, ``succeeded`` / ``failed`` after. If the started entry cannot be written the change does
+    not run - an unaudited admin change is worse than a refused one. No-op without a database."""
+    change = AdminChange(subject, detail)
+    if state.workflow is None:
+        yield change
+        return
+    from core import admin_audit
+
+    engine = state.workflow.engine
+    ref = await asyncio.to_thread(admin_audit.begin, engine, principal, event, subject, detail)
+    try:
+        yield change
+    except Exception as exc:
+        reason = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
+        await asyncio.to_thread(admin_audit.finish, engine, ref, principal, event, ok=False, subject=change.subject,
+                                detail={**change.detail, "error": str(reason)[:300]})
+        raise
+    await asyncio.to_thread(admin_audit.finish, engine, ref, principal, event, ok=True, subject=change.subject,
+                            detail=change.detail or None)
 
 
 def current_principal(authorization: Optional[str] = Header(None)) -> Principal:

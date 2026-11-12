@@ -108,16 +108,17 @@ approvals = Table(
     Column("requester_employee_id", String(64)),
     Column("department", String(80)),
     Column("tenant", String(80), nullable=False, default="default"),
-    Column("status", String(20), nullable=False),               # pending/approved/rejected/expired
+    Column("status", String(20), nullable=False),               # draft/pending/approved/rejected/expired/...
     Column("execution", String(20), nullable=False),            # not_executed/queued/executing/succeeded/failed/manual_review
     Column("payload_hash", String(64), nullable=False),
-    Column("policy_version", String(40), nullable=False),
+    Column("policy_version", String(80), nullable=False),       # declared label + rule fingerprint
     Column("approvals_required", Integer, nullable=False),
     Column("payload", JSON, nullable=False),                    # frozen action_requests + summary
     Column("version", Integer, nullable=False, default=0),      # optimistic concurrency (CAS)
     Column("created_at", Float, nullable=False),
     Column("expires_at", Float, nullable=False),
     Column("decided_at", Float),
+    Column("confirmed_at", Float),                              # requester confirmed the draft (migration 0002)
 )
 
 approval_decisions = Table(
@@ -186,7 +187,9 @@ audit = Table(
 Index("ix_audit_approval", audit.c.approval_id, audit.c.id)
 
 # Administrative changes that are not tied to one approval (knowledge documents, policy
-# re-checks, skill reloads, retention sweeps). Append-only, like ``audit``.
+# re-checks, skill reloads, retention sweeps). Append-only, like ``audit`` (enforced by triggers,
+# migration 0002). A change writes ``started`` first and ``succeeded``/``failed`` after, with ``ref``
+# pointing at the started row; NULL ``outcome`` is a pre-0002 row and reads as succeeded.
 admin_audit = Table(
     "admin_audit", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
@@ -196,8 +199,11 @@ admin_audit = Table(
     Column("subject", String(200)),                             # what was changed, e.g. a document id
     Column("detail", JSON),
     Column("at", Float, nullable=False),
+    Column("outcome", String(20)),                              # started / succeeded / failed
+    Column("ref", Integer),                                     # the started row this outcome closes
 )
 Index("ix_admin_audit_tenant", admin_audit.c.tenant, admin_audit.c.id)
+Index("ix_admin_audit_ref", admin_audit.c.ref)
 
 # Tokens of (tenant, subject) issued at or before ``revoked_before`` are refused, even though
 # their signature and expiry are still valid (offboarding, leaked token, "sign out everywhere").

@@ -207,6 +207,8 @@ def test_approval_deadline_reminds_once_and_never_votes(env, caps):
     tasks, workflow, clock = env
     task = room(tasks)
     tasks.finish(tasks.claim(), proposal())
+    draft = tasks.get(task['id'], ALICE)['approvals'][0]
+    workflow.confirm(draft['approval_id'], ALICE, draft['payload_hash'])  # reminders are for approvers: only once submitted
     with tasks.engine.connect() as db:
         expires = db.execute(select(approvals.c.expires_at)).scalar()
     clock.t = expires - 100

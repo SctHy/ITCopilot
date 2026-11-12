@@ -7,6 +7,7 @@ from core.states import Machine
 
 
 class ApprovalStatus(StrEnum):
+    DRAFT = "draft"                # drafted by the Agent; the requester has not confirmed it yet (ADR 0020)
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -45,6 +46,7 @@ class GrantStatus(StrEnum):
 
 
 APPROVAL = Machine(ApprovalStatus, """
+    draft   -> pending | expired | superseded | invalidated | withdrawn
     pending -> approved | rejected | expired | superseded | invalidated | withdrawn
 """)
 
@@ -67,6 +69,9 @@ GRANT = Machine(GrantStatus, """
     drifted       -> revoked | revoke_failed      # the revoke action was requeued by an operator
     revoke_failed -> revoked | drifted
 """)
+
+# Not yet decided by anyone: a policy change re-checks these, time expires them.
+OPEN = frozenset({ApprovalStatus.DRAFT, ApprovalStatus.PENDING})
 
 # Actions nobody works on any more without an operator; the approval's execution then needs a notice.
 SETTLED = frozenset({ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.CANCELLED, ActionStatus.MANUAL_REVIEW})

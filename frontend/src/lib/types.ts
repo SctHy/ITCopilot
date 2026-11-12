@@ -18,7 +18,7 @@ export interface Identity {
   roles: Role[]
 }
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired' | (string & {})
+export type ApprovalStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired' | (string & {})
 
 export interface ApprovalActionRequest {
   tool_name: string
@@ -51,6 +51,9 @@ export interface Approval {
   policy_version?: string
   approvals_required?: number
   expires_at?: string
+  /** Drafted by the Agent; only enters the approver queue once the requester confirms it (ADR 0020). */
+  awaiting_confirmation?: boolean
+  confirmed_at?: string | null
   execution?: string
   lifecycle?: string
   payload_hash?: string
@@ -62,7 +65,7 @@ export interface Approval {
   room_can_write?: boolean
 }
 
-export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'withdraw' | 'release'
+export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release'
 
 /** An approval card bound to the connection that produced it. */
 export interface ApprovalItem {
@@ -87,7 +90,7 @@ export interface MessageTrace {
 }
 
 export interface RelatedApproval extends ApprovalItem {
-  kind: 'withdraw' | 'release' | (string & {})
+  kind: 'confirm' | 'withdraw' | 'release' | (string & {})
   summary: string
 }
 

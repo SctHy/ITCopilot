@@ -120,7 +120,12 @@ def _results_text(results: List[Dict[str, Any]]) -> str:
 
 def format_reply(response: Dict[str, Any]) -> str:
     text = (response.get("response") or "").strip()
-    if response.get("approval_required") and response.get("approval_id"):
+    if response.get("awaiting_confirmation") and response.get("approval_id"):
+        from workflow.policy import load_policy
+
+        text += (f"\n\n申请草稿 {short_id(response['approval_id'])} 尚未提交：核对无误请回复“确认”提交审批，"
+                 f"回复“取消”放弃；{load_policy().confirmation_ttl_hours} 小时内未确认会自动失效。")
+    elif response.get("approval_required") and response.get("approval_id"):
         text += f"\n\n已提交审批（审批单 {short_id(response['approval_id'])}），审批结果会在这里通知你。"
     return text
 

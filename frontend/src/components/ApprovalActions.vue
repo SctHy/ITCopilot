@@ -1,5 +1,11 @@
 <template>
   <div class="approval-options" role="group" aria-label="审批选项">
+    <template v-if="approval?.status === 'draft'">
+      <p class="muted">这是 Agent 起草的申请，核对上面的内容无误后再提交；提交后才会交给审批人。</p>
+      <button v-if="permissions.canConfirm" type="button" :disabled="busy" @click="$emit('action', 'confirm')">确认提交</button>
+      <button v-if="permissions.canWithdraw" type="button" class="quiet-button" :disabled="busy" @click="$emit('action', 'withdraw')">取消申请</button>
+      <p v-if="permissions.reason" class="muted">{{ permissions.reason }}</p>
+    </template>
     <template v-if="approval?.status === 'pending'">
       <button v-if="permissions.canDecide" type="button" :disabled="busy" @click="$emit('action', 'approved')">同意审批</button>
       <button v-if="permissions.canDecide" type="button" :disabled="busy" @click="$emit('action', 'rejected')">拒绝申请</button>

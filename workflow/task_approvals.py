@@ -10,7 +10,7 @@ from core.db import approvals, approval_decisions, service_tasks, task_events
 from workflow.tasks import TaskForbidden, key
 from core.identity import principal_from_record
 
-STATUS = {"pending": "待审批", "approved": "已同意审批", "rejected": "已拒绝", "expired": "已过期",
+STATUS = {"draft": "待申请人确认", "pending": "待审批", "approved": "已同意审批", "rejected": "已拒绝", "expired": "已过期",
           "invalidated": "策略变更已失效", "superseded": "已被新申请替代",
           "withdrawn": "申请人已撤回"}
 EXECUTION = {"not_executed": "尚未执行", "queued": "排队中", "executing": "执行中", "succeeded": "执行成功",
@@ -27,7 +27,8 @@ class TaskApprovalEffects:
                 approvals.c.requester == task["requester"], approvals.c.tenant == task["tenant"],
                 approvals.c.department == task["department"])).scalars().all()
         items = [self.workflow.get(i) for i in ids]
-        phase = ("awaiting_approval" if any(a["status"] == "pending" for a in items) else
+        phase = ("awaiting_confirmation" if any(a["status"] == "draft" for a in items) else
+                 "awaiting_approval" if any(a["status"] == "pending" for a in items) else
                  "executing" if any(a["status"] == "approved" and a["execution"] in {"queued", "executing"} for a in items) else
                  "manual_review" if any(a["execution"] == "manual_review" for a in items) else "waiting")
         return {"approvals": items, "phase": phase}
@@ -39,9 +40,10 @@ class TaskApprovalEffects:
         if event["kind"] != "requester" or event["actor"] != task["requester"]:
             raise TaskForbidden("讨论与审批结果回合不能创建业务变更申请")
         approval_id = "task-" + claim["id"]
+        summary = {k: v for k, v in proposal.items() if k != "provenance"}
         self.workflow.create(approval_id, request_id=claim["id"], conv_id="task:" + task["id"],
             principal=principal_from_record(event["data"]["principal"]), action_requests=proposal["action_requests"],
-            summary=proposal, connection=connection)
+            summary=summary, connection=connection, ask_requester=True, provenance=proposal.get("provenance"))
         return {"approval_id": approval_id}
 
 
@@ -61,7 +63,7 @@ class ApprovalEventSource:
             task_events.c.data[("source_cursor", "object_id")].as_string() == cast(approval_decisions.c.id, String)).exists()
         with schema.read(self.workflow.engine) as db:
             rows = db.execute(select(approvals, service_tasks.c.id.label("task_id")).join(service_tasks, task_join)
-                .where(~and_(approvals.c.status == "pending", approvals.c.version == 0), ~seen_status)
+                .where(~and_(approvals.c.status.in_(("draft", "pending")), approvals.c.version == 0), ~seen_status)
                 .order_by(approvals.c.created_at, approvals.c.id)).mappings().all()
             votes = db.execute(select(approval_decisions, service_tasks.c.id.label("task_id"), approvals.c.created_at.label("approval_created_at"))
                 .join(approvals, approvals.c.id == approval_decisions.c.approval_id).join(service_tasks, task_join)

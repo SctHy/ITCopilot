@@ -7,6 +7,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from workflow.actions import WRITE_ACTIONS as _CATALOG
+
 
 class IntentCategory(str, Enum):
     DEVICE_FAILURE = "device_failure"
@@ -144,10 +146,7 @@ def jev_state(message: str, history: Optional[List[Dict[str, str]]]) -> str:
 
 
 # 写操作工具 → 给 Jev 的说明；以及能直接推出“用户要办这件事”的意图。
-WRITE_ACTIONS: Dict[str, str] = {
-    "create_ticket": "建工单或提交工单", "request_access": "申请或开通系统权限",
-    "reset_password": "重置密码", "unlock_account": "解锁账号", "lock_device": "远程锁定丢失或被盗的设备",
-}
+WRITE_ACTIONS: Dict[str, str] = {name: action.label for name, action in _CATALOG.items()}
 INTENT_WRITE_ACTION: Dict[IntentCategory, str] = {
     IntentCategory.TICKET_CREATE: "create_ticket", IntentCategory.PERMISSION_REQUEST: "request_access",
     IntentCategory.PASSWORD_RESET: "reset_password", IntentCategory.ACCOUNT_UNLOCK: "unlock_account",

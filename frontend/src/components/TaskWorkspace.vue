@@ -74,7 +74,7 @@ const details = ref<InstanceType<typeof TaskDetails> | null>(null)
 const { items, room, selected, creating, title, initialMessage, message, askAgent, busy, error, notice, approvalBusy, approvalErrors, query, total, hasMore } = toRefs(controller.state)
 const { refresh, search, older, select, beginNew, create, send, retry, stop } = controller
 const composer = ref<HTMLTextAreaElement | null>(null)
-const phases: Record<string, string> = { working: 'Agent 处理中', waiting: '等待后续消息', awaiting_approval: '等待审批', executing: '业务执行中', manual_review: '需人工核对', failed: 'Agent 回合失败', stopped: '已停止跟进', resolved: '已解决', budget_paused: '累计预算已用完，等待管理员调整' }
+const phases: Record<string, string> = { working: 'Agent 处理中', waiting: '等待后续消息', awaiting_confirmation: '等待申请人确认提交', awaiting_approval: '等待审批', executing: '业务执行中', manual_review: '需人工核对', failed: 'Agent 回合失败', stopped: '已停止跟进', resolved: '已解决', budget_paused: '累计预算已用完，等待管理员调整' }
 const failedRuns = computed(() => (room.value?.runs || []).filter(run => run.status === 'failed'))
 const canStop = computed(() => room.value?.requester === props.identity?.subject || !!props.identity?.roles?.includes('it_admin'))
 const polling = createPolling(refresh, 2000)

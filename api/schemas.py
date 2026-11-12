@@ -41,6 +41,7 @@ class ChatResponse(BaseModel):
     escalated: bool = False
     approval_required: bool = False
     approval_id: Optional[str] = None
+    awaiting_confirmation: bool = False   # approval_id 是草稿：申请人确认后才进入审批人队列（ADR 0020）
     token_usage: Dict[str, int] = {}
     stage_ms: Dict[str, float] = {}     # memory_context / intent / agent / approval / commit
 
@@ -59,6 +60,11 @@ class KnowledgeAddRequest(BaseModel):
 class ApprovalDecision(BaseModel):
     """审批人由 token 决定，不接受请求体中的 actor。"""
     decision: str = Field(..., pattern="^(approved|rejected)$")
+    payload_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class ApprovalConfirmation(BaseModel):
+    """申请人确认 Agent 起草的申请；哈希绑定申请人在卡片上看到的冻结内容。"""
     payload_hash: str = Field(..., min_length=64, max_length=64)
 
 

@@ -76,7 +76,8 @@ def test_approval_assignment_applies_to_direct_workflow_and_both_http_entries(en
     tasks, workflow, _ = env
     task = room(tasks)
     tasks.finish(tasks.claim(), proposal())
-    approval = tasks.get(task['id'], ALICE)['approvals'][0]
+    draft = tasks.get(task['id'], ALICE)['approvals'][0]
+    approval = workflow.confirm(draft['approval_id'], ALICE, draft['payload_hash'])  # requester submits it (ADR 0020)
     with pytest.raises(TaskForbidden):
         product.access.assign(task['id'], ALICE, [BOB.subject])
     product.access.assign(task['id'], ERIN, [CAROL.subject])

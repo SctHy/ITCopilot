@@ -9,7 +9,7 @@ from fastapi import Query
 from sqlalchemy import select
 
 from api import state
-from api.deps import current_principal, record_admin_change, require_admin, require_roles
+from api.deps import current_principal, admin_change, require_admin, require_roles
 from api.schemas import DevTokenRequest, SessionRevocationRequest
 from core import db as schema
 from core.identity import ROLE_AUDITOR, ROLE_IT_ADMIN, AuthError, Principal, dev_mode_allowed, dev_users, issue_dev_token
@@ -51,8 +51,9 @@ def _sessions():
 @router.post("/auth/logout-all")
 async def logout_everywhere(principal: Principal = Depends(current_principal)):
     """让本人此前签发的全部令牌失效（含其他设备）；之后需重新登录。IdP 会话需另行退出。"""
-    watermark = await asyncio.to_thread(_sessions().revoke, principal.tenant, principal.subject, actor=principal.subject, reason="logout-all")
-    await record_admin_change(principal, "sessions_revoked", principal.subject, {"self": True, "revoked_before": watermark})
+    async with admin_change(principal, "sessions_revoked", principal.subject, {"self": True}) as change:
+        watermark = await asyncio.to_thread(_sessions().revoke, principal.tenant, principal.subject, actor=principal.subject, reason="logout-all")
+        change.detail["revoked_before"] = watermark
     return {"subject": principal.subject, "revoked_before": watermark}
 
 
@@ -77,8 +78,9 @@ async def revoke_sessions(payload: SessionRevocationRequest, principal: Principa
     if state.workflow is None:
         raise HTTPException(503, "service not ready")
     subject = payload.subject or await asyncio.to_thread(_resolve_subject, principal.tenant, payload.username)
-    watermark = await asyncio.to_thread(_sessions().revoke, principal.tenant, subject, actor=principal.subject, reason=payload.reason)
-    await record_admin_change(principal, "sessions_revoked", subject, {"reason": payload.reason, "revoked_before": watermark})
+    async with admin_change(principal, "sessions_revoked", subject, {"reason": payload.reason}) as change:
+        watermark = await asyncio.to_thread(_sessions().revoke, principal.tenant, subject, actor=principal.subject, reason=payload.reason)
+        change.detail["revoked_before"] = watermark
     return {"subject": subject, "revoked_before": watermark}
 
 

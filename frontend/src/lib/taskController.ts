@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import type { TaskClient } from './taskClient.ts'
 import type { Approval, ApprovalDecision, TaskListItem, TaskQuery, TaskRoom } from './types.ts'
 
-export type TaskTransport = Pick<TaskClient, 'list' | 'get' | 'create' | 'post' | 'events' | 'decide' | 'reconcile' | 'withdraw' | 'release' | 'retry' | 'stop'>
+export type TaskTransport = Pick<TaskClient, 'list' | 'get' | 'create' | 'post' | 'events' | 'decide' | 'reconcile' | 'confirm' | 'withdraw' | 'release' | 'retry' | 'stop'>
 
 export interface TaskControllerState {
   items: TaskListItem[]
@@ -109,11 +109,12 @@ export function createTaskController(client: TaskTransport) {
   }
   async function decide(approval: Approval, decision?: ApprovalDecision) {
     const id = state.selected, at = generation, approvalId = approval.approval_id
-    if (![undefined, 'approved', 'rejected', 'reconcile', 'withdraw', 'release'].includes(decision)) return
+    if (![undefined, 'approved', 'rejected', 'reconcile', 'confirm', 'withdraw', 'release'].includes(decision)) return
     if (state.approvalBusy[approvalId]) return
     state.approvalBusy[approvalId] = true; state.approvalErrors[approvalId] = ''
     try {
       if (decision === 'reconcile') await client.reconcile(approval)
+      else if (decision === 'confirm') await client.confirm(approval)
       else if (decision === 'withdraw') await client.withdraw(approval)
       else if (decision === 'release') await client.release(approval)
       else if (decision) await client.decide(id, approval, decision)

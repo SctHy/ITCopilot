@@ -41,7 +41,7 @@
 | I14 | 后台画像合并 | `JOB` idle → queued → running → dirty → running/idle；`SERVICE` 管理 worker 启停 | [concurrency.py](../core/concurrency.py) |
 | I15 | 记忆压缩与归档 | `COMPRESSION` snapshot → summarizing → validating → committed → archived/archive_pending；快照冲突可重试或 defer | [memory/states.py](../memory/states.py)、[conversation_memory.py](../memory/conversation_memory.py) |
 | I16 | 画像提炼节奏 | `profile_phase` waiting/due；`MAINTENANCE` checking → compressing → extracting → finished/deferred；成功才推进水位 | [memory/states.py](../memory/states.py)、[conversation_memory.py](../memory/conversation_memory.py) |
-| I17 | 审批票数、过期、撤回和策略 | `approval_phase` awaiting_first_vote/awaiting_quorum/expiry_due；`APPROVAL` 保持持久终态（含申请人撤回 `withdrawn`）；到期扫描、撤回与策略校验是状态推进事件，撤回与投票共用 CAS | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |
+| I17 | 审批草稿、票数、过期、撤回和策略 | `APPROVAL` draft → pending（申请人确认，ADR 0020）→ 持久终态（含申请人撤回 `withdrawn`）；`approval_phase` awaiting_first_vote/awaiting_quorum/expiry_due；到期扫描、确认、撤回与策略校验是状态推进事件，与投票共用 CAS | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |
 | I18 | 动作租约、时间与顺序 | `WorkPhase` waiting/ready/blocked/leased/reclaimable/review/settled；SQL 排除前序阻塞；即时领取、续租、到期写隔离 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[worker.py](../workflow/worker.py) |
 | I19 | 外部副作用 | `EFFECT` claimed → preflight/baseline/observing → applying → verifying → verified → committed；漂移进入 review | [workflow/lifecycle.py](../workflow/lifecycle.py)、[worker.py](../workflow/worker.py) |
 | I20 | Saga 聚合 | `approval_phase` 从 apply 和 revoke 两类动作计算 compensating/manual_review/failed；原有 `EXECUTION` 只汇总 apply，不改变其含义 | [workflow/lifecycle.py](../workflow/lifecycle.py)、[store.py](../workflow/store.py) |

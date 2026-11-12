@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api import state
-from api.approval_actions import release_grants, submit_decision, withdraw_approval
-from api.deps import current_principal, forbid, record_admin_change, require_admin, require_roles, require_workflow
-from api.schemas import ApprovalDecision, ApprovalWithdrawal
+from api.approval_actions import confirm_approval, release_grants, submit_decision, withdraw_approval
+from api.deps import current_principal, forbid, admin_change, require_admin, require_roles, require_workflow
+from api.schemas import ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal
 from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
@@ -25,9 +25,9 @@ async def _readable_approval(approval_id: str, principal: Principal) -> Dict[str
 
 
 @router.get("/approvals")
-async def list_approvals(status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|expired|superseded|invalidated|withdrawn)$"),
+async def list_approvals(status: Optional[str] = Query(None, pattern="^(draft|pending|approved|rejected|expired|superseded|invalidated|withdrawn)$"),
                          principal: Principal = Depends(current_principal)):
-    """申请人看到自己的申请；审批人、管理员、审计员看到全部（审批收件箱）。"""
+    """申请人看到自己的申请；审批人、管理员、审计员看到全部（审批收件箱），但别人尚未确认的草稿只有管理员与审计员可见。"""
     return {"items": await asyncio.to_thread(require_workflow().list, principal, status)}
 
 
@@ -41,9 +41,15 @@ async def decide_approval(approval_id: str, payload: ApprovalDecision, principal
     return await submit_decision(approval_id, payload, principal)
 
 
+@router.post("/approvals/{approval_id}/confirm")
+async def confirm(approval_id: str, payload: ApprovalConfirmation, principal: Principal = Depends(current_principal)):
+    """申请人确认 Agent 起草的申请，之后才进入审批人队列（ADR 0020）。"""
+    return await confirm_approval(approval_id, payload.payload_hash, principal)
+
+
 @router.post("/approvals/{approval_id}/withdraw")
 async def withdraw(approval_id: str, payload: ApprovalWithdrawal = ApprovalWithdrawal(), principal: Principal = Depends(current_principal)):
-    """申请人撤回仍待审批的申请；已有审批结果、已过期或被替代的申请不能撤回。"""
+    """申请人撤回仍待审批的申请或取消未确认的草稿；已有审批结果、已过期或被替代的申请不能撤回。"""
     return await withdraw_approval(approval_id, payload.reason, principal)
 
 
@@ -75,9 +81,11 @@ async def policy_info():
 @router.post("/policy/revalidate")
 async def policy_revalidate(principal: Principal = Depends(require_admin)):
     """立即按当前策略复核在途审批与未到期授权（worker 发现版本变化时也会自动执行）。"""
-    report = await asyncio.to_thread(require_workflow().revalidate)
-    await record_admin_change(principal, "policy_revalidated", report["policy_version"],
-                              {k: len(v) for k, v in report.items() if isinstance(v, list)})
+    store = require_workflow()
+    async with admin_change(principal, "policy_revalidated", store.policy.version) as change:
+        report = await asyncio.to_thread(store.revalidate)
+        change.subject = report["policy_version"]
+        change.detail = {k: len(v) for k, v in report.items() if isinstance(v, list)}
     if state.worker:
         state.worker.kick()
     return report

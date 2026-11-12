@@ -13,7 +13,11 @@ export function requestApproval(type: string, settings: Settings, id: string, de
 export const reconcileApproval = (type: string, settings: Settings, id: string) =>
   requestFor<Approval>(type, settings, path(id, '/reconcile'), { method: 'POST' })
 
-// 申请人撤回仍待审批的申请；已有结果的申请服务端返回 409。
+// 申请人确认 Agent 起草的申请（ADR 0020）；哈希绑定卡片上展示的冻结内容，确认后才进入审批人队列。
+export const confirmApproval = (type: string, settings: Settings, id: string, hash?: string) =>
+  requestFor<Approval>(type, settings, path(id, '/confirm'), jsonBody({ payload_hash: hash }))
+
+// 申请人撤回仍待审批的申请或取消未确认的草稿；已有结果的申请服务端返回 409。
 export const withdrawApproval = (type: string, settings: Settings, id: string, reason = '') =>
   requestFor<Approval>(type, settings, path(id, '/withdraw'), jsonBody({ reason }))
 

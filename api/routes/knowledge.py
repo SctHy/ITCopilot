@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from api import state
-from api.deps import current_principal, record_admin_change, require_admin
+from api.deps import current_principal, admin_change, require_admin
 from api.schemas import KnowledgeAddRequest
 from core.identity import Principal
 
@@ -22,14 +22,15 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 async def _add_knowledge(documents: list[Dict[str, Any]], principal: Principal, via: str) -> Dict[str, Any]:
     if not state.kb:
         raise HTTPException(503, "service not ready")
-    try:
-        chunks = await state.kb.add_documents_async(documents)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    # 让 Agent 立即检索到新文档，而不是等待 60 秒 TTL 缓存过期。
-    state.tool_manager.invalidate_cache("knowledge_search")
-    await record_admin_change(principal, "knowledge_added", None, {
-        "via": via, "documents": len(documents), "chunks": chunks, "titles": [d["title"][:200] for d in documents[:20]]})
+    async with admin_change(principal, "knowledge_added", None, {
+            "via": via, "documents": len(documents), "titles": [d["title"][:200] for d in documents[:20]]}) as change:
+        try:
+            chunks = await state.kb.add_documents_async(documents)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        # 让 Agent 立即检索到新文档，而不是等待 60 秒 TTL 缓存过期。
+        state.tool_manager.invalidate_cache("knowledge_search")
+        change.detail["chunks"] = chunks
     return {"documents": len(documents), "chunks": chunks, "total_chunks": await state.kb.doc_count_async()}
 
 
@@ -79,13 +80,13 @@ async def knowledge_delete(document_id: str, principal: Principal = Depends(requ
     """删除过时或错误的文档；检索缓存立即失效，Agent 下一次检索就看不到它。"""
     if not state.kb:
         raise HTTPException(503, "service not ready")
-    removed = await asyncio.to_thread(state.kb.delete_document, document_id)
-    if removed is None:
-        raise HTTPException(404, "document not found")
-    state.tool_manager.invalidate_cache("knowledge_search")
-    logger.info("knowledge document %s deleted by %s", document_id, principal.subject)
-    await record_admin_change(principal, "knowledge_deleted", document_id,
-                              {k: removed[k] for k in ("title", "source", "chunks", "demo_seed")})
+    async with admin_change(principal, "knowledge_deleted", document_id) as change:
+        removed = await asyncio.to_thread(state.kb.delete_document, document_id)
+        if removed is None:
+            raise HTTPException(404, "document not found")
+        state.tool_manager.invalidate_cache("knowledge_search")
+        logger.info("knowledge document %s deleted by %s", document_id, principal.subject)
+        change.detail = {k: removed[k] for k in ("title", "source", "chunks", "demo_seed")}
     return {**removed, "total_chunks": await state.kb.doc_count_async()}
 
 

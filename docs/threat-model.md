@@ -28,8 +28,11 @@
 | 拒绝服务 | 单个身份连续发请求占满模型额度与 worker | 按租户＋用户的 GCRA 限流，网页、事项、飞书入口共用预算；Redis 原子计数，多进程共享；429 + Retry-After | `test_chat_returns_429_with_retry_after_per_identity`、`test_redis_backend_shares_one_budget_across_processes`、`test_im_messages_get_one_short_reply_instead_of_model_work` |
 | 信息泄露 | 员工原话在飞书收发记录与情景记忆中无限期留存 | 保留期清理（默认 30 / 90 天）；未结审批关联的消息保留到审批结束；审计记录不清理 | `test_old_settled_messages_and_memories_are_deleted_in_batches`、`test_messages_behind_an_open_approval_are_kept_until_it_settles` |
 | 权限提升 | 策略收回代他人申请的角色后，代申请的单据仍被批准或权限仍生效 | 审批保存申请人提交时的角色快照，复核时一并检查 `on_behalf_roles` | `test_on_behalf_requests_are_rechecked_against_the_role_they_were_filed_under` |
+| 篡改 | 提示注入让模型把参数改成申请人没要的值（另一台设备、更长时长、更高角色） | 高风险申请先是只有申请人可见的草稿，本人核对后确认提交才进入审批（ADR 0020）；越权仍由策略拒绝 | `confirm_draft_only_by_requester`、`test_a_draft_is_invisible_to_approvers_and_cannot_be_decided` |
+| 抵赖 | 事后无法说明 Agent 为什么提出某个申请 | 创建审批时把意图、知识引用、工具原始参数（脱敏）写进不可变的 `created` 审计（ADR 0021） | `test_chat_drafts_then_a_typed_confirm_submits_without_the_model` |
+| 篡改 | 只改策略规则、不升版本号，在途申请按旧规则执行 | 生效版本 = 声明版本号 + 规则指纹，任何规则变化都触发复核 | `test_rule_edit_without_bumping_the_label_still_rechecks` |
 | 篡改 | 提示注入诱导 Agent 撤回用户的申请或归还用户的权限 | Agent 没有撤回/归还工具；对话只按身份召回本人项目作为数据和卡片，动作必须由本人点击并经服务端校验 | `test_chat_shows_cards_and_the_model_cannot_withdraw` |
-| 抵赖 | 管理员否认删除知识库文档、触发策略复核或数据清理 | 成功的管理操作写入只追加的 `admin_audit`（操作人、对象、明细），审计员与管理员按租户查看 | `test_knowledge_changes_are_attributed_and_failed_changes_leave_nothing`、`test_only_admins_and_auditors_read_their_own_tenant` |
+| 抵赖 | 管理员否认删除知识库文档、触发策略复核或数据清理 | 管理操作先写 `started`、结束后写结果（ADR 0021），中途崩溃显示为 `interrupted`；`audit`/`admin_audit` 由数据库触发器拒绝 UPDATE/DELETE；策略生效写全局 `policy_loaded` | `test_knowledge_changes_are_attributed_and_failed_changes_leave_nothing`、`test_only_admins_and_auditors_read_their_own_tenant` |
 | 权限提升 | 借远程锁定申请锁住他人的设备 | 员工只能为本人账号申请；适配器执行前核对设备属于申请中的员工，不符在任何副作用之前失败 | `test_a_device_held_by_someone_else_is_never_locked`、`test_tool_only_proposes_and_only_for_the_callers_own_account` |
 | 拒绝服务 | 外部系统持续超时拖垮 Agent | 统一工具执行层：超时、熔断、只读重试 | `test_timeout_and_circuit_breaker` |
 | 权限提升 | 审批人批准自己的申请或针对自己账号的申请 | 职责分离（按 subject 与 employee_id），API 与审批库双重检查；审批人令牌缺少 employee_id 时拒绝（无法证明不是本人账号） | `sod_*` 5 项、`test_separation_of_duties_and_authority`、`test_an_approver_without_an_employee_id_cannot_approve` |
@@ -55,4 +58,4 @@
 - 模型网关与外部 MCP 服务的数据外发：外部 MCP 默认关闭；开启后员工问题会发送到第三方。
 - 飞书身份映射是手工维护的静态文件；映射错误会让一个人以另一个人的身份申请，生产环境应对接企业目录。
 - 飞书回调只在配置 Encrypt Key（启用签名）时校验时间窗；只用 Verification Token 的明文回调没有可信时间戳，重放只能靠消息 ID 去重。
-- 管理操作审计在操作成功后写入，与操作本身不在同一事务：写入失败时操作已生效但缺少记录（会返回 500）。
+- 管理操作与审计仍不在同一事务（修改跨向量库、技能文件等存储），用先写意图弥补：崩溃后留下的是 `interrupted`，不是空白。审计表触发器挡不住数据库属主，生产应让应用账号对审计表只有 INSERT/SELECT 权限。

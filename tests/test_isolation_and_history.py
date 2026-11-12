@@ -292,6 +292,9 @@ def test_history_snapshot_refreshes_workflow_not_stale_model_claim(env, caps):
     tasks, workflow, _ = env
     task = create(tasks)
     tasks.finish(tasks.claim(), proposal())
+    draft = caps.history.snapshot(task['id'], ALICE)['approvals'][0]
+    assert draft['status'] == 'draft'
+    workflow.confirm(draft['approval_id'], ALICE)  # the history snapshot omits the hash; the store re-reads the frozen row
     before = caps.history.snapshot(task['id'], ALICE)
     approval = before['approvals'][0]
     assert approval['status'] == 'pending'

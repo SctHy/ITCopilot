@@ -116,7 +116,7 @@ class TaskAccess:
                     raise TaskForbidden('审批人必须具备审批角色，且不能是申请人或申请人账号')
                 if not self.writable(db, task, person):
                     raise TaskForbidden('请先将观察者或已移除人员重新邀请为协作者')
-            required = db.execute(select(approvals.c.approvals_required).where(approvals.c.conv_id == 'task:' + task_id, approvals.c.status == 'pending')).scalars().all()
+            required = db.execute(select(approvals.c.approvals_required).where(approvals.c.conv_id == 'task:' + task_id, approvals.c.status.in_(['draft', 'pending']))).scalars().all()
             if subjects and len(subjects) < max(required, default=1):
                 raise TaskConflict('指定审批人数不能少于待审批申请要求')
             previous = set(db.execute(select(task_reviewers.c.subject).where(task_reviewers.c.task_id == task_id)).scalars())

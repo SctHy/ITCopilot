@@ -1,10 +1,12 @@
 """Adapt shared task events to the existing Agent without using personal memory."""
 import asyncio
 import json
+from types import SimpleNamespace
 
 from agents.conversation_state import known_entities, merge_state, with_login_employee
 from agents.types import Request
-from workflow.approval import UNSAFE_TOOLS, approval_from_traces
+from workflow.approval import UNSAFE_TOOLS, approval_from_traces, provenance
+from workflow.policy import load_policy
 from core.identity import principal_from_record
 from agents.checkpointing import execute_run
 from agents.intent.taxonomy import IntentCategory, UrgencyLevel
@@ -96,7 +98,14 @@ class TaskAgentRunner:
         proposal = approval_from_traces(result.tool_traces, event["text"]) if requester_turn else None
         reply = result.response
         if proposal:
-            reply += "\n\n已生成待审批申请，审批人可在本事项的审批卡片中核对并决定。"
+            intent = SimpleNamespace(intent=req.intent, intent_group=req.intent_group, recognition_source="task",
+                                     confidence=req.intent_confidence, requested_actions=req.allowed_writes)
+            proposal["provenance"] = provenance(result.tool_traces, request_id=event["id"], intent=intent,
+                                                knowledge=req.knowledge, trace_id=getattr(result, "trace_id", None), channel="task")
+            if load_policy().needs_confirmation(proposal["action_requests"]):
+                reply += "\n\n已生成申请草稿：请申请人在本事项的审批卡片中核对并点“确认提交”，之后审批人才会看到。"
+            else:
+                reply += "\n\n已生成待审批申请，审批人可在本事项的审批卡片中核对并决定。"
         extra = {}
         usage = dict(result.token_usage)
         if self.advisor:

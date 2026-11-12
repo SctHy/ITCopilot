@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, Optional
@@ -19,7 +20,7 @@ from core.events import TERMINAL_EVENTS, EventPublisher, StreamConflict, request
 from core.identity import Principal
 from monitor import metrics
 from workflow.policy import PolicyViolation
-from workflow.store import ApprovalConflict
+from workflow.store import ApprovalConflict, ApprovalStateConflict
 
 logger = logging.getLogger("it_copilot")
 
@@ -41,6 +42,55 @@ class _Stages:
             elapsed = time.monotonic() - started
             self.ms[stage] = round(self.ms.get(stage, 0.0) + elapsed * 1000, 1)
             metrics.CHAT_STAGE_LATENCY.labels(stage=stage).observe(elapsed)
+
+
+# 有草稿待确认时，这两类短回复由代码直接处理，不交给模型：确认与否是申请人的决定，模型只会再起草一遍。
+CONFIRM_REPLY = re.compile(r"^\s*(?:好的?[，,\s]*)?(?:确认|确认提交|确认申请|提交|提交审批|确定|确定提交|没问题[，,\s]*提交|confirm)\s*[。.!！]*\s*$", re.I)
+CANCEL_REPLY = re.compile(r"^\s*(?:取消|取消申请|不提交了?|不用提交了?|放弃申请|cancel)\s*[。.!！]*\s*$", re.I)
+
+
+def _confirmation_verb(message: str) -> Optional[str]:
+    return "confirm" if CONFIRM_REPLY.match(message or "") else "cancel" if CANCEL_REPLY.match(message or "") else None
+
+
+async def _answer_drafts(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, verb: str, emit=None) -> Optional[ChatResponse]:
+    """申请人回复“确认/取消”且本会话有待确认的草稿：直接确认或取消，返回确定性的回答；没有草稿时返回 None，照常走 Agent。"""
+    drafts = await asyncio.to_thread(state.workflow.drafts, principal, conv_id)
+    if not drafts:
+        return None
+    started = time.monotonic()
+    lines, last = [], None
+    for draft in drafts:
+        try:
+            if verb == "confirm":
+                last = await asyncio.to_thread(state.workflow.confirm, draft["approval_id"], principal)
+            else:
+                last = await asyncio.to_thread(state.workflow.withdraw, draft["approval_id"], principal, "申请人在对话中取消草稿")
+        except (ApprovalStateConflict, ApprovalConflict, ValueError) as exc:
+            lines.append(f"申请 {draft['approval_id']} 未能{'提交' if verb == 'confirm' else '取消'}：{exc}")
+            continue
+        status = (last or {}).get("status")
+        if verb == "confirm" and status == "pending":
+            metrics.APPROVALS.labels(event="confirmed").inc()
+            lines.append(f"已确认提交：{draft['description']}，需 {last['approvals_required']} 人批准。")
+            if emit:
+                await emit("approval_required", {"approval_id": last["approval_id"], "approvals_required": last["approvals_required"],
+                                                 "policy_version": last["policy_version"], "actions": last.get("actions", [])})
+        elif verb == "cancel" and status == "withdrawn":
+            metrics.APPROVALS.labels(event="withdrawn").inc()
+            lines.append(f"已取消申请草稿，不会提交审批：{draft['description']}。")
+        else:
+            lines.append(f"申请 {draft['approval_id']} 当前状态为 {status}，未做改动。")
+    if state.task_event_pump:
+        state.task_event_pump.kick()
+    submitted = verb == "confirm" and bool(last) and last.get("status") == "pending"
+    response = ChatResponse(request_id=rid, response="\n".join(lines), status="success", intent="other", intent_group="other",
+                            approval_required=submitted, approval_id=last["approval_id"] if submitted else None,
+                            latency_ms=round((time.monotonic() - started) * 1000, 1), tools_used=[])
+    if state.memory:
+        await state.memory.commit_turn(principal.scope_key, conv_id, rid, payload.message, response.model_dump(),
+                                       {"requester_reply": verb, "drafts": [d["approval_id"] for d in drafts], "owner": principal.subject})
+    return response
 
 
 async def _prefetch_knowledge(message: str, department):
@@ -183,19 +233,31 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
 
 async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow):
     stages = _Stages()
+    verb = _confirmation_verb(payload.message) if state.workflow else None
+    if verb:
+        answered = await _answer_drafts(payload, principal, rid, conv_id, verb, emit)
+        if answered is not None:
+            flow.send("respond")
+            flow.send("commit")
+            flow.send("finish")
+            return answered
     result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, stages, emit)
 
-    from workflow.approval import approval_from_traces
+    from workflow.approval import approval_from_traces, provenance
     approval = approval_from_traces(result.tool_traces, payload.message)
     approval_id = rid + ":approval" if approval else None
     reply = result.response
+    awaiting = False
     if approval and state.workflow:
         flow.send("propose")
         summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
         try:
             with stages("approval"):
-                created = await asyncio.to_thread(state.workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
-                                                  action_requests=approval["action_requests"], summary=summary)
+                created = await asyncio.to_thread(
+                    state.workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
+                    action_requests=approval["action_requests"], summary=summary, ask_requester=True,
+                    provenance=provenance(result.tool_traces, request_id=rid, intent=intent_result, knowledge=req.knowledge,
+                                          trace_id=result.trace_id, channel=conv_id.split(":", 1)[0] if ":" in conv_id else "web"))
         except (PolicyViolation, ApprovalConflict, ValueError) as exc:
             # Tools validate first, so this is rare (e.g. policy changed mid-turn); never create a half-valid approval.
             logger.warning("approval not created for %s: %s", rid, exc)
@@ -203,10 +265,18 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
             reply += f"\n\n（审批申请未创建：{exc}）"
         else:
             metrics.APPROVALS.labels(event="created").inc()
+            draft = created["status"] == "draft"
             if created.get("superseded"):
                 metrics.APPROVALS.labels(event="superseded").inc(len(created["superseded"]))
-                reply += f"\n\n（本次申请已替代本会话中尚未审批的申请：{', '.join(created['superseded'])}）"
-            if emit:
+                replaced = "本会话中尚未确认的草稿" if draft else "本会话中尚未审批的申请"
+                reply += f"\n\n（本次申请已替代{replaced}：{', '.join(created['superseded'])}）"
+            if draft:
+                awaiting = True
+                if emit:
+                    await emit("confirmation_required", {"approval_id": approval_id, "approvals_required": created["approvals_required"],
+                                                         "policy_version": created["policy_version"], "actions": approval["actions"],
+                                                         "expires_at": created["expires_at"]})
+            elif emit:
                 await emit("approval_required", {"approval_id": approval_id, "approvals_required": created["approvals_required"],
                                                  "policy_version": created["policy_version"], "actions": approval["actions"]})
 
@@ -220,6 +290,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
         missing_slots=req.conversation_state.get("missing_fields", []), inherited_from_previous=intent_result.inherited_from_previous, trace_id=result.trace_id,
         tools_used=result.tools_used, knowledge_used="search_knowledge_base" in result.tools_used or bool(req.knowledge), latency_ms=result.latency_ms,
         escalated=result.escalated, approval_required=bool(approval), approval_id=approval_id,
+        awaiting_confirmation=awaiting,
         token_usage=result.token_usage, stage_ms=stages.ms,
     )
     if state.memory:

@@ -68,6 +68,12 @@ async def run_case(http, state, case, timeout=150, require_suggestions=False):
             if not checks['proposal_created']:
                 return {'case': case, 'passed': False, 'checks': checks, 'latency_s': time.monotonic() - started}
             approval = body['approvals'][0]
+            if approval['status'] == 'draft':  # the requester submits the drafted request first (ADR 0020)
+                confirmed = await http.post('/approvals/' + approval['approval_id'] + '/confirm',
+                                            json={'payload_hash': approval['payload_hash']}, headers=auth())
+                confirmed.raise_for_status()
+                checks['requester_confirmed'] = confirmed.json()['status'] == 'pending'
+                approval = confirmed.json()
             path = base + '/approvals/' + approval['approval_id']
             vote = {'decision': 'rejected' if case == 'reject' else 'approved', 'payload_hash': approval['payload_hash']}
             if case == 'isolation':

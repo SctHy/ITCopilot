@@ -1,5 +1,5 @@
 // All shared-task HTTP paths live here; UI state and approval cards only call this port.
-import { reconcileApproval, releaseApproval, withdrawApproval } from '../api/approvals.ts'
+import { confirmApproval, reconcileApproval, releaseApproval, withdrawApproval } from '../api/approvals.ts'
 import { requestTasks, requestTaskInbox, requestTaskHistory, continueTask, uploadTaskFile, downloadTaskFile } from '../api/tasks.ts'
 import type { Approval, Page, Settings, TaskEvent, TaskListItem, TaskRoom } from './types.ts'
 
@@ -26,6 +26,7 @@ export function createTaskClient(settings: Settings) {
     decide: (id: string, approval: Approval, decision: string) => request(id, `/approvals/${encodeURIComponent(approval.approval_id)}`,
       { decision, payload_hash: approval.payload_hash }),
     reconcile: (approval: Approval) => reconcileApproval(snapshot.backend, snapshot, approval.approval_id),
+    confirm: (approval: Approval) => confirmApproval(snapshot.backend, snapshot, approval.approval_id, approval.payload_hash),
     withdraw: (approval: Approval) => withdrawApproval(snapshot.backend, snapshot, approval.approval_id),
     release: (approval: Approval) => releaseApproval(snapshot.backend, snapshot, approval.approval_id),
     retry: (id: string, run: string) => request(id, `/runs/${encodeURIComponent(run)}/retry`, {}),

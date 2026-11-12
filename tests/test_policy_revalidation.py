@@ -56,6 +56,27 @@ def test_pending_approval_no_longer_allowed_is_invalidated(env):
     assert store.revalidate()["invalidated"] == []  # idempotent
 
 
+def test_rule_edit_without_bumping_the_label_still_rechecks(env):
+    """Editing a rule but forgetting to bump ``version`` must not let open work skip the re-check."""
+    store, worker, _, _ = env
+    pending = create(store)
+    label = store.policy.declared_version
+    store.policy = changed(label, without_gitlab_readonly)
+    assert store.policy.declared_version == label and store.policy.version != pending["policy_version"]
+    assert store.decide("a", "approved", BOB, pending["payload_hash"])["status"] == "invalidated"
+    run(worker)
+    assert store.employee("1001")["grants"] == []
+
+
+def test_fingerprint_ignores_formatting_but_not_rules():
+    data = copy.deepcopy(load_policy().data)
+    reordered = dict(reversed(list(data.items())))
+    assert AccessPolicy(reordered).version == AccessPolicy(data).version
+    edited = copy.deepcopy(data)
+    edited["approval_ttl_hours"] = int(edited.get("approval_ttl_hours", 72)) + 1
+    assert AccessPolicy(edited).version != AccessPolicy(data).version
+
+
 def test_decision_rechecks_without_a_sweep(env):
     store, _, _, _ = env
     pending = create(store)
@@ -98,7 +119,7 @@ def test_worker_refuses_first_effect_when_policy_changed_after_approval(env):
     pending = create(store)
     store.decide("a", "approved", BOB, pending["payload_hash"])
     store.policy = changed("v2", without_gitlab_readonly)
-    worker._policy_version = "v2"  # the sweep has not run yet: only the pre-effect check stands in the way
+    worker._policy_version = store.policy.version  # the sweep has not run yet: only the pre-effect check stands in the way
     run(worker)
     body = store.get("a")
     assert body["execution"] == "failed" and "v2" in body["results"][0]["error"]
@@ -182,12 +203,12 @@ def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_las
     data = copy.deepcopy(load_policy().data)
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     monkeypatch.setenv("IT_COPILOT_ACCESS_POLICY", str(path))
-    assert load_policy().version == data["version"]
+    assert load_policy().declared_version == data["version"]
     data["version"] = "edited"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
-    assert load_policy().version == "edited"
+    assert load_policy().declared_version == "edited"
     path.write_text("version: [unclosed", encoding="utf-8")
-    assert load_policy().version == "edited"
+    assert load_policy().declared_version == "edited"
     policy_module._last_good.pop(str(path))
 
 
@@ -197,7 +218,7 @@ def test_worker_sweeps_once_per_version(env):
     asyncio.run(worker.run_once())
     store.policy = changed("v2", without_gitlab_readonly)
     asyncio.run(worker.run_once())
-    assert store.get("a")["status"] == "invalidated" and worker._policy_version == "v2"
+    assert store.get("a")["status"] == "invalidated" and worker._policy_version == store.policy.version
 
 
 def test_policy_endpoints(env, monkeypatch):

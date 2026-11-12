@@ -123,9 +123,27 @@ class ExecutionWorker:
         report = await asyncio.to_thread(self.store.revalidate)
         self._policy_version = version
         changed = {k: len(v) for k, v in report.items() if isinstance(v, list) and v}
+        await asyncio.to_thread(self._record_policy_loaded, version, changed)
         for outcome, count in changed.items():
             metrics.POLICY_REVALIDATIONS.labels(outcome=outcome).inc(count)
         logger.info("access policy %s: revalidated open work %s", version, changed or "(no changes)")
+
+    def _record_policy_loaded(self, version: str, changed: Dict[str, int]) -> None:
+        """Admin trail of which policy took effect and what it did to open work. The file has no
+        author, so this records the effect; who edited it is in version control. Several workers
+        or a restart see the same version: only the first sighting is recorded."""
+        from core import admin_audit
+
+        try:
+            last = admin_audit.last_system(self.store.engine, "policy_loaded")
+            if last and last["subject"] == version:
+                return
+            policy = self.store.policy
+            admin_audit.record_system(self.store.engine, "policy_loaded", version, {
+                "declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
+                "previous": last["subject"] if last else None, "revalidated": changed, "worker": self.worker_id})
+        except Exception:
+            logger.exception("could not record policy %s in the admin audit", version)
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):

@@ -1,5 +1,15 @@
 # Changelog
 
+## 未发布 — 分层复盘：申请人确认与审计完整性
+
+由意图识别 → 工具授权 → 人工确认 → 审计 → 回滚的分层复盘驱动（ADR 0020、0021）。
+
+- 申请人确认（ADR 0020）：策略 `requester_confirmation` 中的操作（权限、重置、解锁、锁定）先生成只有申请人可见的草稿（审批状态 `draft`），申请人在卡片上点“确认提交”（`POST /approvals/{id}/confirm`，绑定哈希）或在对话里回复“确认”后才进入审批人队列；回复“取消”放弃。确认由代码处理，不调用模型。草稿默认 24 小时过期（`confirmation_ttl_hours`），审批人对草稿投票返回 409。新字段 `ChatResponse.awaiting_confirmation`、SSE 事件 `confirmation_required`。飞书、共享事项同样适用。
+- 策略按内容识别（ADR 0021）：生效版本为 `声明版本号+规则指纹`，只改规则不升版本号也会复核在途工作；worker 首次加载新版本时写全局审计 `policy_loaded`。`approvals.policy_version` 加宽到 80。
+- 来源摘要：审批 `created` 审计记录意图、知识引用和本轮工具原始参数（脱敏），不进哈希。
+- 管理审计：先写 `started` 再写 `succeeded`/`failed`，崩溃留下 `interrupted`；`GET /admin/audit?outcome=failed|interrupted`。`audit` 与 `admin_audit` 由触发器拒绝 UPDATE/DELETE（迁移 `0002`）。
+- 写操作清单统一到 `workflow/actions.py`，工具注册、审批识别、策略必填参数、意图问题与补偿判断都从这里推导；不一致时进程拒绝启动。
+
 ## 未发布 — 回答与业务状态一致性（深度评测驱动）
 
 由全流程深度评测（[docs/evaluation-deep.md](docs/evaluation-deep.md)）发现的问题驱动。

@@ -57,6 +57,13 @@ def proposal():
     return {"response": "请审批", "proposal": {"action_requests": [access()]}}
 
 
+def submit(tasks, workflow, task_id, requester=ALICE):
+    """The requester confirms the Agent's drafted request so approvers can act on it (ADR 0020)."""
+    draft = tasks.get(task_id, requester)["approvals"][0]
+    assert draft["status"] == "draft"
+    return workflow.confirm(draft["approval_id"], requester, draft["payload_hash"])
+
+
 def test_three_roles_share_transcript_but_no_other_employee_or_tenant_can_enter(env):
     tasks, _, _ = env
     created = room(tasks)
@@ -129,6 +136,8 @@ def test_approval_execution_wakes_same_task_once_after_restart(env):
     tasks, workflow, clock = env
     created = room(tasks)
     tasks.finish(tasks.claim(), proposal())
+    assert tasks.get(created["id"], ALICE)["phase"] == "awaiting_confirmation"
+    submit(tasks, workflow, created["id"])
     body = tasks.get(created["id"], ALICE)
     approval = body["approvals"][0]
     assert body["phase"] == "awaiting_approval" and tasks.claim() is None
@@ -168,7 +177,7 @@ def test_shared_approval_cannot_be_accessed_via_legacy_routes(env, monkeypatch):
     tasks, workflow, _ = env
     created = room(tasks)
     tasks.finish(tasks.claim(), proposal())
-    approval = tasks.get(created["id"], ALICE)["approvals"][0]
+    approval = submit(tasks, workflow, created["id"])
     monkeypatch.setattr(state, "workflow", workflow)
     monkeypatch.setattr(state, "worker", None)
     client = TestClient(app)
@@ -240,6 +249,11 @@ def test_http_three_party_flow_and_body_identity_is_ignored(env, monkeypatch):
     approval = body["approvals"][0]
     path = f"/tasks/{task['id']}/approvals/{approval['approval_id']}"
     vote = {"decision": "approved", "payload_hash": approval["payload_hash"]}
+    # The room sees the draft, but nobody can vote until the requester confirms it (ADR 0020).
+    assert approval["status"] == "draft" and client.post(path, headers=auth("bob"), json=vote).status_code == 409
+    confirm = f"/approvals/{approval['approval_id']}/confirm"
+    assert client.post(confirm, headers=auth("bob"), json={"payload_hash": approval["payload_hash"]}).status_code == 403
+    assert client.post(confirm, headers=auth(), json={"payload_hash": approval["payload_hash"]}).json()["status"] == "pending"
     assert client.post(path, headers=auth(), json=vote).status_code == 403
     assert client.post(path, headers=auth("bob"), json=vote).status_code == 200
     assert client.get(f"/tasks/{task['id']}", headers=auth()).json()["approvals"][0]["decisions"][0]["actor"] == "dev:bob"
@@ -297,7 +311,7 @@ def test_worker_releases_slot_while_waiting_for_approval(env):
         assert not await worker.run_once()
 
     asyncio.run(run())
-    assert tasks.get(first["id"], ALICE)["phase"] == tasks.get(second["id"], ALICE)["phase"] == "awaiting_approval"
+    assert tasks.get(first["id"], ALICE)["phase"] == tasks.get(second["id"], ALICE)["phase"] == "awaiting_confirmation"
 
 
 def test_concurrent_workers_claim_a_room_once(env):
@@ -366,7 +380,7 @@ def test_requester_can_propose_with_llm_intent_backend_and_approval_result_resum
     async def run():
         worker = TaskWorker(tasks, TaskAgentRunner(state.orchestrator, workflow.get))
         assert await worker.run_once()
-        approval = tasks.get(created["id"], ALICE)["approvals"][0]
+        approval = submit(tasks, workflow, created["id"])
         assert approval["requester"] == ALICE.subject
         workflow.decide(approval["approval_id"], "approved", BOB, approval["payload_hash"])
         executor = ExecutionWorker(workflow, AdapterRegistry(LocalDirectoryAdapter(workflow.engine)), base_delay_s=0)
@@ -443,7 +457,7 @@ def test_each_formal_vote_is_recorded_once_even_when_poll_happens_after_executio
     tasks, workflow, _ = env
     created = room(tasks)
     tasks.finish(tasks.claim(), {"response": "需要双人审批", "proposal": {"action_requests": [access(role="developer")]}})
-    approval = tasks.get(created["id"], ALICE)["approvals"][0]
+    approval = submit(tasks, workflow, created["id"])
     service = ApprovalService(workflow)
     asyncio.run(service.decide(approval["approval_id"], "approved", approval["payload_hash"], BOB))
     assert workflow.get(approval["approval_id"])["status"] == "pending"
@@ -468,7 +482,7 @@ def test_rejection_wakes_original_task_without_executing_business_action(env):
     tasks, workflow, _ = env
     created = room(tasks)
     tasks.finish(tasks.claim(), proposal())
-    approval = tasks.get(created["id"], ALICE)["approvals"][0]
+    approval = submit(tasks, workflow, created["id"])
     asyncio.run(ApprovalService(workflow).decide(approval["approval_id"], "rejected", approval["payload_hash"], BOB))
     ApprovalEventSource(workflow, tasks).poll()
     event = tasks.context(tasks.claim())[1]
@@ -480,7 +494,7 @@ def test_stopping_agent_keeps_formal_votes_and_business_results_visible(env):
     tasks, workflow, _ = env
     created = room(tasks)
     tasks.finish(tasks.claim(), proposal())
-    approval = tasks.get(created["id"], ALICE)["approvals"][0]
+    approval = submit(tasks, workflow, created["id"])
     tasks.stop(created["id"], ALICE)
     workflow.decide(approval["approval_id"], "approved", BOB, approval["payload_hash"])
     executor = ExecutionWorker(workflow, AdapterRegistry(LocalDirectoryAdapter(workflow.engine)), base_delay_s=0)

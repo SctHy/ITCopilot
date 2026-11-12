@@ -22,7 +22,7 @@
         @action="emit('approval', item as ApprovalItem, $event)"
       />
       <div v-for="related in item.relatedApprovals || []" :key="related.approvalId" class="related-approval">
-        <p class="muted">{{ related.kind === 'withdraw' ? '可撤回的申请' : '可提前归还的权限' }}：{{ related.summary }}</p>
+        <p class="muted">{{ related.kind === 'confirm' ? '待你确认提交的申请' : related.kind === 'withdraw' ? '可撤回的申请' : '可提前归还的权限' }}：{{ related.summary }}</p>
         <ApprovalCard
           :approval="related.approval"
           :busy="related.approvalBusy"

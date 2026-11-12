@@ -129,6 +129,11 @@ async def trial(http, state, case, repeat):
             if approval_id:
                 path = "/approvals/" + approval_id
                 frozen = (await http.get(path, headers=requester)).json()
+                if frozen["status"] == "draft":
+                    # The requester checks the drafted request on its card and submits it (ADR 0020).
+                    checks["approvers_wait_for_confirmation"] = (await http.post(path, json={"decision": "approved", "payload_hash": frozen["payload_hash"]},
+                                                                                 headers=auth("bob"))).status_code == 409
+                    frozen = (await http.post(path + "/confirm", json={"payload_hash": frozen["payload_hash"]}, headers=requester)).json()
                 decision = {
                     "decision": "rejected" if outcome == "reject" else "approved",
                     "payload_hash": frozen["payload_hash"],

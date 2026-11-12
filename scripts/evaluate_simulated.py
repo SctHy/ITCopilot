@@ -64,7 +64,10 @@ async def run_task(http, state, task, user_llm, max_turns):
         if flow.state == "dialogue":
             ended = flow.send("limit")
         flow.send("approve")
-        # Approvers decide everything the agent filed; state is graded after execution.
+        # The requester submits drafts left on their cards (ADR 0020), then approvers decide
+        # everything filed; state is graded after execution.
+        for draft in (await http.get("/approvals", params={"status": "draft"}, headers=requester)).json()["items"]:
+            (await http.post(f"/approvals/{draft['approval_id']}/confirm", json={"payload_hash": draft["payload_hash"]}, headers=requester)).raise_for_status()
         approvals = (await http.get("/approvals", params={"status": "pending"}, headers=requester)).json()["items"]
         for approval in approvals:
             path = "/approvals/" + approval["approval_id"]

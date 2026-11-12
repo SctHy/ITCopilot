@@ -24,10 +24,12 @@ def devices(store, employee="1001"):
 def test_tool_only_proposes_and_only_for_the_callers_own_account():
     req = Request("我的电脑 dev-1001 丢了，帮我锁定", principal=ALICE)
     pending = lock_device(req, dict(lock("dev-1001")["arguments"]))
-    assert pending["status"] == "pending_approval" and pending["request"]["device_id"] == "DEV-1001"
+    # Locking a device is in the policy's requester_confirmation list: the requester checks the device first.
+    assert pending["status"] == "awaiting_confirmation" and pending["requires_requester_confirmation"]
+    assert pending["request"]["device_id"] == "DEV-1001"
     with pytest.raises(PolicyViolation):
         lock_device(Request("锁定 dave 的电脑", principal=ALICE), dict(lock("DEV-1002", "1002")["arguments"]))
-    assert lock_device(Request("x", principal=ERIN), dict(lock("DEV-1002", "1002")["arguments"]))["status"] == "pending_approval"  # IT on behalf
+    assert lock_device(Request("x", principal=ERIN), dict(lock("DEV-1002", "1002")["arguments"]))["status"] == "awaiting_confirmation"  # IT on behalf
     traces = [{"tool_name": "lock_device", "input": lock()["arguments"], "success": True}]
     approval = approval_from_traces(traces, "电脑丢了")
     assert approval["actions"] == ["lock_device"] and approval["risk"] == "high"

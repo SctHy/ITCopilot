@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from api import state
-from api.deps import current_principal, forbid, record_admin_change, require_admin, require_roles
+from api.deps import current_principal, forbid, admin_change, require_admin, require_roles
 from core.identity import ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
 
@@ -27,8 +27,9 @@ async def skills():
 
 @router.post("/skills/reload")
 async def reload_skills(principal: Principal = Depends(require_admin)):
-    body = state.skills.summary() if state.skills and state.skills.reload() is not None else {"count": 0}
-    await record_admin_change(principal, "skills_reloaded", None, {"count": body.get("count", 0)})
+    async with admin_change(principal, "skills_reloaded") as change:
+        body = state.skills.summary() if state.skills and state.skills.reload() is not None else {"count": 0}
+        change.detail = {"count": body.get("count", 0)}
     return body
 
 
@@ -88,8 +89,9 @@ async def run_retention(principal: Principal = Depends(require_admin)):
     """立即执行一次保留期清理（后台每小时也会执行）；返回各类删除行数。审批、执行与审计记录不会被清理。"""
     if state.retention is None:
         raise HTTPException(503, "service not ready")
-    deleted = await asyncio.to_thread(state.retention.sweep)
-    await record_admin_change(principal, "retention_run", None, deleted)
+    async with admin_change(principal, "retention_run") as change:
+        deleted = await asyncio.to_thread(state.retention.sweep)
+        change.detail = deleted
     return {"deleted": deleted, "policy": {
         "channel_days": state.retention.policy.channel_days, "episodic_days": state.retention.policy.episodic_days}}
 
@@ -97,11 +99,14 @@ async def run_retention(principal: Principal = Depends(require_admin)):
 @router.get("/admin/audit")
 async def admin_audit_log(principal: Principal = Depends(require_roles(ROLE_IT_ADMIN, ROLE_AUDITOR)),
                           limit: int = Query(100, ge=1, le=500), before: Optional[int] = Query(None, ge=1),
-                          event: Optional[str] = Query(None, max_length=60)):
-    """管理操作审计（知识库增删、策略复核、技能重载、数据清理）；本租户，新到旧，按 before 翻页。"""
+                          event: Optional[str] = Query(None, max_length=60),
+                          outcome: Optional[str] = Query(None, pattern="^(succeeded|failed|interrupted)$")):
+    """管理操作审计（知识库增删、策略生效与复核、技能重载、数据清理、令牌吊销）；本租户加全局策略事件，新到旧，按 before 翻页。
+
+    默认列出成功的修改和中断的修改（已开始、没有结果，可能已部分生效，需要核对）；失败的尝试用 outcome=failed 查看。"""
     from core.admin_audit import recent
 
     if state.workflow is None:
         raise HTTPException(503, "service not ready")
-    items = await asyncio.to_thread(recent, state.workflow.engine, principal.tenant, limit=limit, before=before, event=event)
+    items = await asyncio.to_thread(recent, state.workflow.engine, principal.tenant, limit=limit, before=before, event=event, outcome=outcome)
     return {"items": items, "next_before": items[-1]["id"] if len(items) == limit else None}

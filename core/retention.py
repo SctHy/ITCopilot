@@ -5,7 +5,7 @@ What is swept, and why it is safe:
 - ``channel_inbox`` rows that are ``done`` / ``ignored``. They hold the raw IM message text.
   Their primary key de-duplicates platform retries, which stop within hours, and approval
   notices find the conversation through ``request_id``; so a row is kept while an approval
-  it produced is still open (pending, or approved and not finished executing).
+  it produced is still open (draft, pending, or approved and not finished executing).
 - ``channel_outbox`` rows that are ``sent`` / ``dropped``. Delivery order only matters among
   rows still waiting, and a notice is queued once, in the transaction that settled it.
 - ``vector_documents`` in the ``episodic`` collection (past conversation turns recalled into
@@ -57,7 +57,7 @@ class RetentionPolicy:
 
 
 def _open_approval_for(request_id_column):
-    still_open = or_(approvals.c.status == "pending",
+    still_open = or_(approvals.c.status.in_(("draft", "pending")),
                      and_(approvals.c.status == "approved", approvals.c.execution.in_(("queued", "executing", "manual_review"))))
     return exists().where(approvals.c.request_id == request_id_column, still_open)
 

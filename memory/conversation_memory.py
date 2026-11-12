@@ -114,7 +114,10 @@ class MemoryContext:
                 content = content[:assistant_chars] + "…（已截断）"
             if m.role == MsgRole.ASSISTANT and (m.metadata.get("tools") or m.metadata.get("approval_id")):
                 note = "本轮工具：" + ("、".join(m.metadata.get("tools") or []) or "无")
-                if m.metadata.get("approval_id"):
+                if m.metadata.get("approval_id") and m.metadata.get("awaiting_confirmation"):
+                    # 草稿还没进入审批：不能写成“已生成待审批”，否则后续回合会被当作已经提交过。
+                    note += f"；已生成申请草稿 {m.metadata['approval_id']}（待用户确认，尚未提交审批）"
+                elif m.metadata.get("approval_id"):
                     note += f"；已生成待审批 {m.metadata['approval_id']}"
                 content += f"\n[{note}]"
             turns.append({"role": m.role.value, "content": content})
@@ -202,7 +205,8 @@ class MemoryManager:
         async with self._redis.pipeline(transaction=True) as pipe:
             if response.get("status") != "failed":
                 # 记下本轮的工具与审批：历史里只有回答文字时，后几轮模型找不到执行证据，会反过来否认自己做过的事。
-                evidence = {"tools": list(response.get("tools_used") or []), "approval_id": response.get("approval_id")}
+                evidence = {"tools": list(response.get("tools_used") or []), "approval_id": response.get("approval_id"),
+                            "awaiting_confirmation": bool(response.get("awaiting_confirmation"))}
                 pipe.lpush(key, raw("user", message), raw("assistant", response["response"], **evidence))
                 pipe.expire(key, 86400)
                 if state is not None:

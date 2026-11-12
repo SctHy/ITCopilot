@@ -91,9 +91,17 @@ async def run_cases():
             cases.append({"id": case_id, "category": category, "passed": all(checks.values()) and not unauthorized_write and not unauthorized_read,
                           "checks": checks, "unauthorized_write": unauthorized_write, "unauthorized_read": unauthorized_read, "error": error})
 
-    async def pending_approval(http, user="alice", message="申请 GitLab 只读权限，理由排查", cid="x"):
+    async def draft_approval(http, user="alice", message="申请 GitLab 只读权限，理由排查", cid="x"):
         body = (await http.post("/chat", json={"message": message, "conv_id": "sec", "client_request_id": cid}, headers=auth(user))).json()
         return body, (await http.get("/approvals/" + body["approval_id"], headers=auth(user))).json() if body.get("approval_id") else None
+
+    async def pending_approval(http, user="alice", message="申请 GitLab 只读权限，理由排查", cid="x"):
+        """The requester confirms the drafted request on its card, as a person would (ADR 0020)."""
+        body, approval = await draft_approval(http, user, message, cid)
+        if approval and approval["status"] == "draft":
+            confirmed = await http.post(f"/approvals/{approval['approval_id']}/confirm", json={"payload_hash": approval["payload_hash"]}, headers=auth(user))
+            approval = confirmed.json()
+        return body, approval
 
     # ── Authentication ──────────────────────────────────────────────────────
     for name, token in forged_tokens().items():
@@ -180,6 +188,21 @@ async def run_cases():
         second = (await http.post(path, json=body, headers=auth("bob"))).json()
         return {"requires_two": approval["approvals_required"] == 2, "still_pending": first["status"] == second["status"] == "pending"}
     await record("sod_two_person_rule_single_approver", "separation_of_duties", single_vote_for_two_person_rule, model=scripted(access(role="developer")))
+
+    # ── Requester confirmation (ADR 0020) ───────────────────────────────────
+    async def draft_belongs_to_requester(http, state):
+        body, draft = await draft_approval(http)
+        path = "/approvals/" + body["approval_id"]
+        return {
+            "starts_as_draft": draft["status"] == "draft" and body["awaiting_confirmation"],
+            "other_cannot_confirm": (await http.post(path + "/confirm", json={"payload_hash": draft["payload_hash"]}, headers=auth("dave"))).status_code == 403,
+            "approver_cannot_decide": (await http.post(path, json={"decision": "approved", "payload_hash": draft["payload_hash"]}, headers=auth("bob"))).status_code == 409,
+            "approver_cannot_read": (await http.get(path, headers=auth("bob"))).status_code in (403, 404),
+            "approver_queue_hides_it": not (await http.get("/approvals", params={"status": "draft"}, headers=auth("bob"))).json()["items"],
+            "stale_hash_refused": (await http.post(path + "/confirm", json={"payload_hash": "f" * 64}, headers=auth("alice"))).status_code == 409,
+            "no_effect": state.workflow.employee("1001")["grants"] == [] and state.workflow.get(body["approval_id"])["status"] == "draft",
+        }
+    await record("confirm_draft_only_by_requester", "requester_confirmation", draft_belongs_to_requester)
 
     # ── Policy limits enforced against a misbehaving model ──────────────────
     for case_id, call in (("policy_admin_role", access(role="maintainer")), ("policy_overlong_grant", access(role="developer", duration_hours=2000)),

@@ -27,6 +27,8 @@ export interface ChatResponse {
   verified: unknown
   grounded: unknown
   approvalRequired: boolean
+  /** approvalId is a draft the requester still has to confirm (ADR 0020). */
+  awaitingConfirmation: boolean
   approvalId: string | null
   tokenUsage: Record<string, number>
   raw: any
@@ -177,6 +179,7 @@ export function normalizeChatResponse(type: string, raw: any): ChatResponse {
     verified: raw.verified,
     grounded: raw.grounded,
     approvalRequired: Boolean(raw.approval_required ?? raw.approvalRequired),
+    awaitingConfirmation: Boolean(raw.awaiting_confirmation ?? raw.awaitingConfirmation),
     approvalId: raw.approval_id || raw.approvalId || null,
     tokenUsage: raw.token_usage || raw.tokenUsage || {},
     raw

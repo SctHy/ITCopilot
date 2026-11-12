@@ -9,6 +9,7 @@ from typing import Any, Dict
 
 from monitor import metrics
 from tooling.tool_spec import AgentToolSpec, ToolSet, make_tool
+from workflow.actions import WRITE_TOOLS
 
 
 def _toolset(*specs: AgentToolSpec) -> ToolSet:
@@ -70,9 +71,12 @@ def _pending(req, args, action):
     normalised = policy.normalise({"tool_name": action, "arguments": args})
     if principal is not None:
         policy.check_requester(normalised, principal.employee_id, principal.roles)
-    return {"status": "pending_approval", "action": action, "request": normalised["arguments"], "requires_approval": True,
+    confirm = policy.needs_confirmation([normalised])
+    return {"status": "awaiting_confirmation" if confirm else "pending_approval", "action": action, "request": normalised["arguments"],
+            "requires_approval": True, "requires_requester_confirmation": confirm,
             "approvals_required": policy.requirement(normalised).approvals, "policy_version": policy.version,
-            "message": "已生成待审批请求；未执行账号、权限或设备变更。"}
+            "message": ("已生成申请草稿，用户确认后才会提交审批（点申请卡片上的“确认提交”或回复“确认”）；未执行账号、权限或设备变更。"
+                        if confirm else "已生成待审批请求；未执行账号、权限或设备变更。")}
 
 
 def reset_password(req, args):
@@ -138,7 +142,7 @@ def agent_tools(directory=lambda: None) -> ToolSet:
         "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
         "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "不得把管理员等其他角色换成这里的角色"},
         "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "有效期（小时）；用户没说就省略"}}
-    return _toolset(
+    tools = _toolset(
         make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001；不传 asset_id 时列出本人名下全部设备。",
                   _strings("asset_id"), lambda req, args: lookup_asset(req, args, directory())),
         make_tool("query_ticket", "查询本人名下已创建的工单；不传 ticket_id 时列出全部。", _strings("ticket_id"),
@@ -151,3 +155,8 @@ def agent_tools(directory=lambda: None) -> ToolSet:
         make_tool("create_ticket", "用户要求建单时，创建工单待审批请求。title 写故障摘要，description 写已做的诊断与证据，priority 取 P1-P4。",
                   _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False),
     )
+    writes = {name for name, spec in tools.items() if not spec.retry_safe}
+    if writes != WRITE_TOOLS:
+        # 写工具清单只有 workflow.actions 一份；两边不一致时宁可启动失败，也不让某个写工具漏掉审批或意图守卫。
+        raise RuntimeError(f"写工具与 workflow.actions 不一致：{sorted(writes ^ WRITE_TOOLS)}")
+    return tools

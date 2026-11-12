@@ -43,6 +43,25 @@ test('only the applicant can withdraw a pending request; holders and admins can 
   }
 })
 
+test('a draft is the applicant\'s to confirm or cancel; approvers wait for it', () => {
+  const alice = { subject: 'alice', employee_id: '1001', roles: ['employee'] }
+  const draft = { ...approval, status: 'draft' }
+  assert.equal(approvalPermissions(draft, alice).canConfirm, true)
+  assert.equal(approvalPermissions(draft, alice).canWithdraw, true)
+  assert.equal(approvalPermissions(draft, bob).canConfirm, false)
+  assert.equal(approvalPermissions(draft, bob).canDecide, false)
+  assert.match(approvalPermissions(draft, bob).reason, /申请人确认/)
+  assert.equal(approvalPermissions(approval, alice).canConfirm, false)
+})
+
+test('confirm goes through the transport and refreshes the room', async () => {
+  const calls = []
+  const c = createTaskController(client({ confirm: async a => { calls.push(['confirm', a.approval_id]) } }))
+  await c.select('room/A')
+  await c.decide({ ...approval, status: 'draft' }, 'confirm')
+  assert.deepEqual(calls, [['confirm', 'approval-A']])
+})
+
 test('withdraw and release go through the transport and refresh the room', async () => {
   const calls = []
   const c = createTaskController(client({ withdraw: async a => { calls.push(['withdraw', a.approval_id]) },

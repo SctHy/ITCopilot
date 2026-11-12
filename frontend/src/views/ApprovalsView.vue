@@ -4,7 +4,7 @@
       <div class="heading-copy">
         <span class="kicker">APPROVALS</span>
         <h1>审批</h1>
-        <p>审批人看到全部待审批申请，员工只看到本人的申请。批准后由执行器写入目标系统，到期自动回收。</p>
+        <p>审批人看到全部待审批申请，员工只看到本人的申请。Agent 起草的申请需申请人确认提交后才进入审批。批准后由执行器写入目标系统，到期自动回收。</p>
       </div>
       <button @click="loadApprovals" :disabled="loading">
         <AppIcon name="refresh" :class="{ spinning: loading }" />
@@ -39,7 +39,7 @@ import type { Approval, ApprovalDecision, ApprovalItem, Identity, Settings } fro
 const props = defineProps<{ settings: Settings; requestState: RequestState; identity: Identity | null }>()
 const emit = defineEmits<{ approval: [target: ApprovalItem, decision?: ApprovalDecision]; toast: [message: string] }>()
 
-const approvalFilters = [{ id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }, { id: 'withdrawn', label: '已撤回' }]
+const approvalFilters = [{ id: 'draft', label: '待我确认' }, { id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }, { id: 'withdrawn', label: '已撤回' }]
 const approvalFilter = ref('pending')
 const approvalInbox = ref<ApprovalItem[]>([])
 const loading = ref(false)

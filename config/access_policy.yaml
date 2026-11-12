@@ -1,11 +1,19 @@
-# Access policy (policy-as-code). Every approval snapshot records `version`;
-# changing rules requires bumping it so old approvals stay explainable.
+# Access policy (policy-as-code). Every approval snapshot records the effective version
+# "<version>+<rule fingerprint>": editing any rule re-checks open work even if `version` is
+# not bumped, but bump it anyway so the change has a readable name in the audit trail.
 # The LLM never reads or edits this file: tools validate against it, the
 # approval store enforces it, and knowledge-base text cannot override it.
-version: "2026-11-12.1"
+version: "2026-11-12.2"
 
 # Pending approvals that nobody decides within this window expire.
 approval_ttl_hours: 72
+
+# Requester confirmation (ADR 0020): for these actions the Agent's request starts as a draft the
+# requester sees and confirms (card button or replying "确认") before approvers are asked. The
+# Agent chose the arguments; this catches a wrong device, role or duration before it costs an
+# approver's time. Unconfirmed drafts expire after confirmation_ttl_hours.
+requester_confirmation: [request_access, reset_password, unlock_account, lock_device]
+confirmation_ttl_hours: 24
 
 # Employees may only request changes for their own employee_id; IT admins may
 # file on behalf of others (e.g. onboarding).

@@ -45,7 +45,7 @@ class TaskCapabilities:
     @staticmethod
     def business_ready(db, task):
         pending = db.execute(select(approvals.c.id).where(approvals.c.conv_id == 'task:' + task['id'],
-            (approvals.c.status == 'pending') | approvals.c.execution.in_(['queued', 'executing', 'manual_review']))).first()
+            approvals.c.status.in_(['draft', 'pending']) | approvals.c.execution.in_(['queued', 'executing', 'manual_review']))).first()
         questions = db.execute(select(task_todos.c.id).where(task_todos.c.task_id == task['id'], task_todos.c.status == 'open')).first()
         return not pending and not questions
 

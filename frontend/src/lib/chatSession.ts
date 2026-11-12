@@ -37,6 +37,7 @@ const streamLabels: Record<string, (data: Record<string, any>) => string> = {
   tool_started: data => `正在调用工具 ${data.tool}`,
   tool_finished: data => `工具 ${data.tool} ${data.success ? '完成' : '失败'}（${data.latency_ms}ms）`,
   approval_required: data => `已提交审批，需 ${data.approvals_required} 人批准`,
+  confirmation_required: () => '已生成申请草稿，等待你确认提交',
   content_delta: () => '正在输出回复',
   resumed: () => '连接中断，正在续传',
   answer_reset: () => '正在调用工具'
@@ -114,6 +115,8 @@ export function createChatSession(settings: Settings, requestState: RequestState
       // Read back the reactive proxy so the loads below update what is rendered.
       const pushed = state.messages[state.messages.length - 1]!
       for (const entry of pushed.relatedApprovals || []) transport.loadApproval(entry)
+      // A draft is only useful with its content on screen: load it so "确认提交" is one click away.
+      if (response.awaitingConfirmation && pushed.approvalId) transport.loadApproval(pushed as ApprovalItem)
       await hooks.onReply?.()
     } catch (error) {
       if (!request.isCurrent()) return
