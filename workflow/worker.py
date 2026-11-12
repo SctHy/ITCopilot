@@ -26,9 +26,12 @@ import logging
 import os
 import random
 import socket
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
+
+from sqlalchemy import insert, select
 
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
@@ -131,45 +134,57 @@ class ExecutionWorker:
         if version == self._policy_version:
             return
         report = await asyncio.to_thread(self.store.revalidate)
-        self._policy_version = version
         changed = {k: len(v) for k, v in report.items() if isinstance(v, list) and v}
         await asyncio.to_thread(self._record_policy_loaded, self.store.policy.version, changed)
         await asyncio.to_thread(self._record_overlays_loaded)
+        self._policy_version = version
         for outcome, count in changed.items():
             metrics.POLICY_REVALIDATIONS.labels(outcome=outcome).inc(count)
         logger.info("access policy %s: revalidated open work %s", version, changed or "(no changes)")
 
     def _record_policy_loaded(self, version: str, changed: Dict[str, int]) -> None:
-        """Admin trail of which policy took effect and what it did to open work. The file has no
-        author, so this records the effect; who edited it is in version control. Several workers
-        or a restart see the same version: only the first sighting is recorded."""
+        """A version marker and its attribution event must survive or roll back together."""
         from core import admin_audit
+        from core.db import admin_audit as administrative_audit
+        from core.change_log import append_change
 
-        from core.change_log import record_change
-        last = admin_audit.last_system(self.store.engine, "policy_loaded")
-        if last and last["subject"] == version:
-            return
-        policy = self.store.policy
-        detail = {"declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
-                  "previous": last["subject"] if last else None, "revalidated": changed, "worker": self.worker_id}
-        admin_audit.record_system(self.store.engine, "policy_loaded", version, detail)
-        record_change(self.store.engine, "policy", version, detail)
+        with system_scope(), self.store.engine.begin() as db:
+            last = db.execute(select(administrative_audit).where(
+                administrative_audit.c.tenant == admin_audit.GLOBAL_TENANT,
+                administrative_audit.c.event == "policy_loaded")
+                .order_by(administrative_audit.c.id.desc()).limit(1)).mappings().first()
+            if last is not None and last["subject"] == version:
+                return
+            policy, now = self.store.policy, time.time()
+            detail = {"declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
+                      "previous": last["subject"] if last is not None else None,
+                      "revalidated": changed, "worker": self.worker_id}
+            db.execute(insert(administrative_audit).values(tenant=admin_audit.GLOBAL_TENANT,
+                actor=admin_audit.SYSTEM_ACTOR, event="policy_loaded", subject=version,
+                detail=detail, at=now, outcome="succeeded"))
+            append_change(db, "policy", version, detail, at=now)
 
     def _record_overlays_loaded(self) -> None:
-        """Each tenant's effective policy, recorded once per version under that tenant (its admins see it)."""
+        """Each tenant's effective version shares the audit/event transaction."""
         from core import admin_audit
+        from core.db import admin_audit as administrative_audit
+        from core.change_log import append_change
 
         if self.store._policy:
             return
-        from core.change_log import record_change
         for tenant in overlay_tenants():
             policy = load_policy(tenant)
-            last = admin_audit.last_tenant_event(self.store.engine, tenant, "policy_loaded")
-            if last and last["subject"] == policy.version:
-                continue
-            detail = {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id}
-            admin_audit.record_as(self.store.engine, tenant, admin_audit.SYSTEM_ACTOR, "policy_loaded", policy.version, detail)
-            record_change(self.store.engine, "policy", policy.version, detail, tenant=tenant)
+            with tenant_scope(tenant), self.store.engine.begin() as db:
+                last = db.execute(select(administrative_audit).where(
+                    administrative_audit.c.tenant == tenant, administrative_audit.c.event == "policy_loaded")
+                    .order_by(administrative_audit.c.id.desc()).limit(1)).mappings().first()
+                if last is not None and last["subject"] == policy.version:
+                    continue
+                now = time.time()
+                detail = {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id}
+                db.execute(insert(administrative_audit).values(tenant=tenant, actor=admin_audit.SYSTEM_ACTOR,
+                    event="policy_loaded", subject=policy.version, detail=detail, at=now, outcome="succeeded"))
+                append_change(db, "policy", policy.version, detail, tenant=tenant, at=now)
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):

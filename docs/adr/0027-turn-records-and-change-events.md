@@ -20,7 +20,7 @@ Agent 工具指标改为 `it_copilot_agent_tool_calls_total{tool,error_class}`�
 
 ## 后果
 
-Redis 工作记忆与回执仍原子提交；SQL 回合元数据与 Redis 不是分布式事务。SQL 记录先提交，Redis 写入失败时存在已记录的运行，重试不会覆盖原 request_id。正文需长期保留时由后续 badcase 流程单独脱敏快照。非流式请求的 first_token_ms 为 NULL；未配置价格前 cost_usd 为 NULL，不能据此推导成本。
+Redis 工作记忆与回执仍原子提交；SQL 回合元数据与 Redis 不是分布式事务。SQL 记录先提交，Redis 写入失败时存在已记录的运行，成功终态重放不会覆盖原记录；共享事项最终失败后由人重新处理成功时，同 request_id 的失败记录可以被新权威结算更新。正文需长期保留时由后续 badcase 流程单独脱敏快照。非流式请求的 first_token_ms 为 NULL；未配置价格前 cost_usd 为 NULL，不能据此推导成本。
 
 ## 验证方法
 
