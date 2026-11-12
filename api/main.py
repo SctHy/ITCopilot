@@ -27,6 +27,7 @@ from core.events import InMemoryEventBus, RedisEventBus
 from core.retention import RetentionPolicy, RetentionSweeper
 from agents.request_recall import RequestRecall
 from core.session_revocation import SessionRevocations
+from core.tenancy import TenantRegistry, ensure_supported, multi_tenant_enabled
 from core.rate_limit import MemoryRateLimiter, RedisRateLimiter, rules_from_env
 from core.protocols import APPLICATION
 from core.identity import dev_mode_allowed
@@ -115,6 +116,7 @@ async def lifespan(app: FastAPI):
             state.tool_manager = MCPToolManager(**llm)
             # 审批、执行与向量（知识库、记忆）同库：本地 SQLite，部署 PostgreSQL + pgvector。
             db_url = database_url(os.getenv("IT_COPILOT_DATA_DIR", str(pathlib.Path(_ROOT) / "data")))
+            ensure_supported(db_url)
             state.kb = KnowledgeBase(db_url)
 
             async def knowledge(params, ctx=None):
@@ -162,6 +164,9 @@ async def lifespan(app: FastAPI):
             state.request_recall = RequestRecall(state.workflow.requester_items)
             state.sessions = SessionRevocations(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_REVOCATION_CACHE_S", 5))
             resources.callback(lambda: setattr(state, "sessions", None))
+            if multi_tenant_enabled():
+                state.tenants = TenantRegistry(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
+                resources.callback(lambda: setattr(state, "tenants", None))
             state.tasks.effects = CompositeTaskEffects([state.tasks.effects, state.task_capabilities.suggestions, state.task_capabilities.goals])
             state.workflow.shared_access = state.task_capabilities.access.approval_access
             state.workflow.shared_filter = state.task_capabilities.access.approval_filter

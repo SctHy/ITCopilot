@@ -218,6 +218,23 @@ session_revocations = Table(
     PrimaryKeyConstraint("tenant", "subject"),
 )
 
+# Tenant registry (ADR 0022, migration 0003). With IT_COPILOT_MULTI_TENANT on, a token's tenant must
+# be listed here and ``active``; off, the table is not consulted. ``issuer`` / ``feishu_tenant_key``
+# bind an IdP realm and a Feishu workspace to the tenant; ``policy_ref`` names the tenant's policy
+# overlay and ``quotas`` its rate and budget limits. Later phases read them; nothing guesses a tenant.
+tenants = Table(
+    "tenants", metadata,
+    Column("id", String(80), primary_key=True),
+    Column("status", String(20), nullable=False),               # active / suspended / offboarding
+    Column("tier", String(40), nullable=False),
+    Column("issuer", String(300), unique=True),
+    Column("feishu_tenant_key", String(120), unique=True),
+    Column("policy_ref", String(200)),
+    Column("quotas", JSON, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
 directory_employees = Table(

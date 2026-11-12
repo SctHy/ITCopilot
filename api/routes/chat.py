@@ -402,12 +402,26 @@ async def chat_stream_resume(request_id: str, principal: Principal = Depends(cur
 
 
 RATE_LIMITED_REPLY = "消息太频繁了，请稍等一分钟再发。"
+TENANT_INACTIVE_REPLY = "所在组织的 IT 服务暂未开通或已停用，请联系 IT 管理员。"
+
+
+def _tenant_active(tenant: str) -> bool:
+    from core.tenancy import TenantUnavailable
+
+    try:
+        state.tenants.check(tenant)
+    except TenantUnavailable:
+        return False
+    return True
 
 
 async def _channel_turn(principal: Principal, text: str, conv_id: str, client_request_id: str) -> Dict[str, Any]:
     """IM 消息与 /chat 走同一条路径；client_request_id 取平台消息 ID，崩溃后重放返回已存回执。"""
     payload = ChatRequest(message=text[:8000], conv_id=conv_id[:200], client_request_id=client_request_id[:200])
     rid = request_id(principal, payload.client_request_id)
+    if state.tenants is not None and not await asyncio.to_thread(_tenant_active, principal.tenant):
+        # Settled with a reply, like rate limiting: an IM identity has no token to refuse (ADR 0022).
+        return {"request_id": rid, "response": TENANT_INACTIVE_REPLY, "approval_required": False}
     if not (await rate_limit_decision(principal, AGENT_TURN, "feishu")).allowed:
         # Answered, not retried: the message is settled with this reply instead of queueing more model work.
         return {"request_id": rid, "response": RATE_LIMITED_REPLY, "approval_required": False}

@@ -326,6 +326,9 @@ def database_url(default_dir: Optional[str] = None) -> str:
 
 async def _main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    from core.tenancy import ensure_supported
+
+    ensure_supported(database_url())
     store = WorkflowStore(database_url())
     channels = enabled_channels()
     if channels:

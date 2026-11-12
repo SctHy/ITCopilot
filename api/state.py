@@ -23,6 +23,7 @@ task_worker: Any = None
 task_event_pump: Any = None
 retention: Any = None          # core.retention.RetentionSweeper
 sessions: Any = None           # core.session_revocation.SessionRevocations；None 时不检查吊销
+tenants: Any = None            # core.tenancy.TenantRegistry；None 时不检查租户（多租户开关关闭）
 rate_limiter: Any = None       # core.rate_limit；None 表示不限流（单元测试默认）
 task_capabilities: Any = None
 registry: Any = None

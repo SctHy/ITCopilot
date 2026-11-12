@@ -22,3 +22,4 @@
 | [0019](0019-token-revocation-watermark.md) | 按身份的令牌吊销水位线 | 已采纳 |
 | [0020](0020-requester-confirms-drafted-requests.md) | 申请人确认 Agent 起草的申请后才进入审批 | 已采纳 |
 | [0021](0021-audit-integrity-and-policy-identity.md) | 审计完整性：来源摘要、管理操作先写意图、审计表只追加、策略按内容识别（修订 0008） | 已采纳 |
+| [0022](0022-multi-tenant-registry-and-isolation-sweep.md) | 多租户阶段 0：租户注册表与开关、跨租户路由巡检、未限定租户的查询静态守卫 | 已采纳 |

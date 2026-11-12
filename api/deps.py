@@ -78,6 +78,23 @@ async def admin_change(principal: Principal, event: str, subject: Optional[str] 
                             detail=change.detail or None)
 
 
+def check_tenant(tenant: str) -> None:
+    """Multi-tenant mode (ADR 0022): the token's tenant must be registered and active. Fails closed."""
+    from core.tenancy import TenantUnavailable
+
+    try:
+        state.tenants.check(tenant)
+    except TenantUnavailable as exc:
+        if exc.reason == "unknown":
+            metrics.AUTH_FAILURES.labels(reason="unknown_tenant").inc()
+            raise HTTPException(401, "租户未开通", headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}) from None
+        metrics.AUTH_FAILURES.labels(reason="tenant_inactive").inc()
+        raise HTTPException(403, "租户已停用，请联系平台管理员") from None
+    except Exception:
+        logger.warning("tenant registry lookup failed", exc_info=True)
+        raise HTTPException(503, "身份校验暂不可用，请稍后重试") from None
+
+
 def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     scheme, _, token = (authorization or "").partition(" ")
     try:
@@ -87,6 +104,8 @@ def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
     except AuthError as exc:
         metrics.AUTH_FAILURES.labels(reason="unauthenticated").inc()
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+    if state.tenants is not None:
+        check_tenant(principal.tenant)
     if state.sessions is not None:
         try:
             revoked = state.sessions.is_revoked(principal)

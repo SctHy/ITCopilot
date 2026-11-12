@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布 — 多租户阶段 0：租户注册表与隔离巡检
+
+见 ADR 0022 与 [docs/multi-tenant-plan.md](docs/multi-tenant-plan.md)。
+
+- 租户注册表 `tenants`（迁移 `0003`，登记 `default` 与已有数据的租户）。开关 `IT_COPILOT_MULTI_TENANT` 打开后，令牌里的租户必须已登记且为 active：未登记返回 401，停用返回 403，查询失败返回 503；飞书消息对停用租户直接回复说明。开关打开时拒绝使用 SQLite。默认关闭，行为不变。
+- `scripts/tenants.py`：开通、停用、恢复、下线租户，变更与管理审计在同一事务中写入。
+- `tests/test_tenant_isolation.py`：另一租户的四种身份逐个调用所有路由，每条路由都必须归类；已知缺口（知识库列出、检索、删除，沙箱目录查询）按严格 xfail 运行。
+- `tests/test_tenant_query_guard.py`：对带 tenant 列的表做查询却没有租户条件的函数，必须列入白名单并写明理由。
+
 ## 未发布 — 分层复盘：申请人确认与审计完整性
 
 由意图识别 → 工具授权 → 人工确认 → 审计 → 回滚的分层复盘驱动（ADR 0020、0021）。
