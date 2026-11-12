@@ -16,3 +16,5 @@
 7. 将确认的根因回填 badcase 标注，转成可复现回归用例，再验证修复。
 
 报告输出 Markdown 到 stdout，元数据 JSON 存在 `evaluation/reports/attribution_<UTC>.json`。脚本以运营身份只读全局数据；使用 `--tenant` 收窄查询。它不会写业务状态。
+
+缓存命中率下降超过 10 个百分点时，先检查归因报告的 `cache_invalidation`：仅在窗口间 prompt/tools 指纹集合变化时提示优先核查；没有 token 观察时保留空值，指纹变化本身不证明因果。

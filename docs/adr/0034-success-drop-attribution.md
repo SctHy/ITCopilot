@@ -19,3 +19,5 @@
 ## 验证
 
 `.venv/bin/pytest -q tests/test_attribution.py`：合成模型 X 退化与 model_route 变更显著对齐；纯流量 mix 场景 rate 为零；新切片与空窗口；工具失败使用调用次数作分母。线上真实流量归因：未运行。复现命令见 [runbook](../runbook-success-drop.md)。
+
+2026-11-13 验收补齐缓存归因：命中率下降超过 10 个百分点且 prompt/tools 指纹集合改变时，报告列为优先核查项；无变化不造嫌疑、无样本不判下降。对应正向、低于阈值、空样本及未变指纹反例见 test_attribution.py。

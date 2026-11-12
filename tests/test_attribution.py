@@ -89,3 +89,24 @@ def test_cli_reads_durable_rows_and_snapshots_with_tenant_filter(db_url):
         assert any(sample["badcase_id"] == "snapshot" for group in report["samples"] for sample in group["requests"])
     finally:
         path.unlink()
+
+
+def test_cache_drop_prioritizes_changed_prompt_and_tools_without_claiming_causality():
+    before, after = rows(10, 0), rows(10, 0, start=4000)
+    for row in after:
+        row.update(cache_read_tokens=300, prompt_fp="new-prompt", tools_fp="new-tools")
+    report = attribute(before, after, [])
+    assert report["cache_invalidation"]["suspects"] == ["prompt_fp", "tools_fp"]
+    assert abs(report["cache_invalidation"]["ratio_delta"] + .2) < 1e-9
+    assert "prompt_fp" in markdown(report)
+    for row in after:
+        row["cache_read_tokens"] = 450
+    assert attribute(before, after, [])["cache_invalidation"]["suspects"] == []
+    assert attribute([], after, [])["cache_invalidation"]["ratio_delta"] is None
+
+
+def test_cache_drop_without_a_fingerprint_change_does_not_invent_a_suspect():
+    before, after = rows(10, 0), rows(10, 0, start=4000)
+    for row in after:
+        row["cache_read_tokens"] = 0
+    assert attribute(before, after, [])["cache_invalidation"]["suspects"] == []

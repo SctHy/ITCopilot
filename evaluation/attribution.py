@@ -96,6 +96,18 @@ def tool_rates(rows: list[dict]) -> dict:
             for key, n in counts.items()}
 
 
+def cache_invalidation(before: list[dict], after: list[dict]) -> dict:
+    baseline = token_summary(before)["cache_read_ratio"]
+    current = token_summary(after)["cache_read_ratio"]
+    delta = current - baseline if baseline is not None and current is not None else None
+    suspects = []
+    if delta is not None and delta < -.1:
+        suspects = [field for field in ("prompt_fp", "tools_fp")
+                    if {row[field] for row in before} != {row[field] for row in after}]
+    return {"ratio_delta": delta, "suspects": suspects,
+            "interpretation": "Changed fingerprints are investigation priorities, not causal evidence."}
+
+
 def attribute(before: list[dict], after: list[dict], events: list[dict], *, snapshots=None) -> dict:
     decomposition = {dim: slices(before, after, dim) for dim in DIMENSIONS}
     top = sorted((row for group in decomposition.values() for row in group),
@@ -144,6 +156,7 @@ def attribute(before: list[dict], after: list[dict], events: list[dict], *, snap
             "tool_errors": sorted(tools, key=lambda row: abs(row["delta"]), reverse=True)[:10],
             "tokens": {"baseline": token_summary(before), "current": token_summary(after)},
             "timeline": timeline, "hourly": hourly, "samples": samples,
+            "cache_invalidation": cache_invalidation(before, after),
             "limitations": ["Change alignment is correlation, not causation.",
                             "Per-dimension decompositions overlap and must not be added together.",
                             "Event tests are exploratory, without multiple-comparison correction.",
@@ -179,5 +192,8 @@ def markdown(report: dict) -> str:
         lines.append(f"- {group['dimension']}={group['value']}")
         lines.extend(f"  - [{row['request_id']}]({row['trace']}), badcase={row['badcase_id']}"
                      for row in group["requests"])
+    cache = report["cache_invalidation"]
+    if cache["suspects"]:
+        lines += ["", "缓存命中下降超过 10 个百分点，优先核查指纹变更：" + ", ".join(cache["suspects"]) + "；这不是因果结论。"]
     lines += ["", "这些统计用于定位候选原因；变更与失败的时间相关性需要读样本确认。"]
     return "\n".join(lines)
