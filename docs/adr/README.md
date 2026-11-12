@@ -29,3 +29,4 @@
 | [0026](0026-resource-serialization-and-ledger-state.md) | 资源级串行化与台账期望状态 | 已采纳 |
 | [0027](0027-turn-records-and-change-events.md) | 持久回合元数据、版本指纹、工具错误类别与行为变更事件 | 已采纳 |
 | [0034](0034-success-drop-attribution.md) | 成功率波动的切片 rate/mix 分解与变更时间线归因 | 已采纳 |
+| [0032](0032-long-term-memory-governance.md) | 长期记忆写入脱敏、准入、近重复合并及字段时效和本人删除 | 已采纳 |

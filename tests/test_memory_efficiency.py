@@ -81,7 +81,7 @@ def test_profile_counter_restarts_after_compression_and_keys_do_not_collide():
 
 
 def test_profile_in_prompt_keeps_chinese_readable():
-    ctx = MemoryContext(recent_messages=[], relevant_history=[], user_profile={"background": "研发部", "environment": "MacBook"}, summary="")
+    ctx = MemoryContext(recent_messages=[], relevant_history=[], user_profile=MemoryManager._normalize_profile({"background": "研发部", "environment": "MacBook"}), summary="")
     text = ctx.to_prompt_text()
     assert "研发" in text and "\\u" not in text
 
@@ -102,8 +102,10 @@ def test_each_profile_field_is_capped():
 def test_legacy_list_profile_is_upgraded():
     legacy = {"schema_version": 3, "department": "platform", "systems": ["GitLab", "Jira"], "devices": ["MacBook Pro"],
               "preferences": ["中文"], "facts": [{"key": "department", "value": "old", "status": "superseded"}], "stable_attributes": {}}
-    assert MemoryManager._upgrade_profile(legacy) == {"schema_version": 4, "background": "platform", "work": "GitLab、Jira",
-                                                      "environment": "MacBook Pro", "communication": "中文"}
+    upgraded = MemoryManager._upgrade_profile(legacy)
+    assert upgraded["schema_version"] == 5 and upgraded["background"] == "platform"
+    assert upgraded["work"] == "GitLab、Jira" and upgraded["environment"] == "MacBook Pro"
+    assert upgraded["communication"] == "中文" and upgraded["field_meta"]["background"]["updated_at"] == 0
 
 
 def test_history_window_trims_in_blocks_so_prefix_stays_cacheable():
@@ -145,4 +147,5 @@ def test_profile_extraction_sees_only_what_the_employee_said():
     assert "我在 platform 组做后端" in prompts[0] and "ASSISTANT-STYLE" not in prompts[0]
     # 第二次提炼把上一版画像作为“旧版本”交给模型修订。
     assert "背景：platform 组后端" in prompts[1]
-    assert profile == {"schema_version": 4, "background": "platform 组后端", "communication": "中文"}
+    assert profile["schema_version"] == 5 and profile["background"] == "platform 组后端"
+    assert profile["communication"] == "中文" and profile["field_meta"]["background"]["source_request_id"] == "r1"

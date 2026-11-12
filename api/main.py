@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 
 from api import state
 from api.deps import env_flag
-from api.routes import task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
+from api.routes import memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
 from api.routes.chat import _channel_turn
 from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
@@ -266,5 +266,5 @@ app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
 _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/mcp", _mcp_mount)
-for module in (ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
+for module in (memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
     app.include_router(module.router)

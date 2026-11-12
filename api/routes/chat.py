@@ -1,5 +1,6 @@
 """对话：同步 /chat、实时事件流 /chat/stream，以及 IM 渠道复用的同一条对话路径。"""
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -210,7 +211,7 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None,
         async with state.memory.conversation(principal.scope_key, conv_id):
             receipt = await state.memory.get_turn_receipt(principal.scope_key, conv_id, rid)
             if receipt:
-                if receipt.get("message") != payload.message:
+                if receipt["message_hash"] != hashlib.sha256(payload.message.encode()).hexdigest():
                     raise HTTPException(409, "同一 client_request_id 不能用于不同消息")
                 flow = TURN.start()
                 flow.send("replay")
@@ -333,9 +334,11 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
         flow.send("commit")
         if state.profile_updater:
             state.profile_updater.submit(principal.scope_key, conv_id)
-        if result.intent and result.intent.value not in {"greeting", "chitchat"}:
-            metadata = {"intent": result.intent.value, "intent_group": req.intent_group or "other", "entities": intent_result.entities}
-            spawn(state.memory.store_episodic_turn(principal.scope_key, conv_id, rid, payload.message, response.response, metadata))
+        from memory.admission import admit_turn
+        episodic = admit_turn(response, intent_result, req.conversation_state)
+        if episodic is not None:
+            spawn(state.memory.store_episodic_turn(principal.scope_key, conv_id, rid, payload.message,
+                                                   episodic.answer, episodic.metadata))
     metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
     if state.monitor:

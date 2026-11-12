@@ -18,15 +18,16 @@ def test_state_tracks_entities_and_missing_slots():
 
 def test_profile_normalization_removes_sensitive_values():
     profile = MemoryManager._normalize_profile({"background": "研发部后端", "work": "维护 GitLab；password=bad", "extra": "x" * 500})
-    assert profile == {"schema_version": 4, "background": "研发部后端", "work": "[REDACTED]"}
+    assert profile["schema_version"] == 5 and profile["background"] == "研发部后端"
+    assert profile["work"] == "维护 GitLab；password=[REDACTED]"
 
 
 def test_memory_budget_and_profile_merge():
     from memory.conversation_memory import MemoryManager
     values = MemoryManager._budget_texts(["a" * 300, "b" * 300, "c" * 300], 128)
     assert len(values) == 1
-    merged = MemoryManager._merge_profile({"background": "研发部", "work": "GitLab"}, {"work": "GitLab 与 Jira"})
-    assert merged == {"schema_version": 4, "background": "研发部", "work": "GitLab 与 Jira"}
+    merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部", "work": "GitLab"}), MemoryManager._normalize_profile({"work": "GitLab 与 Jira"}))
+    assert merged["schema_version"] == 5 and merged["background"] == "研发部" and merged["work"] == "GitLab 与 Jira"
 
 
 def test_profile_revision_replaces_outdated_field():

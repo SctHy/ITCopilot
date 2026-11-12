@@ -1,5 +1,6 @@
 """Identity scopes, explicit room access, authorized history and safe continuation."""
 import asyncio
+import hashlib
 import json
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
@@ -88,7 +89,7 @@ def test_private_chat_passes_scoped_identity_through_every_memory_port(chat_clie
 
         async def commit_turn(self, user, conv, rid, message, response, *_args, **_kwargs):
             calls.append(('commit', user))
-            receipts[user, conv, rid] = {'message': message, 'response': response}
+            receipts[user, conv, rid] = {'message_hash': hashlib.sha256(message.encode()).hexdigest(), 'response': response}
 
         async def store_episodic_turn(self, user, *_args):
             calls.append(('episodic', user))

@@ -25,14 +25,16 @@ from typing import Any, Dict, List, Optional
 import redis.asyncio as redis
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.output import ToolOutput
-from pydantic_ai.settings import ModelSettings
 from redis.exceptions import WatchError
 
 from core.concurrency import KeyedLocks, redis_lease
 from memory.states import profile_phase, COMPRESSION, MAINTENANCE
 from core.llm import build_model, close_model, complete_text
+from pydantic_ai.settings import ModelSettings
 from core.vector_store import VectorStore
+from core.redaction import redact, redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,8 @@ class ProfileDoc(BaseModel):
     communication: str = ""   # 语言、希望的回答风格
 
 
-PROFILE_SCHEMA_VERSION = 4
+PROFILE_SCHEMA_VERSION = 5
+PROFILE_MAX_AGE_DAYS = 180
 PROFILE_FIELD_MAX_CHARS = 80
 
 _PROFILE_AGENT = Agent(output_type=ToolOutput(ProfileDoc, name="save_profile", description="保存修订后的员工画像"), retries=0, name="profile_extractor")
@@ -71,8 +74,12 @@ PROFILE_LABELS = (("background", "背景"), ("work", "工作内容"), ("environm
 
 def profile_text(profile: Optional[Dict[str, Any]]) -> str:
     """画像进提示词的样子：每个字段一行，整份通常一两百字。"""
-    profile = profile or {}
-    return "\n".join(f"{label}：{profile[key]}" for key, label in PROFILE_LABELS if profile.get(key))
+    if not profile:
+        return ""
+    now = datetime.now(timezone.utc).timestamp()
+    return "\n".join(f"{label}：{profile[key]}" for key, label in PROFILE_LABELS
+                     if key in profile and now - profile["field_meta"][key]["updated_at"]
+                     <= PROFILE_MAX_AGE_DAYS * 86400)
 
 
 @dataclass
@@ -129,7 +136,7 @@ class MemoryContext:
         if self.summary:
             parts.append(f"[会话摘要]\n{self._clean(self.summary)}")
         if self.relevant_history:
-            parts.append("[相关历史]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
+            parts.append("[历史对话摘要，可能已过时；权限、工单、设备状态以本轮工具查询为准]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
         profile = profile_text(self.user_profile)
         if profile:
             parts.append(f"[用户画像]\n{self._clean(profile)}")
@@ -165,7 +172,7 @@ class MemoryManager:
         base_url:     Optional[str] = None,
         model:        str = "",
     ):
-        self._llm   = build_model(api_key, base_url, model)
+        self._llm = build_model(api_key, base_url, model)
 
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._request_locks = KeyedLocks()
@@ -175,6 +182,7 @@ class MemoryManager:
 
         # 情景记忆与用户画像存在应用数据库的向量表（PostgreSQL + pgvector / 本地 SQLite）
         store = VectorStore(database_url)
+        self.engine = store.engine
         self._episodic = store.collection("episodic")
         # 用户画像：存储提炼出的偏好和实体
         self._profile  = store.collection("user_profile")
@@ -199,7 +207,7 @@ class MemoryManager:
     async def commit_turn(self, user_id, conv_id, request_id, message, response, trace=None, *, state=None):
         """原子保存一整轮及响应回执；由 conversation 锁保护。"""
         def raw(role, content, **extra):
-            return json.dumps({"role": role, "content": self._safe_text(content),
+            return json.dumps({"role": role, "content": redact_text(self._safe_text(content)),
                 "ts": datetime.now().isoformat(), "metadata": {"request_id": request_id, **extra}})
         key = self._wm_key(user_id, conv_id)
         async with self._redis.pipeline(transaction=True) as pipe:
@@ -210,11 +218,10 @@ class MemoryManager:
                 pipe.lpush(key, raw("user", message), raw("assistant", response["response"], **evidence))
                 pipe.expire(key, 86400)
                 if state is not None:
-                    pipe.set(self._state_key(user_id, conv_id), json.dumps(state), ex=86400)
+                    pipe.set(self._state_key(user_id, conv_id), json.dumps(redact(state)), ex=86400)
             pipe.set(self.receipt_key(user_id, conv_id, request_id),
-                     json.dumps({"message": message, "response": response}), ex=86400)
+                     json.dumps({"message_hash": hashlib.sha256(message.encode()).hexdigest(), "response": redact(response)}), ex=86400)
             if trace:
-                from core.redaction import redact
                 encoded_trace = json.dumps(redact(trace))
                 pipe.set("trace:" + response["request_id"], encoded_trace, ex=7 * 86400)
                 pipe.lpush("trace:recent", response["request_id"])
@@ -224,6 +231,16 @@ class MemoryManager:
     async def get_trace(self, request_id):
         raw = await self._redis.get("trace:" + request_id)
         return json.loads(raw) if raw else None
+
+    async def turn_snapshot(self, owner, conv_id, request_id):
+        trace = await self.get_trace(request_id)
+        if trace is not None and "turn" in trace:
+            turn = trace["turn"]
+            return {"trace": trace, "turns": [turn["user"]], "response": turn["assistant"], "missing_slots": turn["missing_slots"]}
+        messages = await self._get_working_memory(owner, conv_id)
+        current = [m for m in messages if m.metadata.get("request_id") == request_id]
+        return {"trace": trace, "turns": [m.content for m in current if m.role == MsgRole.USER],
+                "response": "\n".join(m.content for m in current if m.role == MsgRole.ASSISTANT), "missing_slots": []}
 
     async def recent_traces(self, limit):
         keys = await self._redis.lrange("trace:recent", 0, max(1, min(limit, 200))-1)
@@ -277,7 +294,7 @@ class MemoryManager:
         said = [m.content for m in messages[-10:] if m.role == MsgRole.USER]
         if not said:
             return False
-        text = self._safe_text("\n".join(f"- {c}" for c in said))
+        text = redact_text(self._safe_text("\n".join(f"- {c}" for c in said)))
         prompt = f"""你在维护一份员工画像，供 IT 服务台下次接待这位员工时参考。像维护 AGENTS.md 一样：简明扼要，只写长期稳定的信息；在旧版本上整份修订，不是追加。
 通过 save_profile 返回修订后的完整画像，四个字段：
 - background 背景：部门/团队、岗位、资历（如"platform 组后端工程师，新入职"）
@@ -300,7 +317,9 @@ class MemoryManager:
             result = await asyncio.wait_for(_PROFILE_AGENT.run(
                 prompt, model=self._llm, model_settings=ModelSettings(max_tokens=400, temperature=0.0),
             ), timeout=15)
-            profile_data = self._merge_profile(current_profile, self._normalize_profile(result.output.model_dump()))
+            source_request_id = messages[-1].metadata["request_id"]
+            profile_data = self._merge_profile(current_profile, self._normalize_profile(
+                result.output.model_dump(), source_request_id=source_request_id))
 
             doc_id = self._profile_doc_id(user_id)
             doc_text = self._safe_text(json.dumps(profile_data, ensure_ascii=False))
@@ -317,45 +336,51 @@ class MemoryManager:
             )
             logger.info(f"用户画像已更新: {user_id}")
             return True
-        except Exception as ex:
+        except (TimeoutError, ModelConnectionError, ModelHTTPError, UnexpectedModelBehavior) as ex:
             logger.warning(f"更新用户画像失败: {ex}")
             return False
 
     @staticmethod
-    def _normalize_profile(value: Any) -> Dict[str, Any]:
-        """只留四个字段，限长、脱敏，防止任意模型输出或秘密写入长期记忆。"""
-        if not isinstance(value, dict):
-            return {}
-        blocked = ("password", "passwd", "otp", "token", "secret", "private_key", "恢复码")
-        output: Dict[str, Any] = {"schema_version": PROFILE_SCHEMA_VERSION}
+    def _normalize_profile(value: dict, *, source_request_id: str = "", updated_at: Optional[float] = None) -> Dict[str, Any]:
+        """模型输出在此边界脱敏、限长；字段时间用于召回时的硬过期。"""
+        at = datetime.now(timezone.utc).timestamp() if updated_at is None else updated_at
+        output = {"schema_version": PROFILE_SCHEMA_VERSION, "field_meta": {}}
         for key, _ in PROFILE_LABELS:
-            text = " ".join(str(value.get(key) or "").split())[:PROFILE_FIELD_MAX_CHARS]
+            text = redact_text(" ".join(value.get(key, "").split()))[:PROFILE_FIELD_MAX_CHARS]
             if text:
-                output[key] = "[REDACTED]" if any(word in text.lower() for word in blocked) else text
+                output[key] = text
+                output["field_meta"][key] = {"updated_at": at, "source_request_id": source_request_id}
         return output
 
     @staticmethod
     def _merge_profile(previous: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-        """修订版逐字段替换旧版本。修订版里空着的字段沿用旧值：模型漏写不等于信息作废，
-        要改掉过时内容就写新句子（例如换了部门就写新部门）。"""
-        merged = {"schema_version": PROFILE_SCHEMA_VERSION}
+        """新值逐字段替换；未重新确认的旧字段保留原时间，不能因提炼而延长寿命。"""
+        merged = {"schema_version": PROFILE_SCHEMA_VERSION, "field_meta": {}}
         for key, _ in PROFILE_LABELS:
-            value = incoming.get(key) or (previous or {}).get(key)
-            if value:
-                merged[key] = value
+            if key in incoming and incoming[key] != previous.get(key):
+                merged[key] = incoming[key]
+                merged["field_meta"][key] = incoming["field_meta"][key]
+            elif key in previous:
+                merged[key] = previous[key]
+                merged["field_meta"][key] = previous["field_meta"][key]
         return merged
 
     @classmethod
-    def _upgrade_profile(cls, stored: Any) -> Dict[str, Any]:
-        """schema 3 的列表式画像（department/systems/devices/preferences…）就地转成四个字段，下次提炼时再由模型修订。"""
-        if not isinstance(stored, dict) or not stored:
+    def _upgrade_profile(cls, stored: Any, *, updated_at: Optional[float] = None) -> Dict[str, Any]:
+        """旧画像的读取迁移集中于此；没有来源时间的字段按过期处理。"""
+        if not stored:
             return {}
-        if stored.get("schema_version") == PROFILE_SCHEMA_VERSION:
+        version = stored["schema_version"]
+        if version == PROFILE_SCHEMA_VERSION:
             return stored
+        at = 0.0 if updated_at is None else updated_at
+        if version == 4:
+            return cls._normalize_profile(stored, updated_at=at)
         def join(*keys):
             return "、".join(str(v) for k in keys for v in (stored.get(k) if isinstance(stored.get(k), list) else [stored.get(k)]) if v)
         return cls._normalize_profile({"background": join("department"), "work": join("systems"),
-                                       "environment": join("devices", "recurring_issues"), "communication": join("preferences")})
+                                       "environment": join("devices", "recurring_issues"),
+                                       "communication": join("preferences")}, updated_at=at)
 
     # ── 读取 ──────────────────────────────────────────────────────────────────
 
@@ -421,15 +446,15 @@ class MemoryManager:
         old_summary = old_summary or ""
         messages = self._messages_from_raw(snapshot)
         to_compress = messages[:-5]
-        text = self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress))
+        text = redact_text(self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress)))
         prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
         try:
             resp = await complete_text(self._llm, prompt, max_tokens=1024, temperature=0.0)
-            summary = self._safe_text(resp.text).strip()
+            summary = redact_text(self._safe_text(resp.text)).strip()
             if not summary or resp.truncated:
                 logger.warning("摘要为空或被截断，保留原始会话消息")
                 return flow.send("defer")
-        except Exception as ex:
+        except (TimeoutError, ModelConnectionError, ModelHTTPError, UnexpectedModelBehavior) as ex:
             logger.warning("摘要生成失败，保留原始会话消息: %s", type(ex).__name__)
             return flow.send("defer")
 
@@ -553,55 +578,80 @@ class MemoryManager:
                 pass
 
     async def _store_episodic(self, user_id: str, conv_id: str, text: str, summary: str) -> bool:
-        """将压缩后的对话片段存入情景记忆。"""
-        try:
-            user_id = self._safe_text(user_id)
-            conv_id = self._safe_text(conv_id)
-            text = self._safe_text(text)
-            summary = self._safe_text(summary)
-            doc_id = hashlib.sha256(json.dumps([user_id, conv_id, text, summary]).encode()).hexdigest()
-            await asyncio.to_thread(
-                self._episodic.upsert,
-                ids=[doc_id],
-                documents=[summary],
-                metadatas=[{"user_id": user_id, "conv_id": conv_id,
-                            "ts": datetime.now().isoformat(), "full_text": self._safe_text(text[:500])}],
-            )
-            return True
-        except Exception as ex:
-            logger.warning(f"存储情景记忆失败: {ex}")
-            return False
+        """旧压缩 outbox 的重放也必须经过脱敏。"""
+        text = redact_text(self._safe_text(text))
+        summary = redact_text(self._safe_text(summary))
+        doc_id = hashlib.sha256(json.dumps([user_id, conv_id, text, summary]).encode()).hexdigest()
+        await asyncio.to_thread(self._episodic.upsert, ids=[doc_id], documents=[summary],
+            metadatas=[{"user_id": user_id, "conv_id": conv_id,
+                        "ts": datetime.now().isoformat(), "full_text": text[:500]}])
+        return True
 
     async def store_episodic_turn(self, user_id: str, conv_id: str, request_id: str, message: str, response: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        """Phase 2：每轮将非敏感对话摘要写入情景记忆，支持跨会话语义召回。"""
-        try:
-            safe_message = self._safe_text(message)[:2000]
-            safe_response = self._safe_text(response)[:3000]
-            doc = f"员工问题：{safe_message}\n服务台回答：{safe_response}"
-            doc_id = hashlib.sha256(f"turn:{request_id}".encode()).hexdigest()
-            meta = {"user_id": self._safe_text(user_id), "conv_id": self._safe_text(conv_id), "request_id": self._safe_text(request_id), "ts": datetime.now().isoformat(), "memory_type": "episodic_turn", "importance": 0.5}
-            for key, value in (metadata or {}).items():
-                if key in {"intent", "intent_group"}:
-                    meta[key] = self._safe_text(value)[:64]
-            if metadata and metadata.get("entities"):
-                meta["entity_keys"] = ",".join(sorted(str(k) for k in metadata["entities"].keys()))[:256]
+        """同一主体的近重复问答合并，锁覆盖最近邻查询和写入。"""
+        safe_message = redact_text(self._safe_text(message))[:300]
+        safe_response = redact_text(self._safe_text(response))[:300]
+        doc = f"员工问题：{safe_message}\n回答要点：{safe_response}"
+        doc_id = hashlib.sha256(f"turn:{request_id}".encode()).hexdigest()
+        now = datetime.now(timezone.utc).isoformat()
+        meta = {"user_id": user_id, "conv_id": conv_id, "request_id": request_id,
+                "source_request_id": request_id, "ts": now, "last_seen": now,
+                "seen": 1, "memory_type": "episodic_turn", "importance": 0.4,
+                "approval_id": None, "ticket_id": None}
+        if metadata is not None:
+            for key in ("intent", "intent_group", "approval_id", "ticket_id", "importance", "source_request_id"):
+                if key in metadata:
+                    meta[key] = metadata[key]
+            if "entities" in metadata:
+                meta["entity_keys"] = ",".join(sorted(metadata["entities"]))[:256]
+        meta = redact(meta)
+        digest = hashlib.sha256(user_id.encode()).hexdigest()
+        async with redis_lease(self._redis, f"lock:episodic:{digest}"):
+            hits = await asyncio.to_thread(self._episodic.query, query_texts=[doc], n_results=1,
+                                          where={"user_id": user_id, "memory_type": "episodic_turn"})
+            if hits["ids"][0] and hits["distances"][0][0] < 0.08:
+                doc_id = hits["ids"][0][0]
+                previous = hits["metadatas"][0][0]
+                if previous["source_request_id"] == request_id:
+                    return
+                meta["seen"] = previous["seen"] + 1
             await asyncio.to_thread(self._episodic.upsert, ids=[doc_id], documents=[doc], metadatas=[meta])
-        except Exception as ex:
-            logger.warning("存储单轮情景记忆失败: %s", type(ex).__name__)
 
     async def _get_profile(self, user_id: str) -> Dict[str, Any]:
-        """获取用户画像（取最新一条）。"""
-        try:
-            doc_id = self._profile_doc_id(user_id)
-            direct = await asyncio.to_thread(self._profile.get, ids=[doc_id])
-            if direct.get("documents"):
-                return self._upgrade_profile(json.loads(direct["documents"][0]))
+        doc_id = self._profile_doc_id(user_id)
+        direct = await asyncio.to_thread(self._profile.get, ids=[doc_id])
+        if direct["documents"]:
+            return self._upgrade_profile(json.loads(direct["documents"][0]))
+        results = await asyncio.to_thread(self._profile.get, where={"user_id": user_id})
+        return self._upgrade_profile(self._latest_profile_from_results(results))
 
-            results = await asyncio.to_thread(self._profile.get, where={"user_id": user_id})
-            return self._upgrade_profile(self._latest_profile_from_results(results))
-        except Exception:
-            pass
-        return {}
+    async def personal_memories(self, user_id: str) -> dict:
+        profile = await self._get_profile(user_id)
+        rows = await asyncio.to_thread(self._episodic.get, where={"user_id": user_id})
+        visible_profile = {key: {"summary": profile[key], "at": profile["field_meta"][key]["updated_at"]}
+                           for key, _ in PROFILE_LABELS if key in profile}
+        return {"profile": visible_profile, "episodic": [
+            {"id": doc_id, "summary": document, "at": meta["ts"]}
+            for doc_id, document, meta in zip(rows["ids"], rows["documents"], rows["metadatas"])]}
+
+    def delete_personal_memories(self, principal, episodic_id: Optional[str] = None) -> int:
+        from sqlalchemy import delete, insert, select
+        from core.db import admin_audit, vector_documents
+
+        own = vector_documents.c.meta["user_id"].as_string() == principal.scope_key
+        condition = own & vector_documents.c.collection.in_(("episodic", "user_profile"))
+        if episodic_id is not None:
+            condition = own & (vector_documents.c.collection == "episodic") & (vector_documents.c.id == episodic_id)
+        with self.engine.begin() as db:
+            ids = db.execute(select(vector_documents.c.id).where(condition)).all()
+            if episodic_id is not None and not ids:
+                return 0
+            count = db.execute(delete(vector_documents).where(condition)).rowcount
+            db.execute(insert(admin_audit).values(
+                tenant=principal.tenant, actor=principal.subject, event="memory_deleted",
+                subject=episodic_id, detail={"count": count, "scope": "episodic" if episodic_id else "all"},
+                at=datetime.now(timezone.utc).timestamp(), outcome="succeeded", ref=None))
+        return count
 
     async def ping(self) -> None:
         """确认 Redis 可达；锁和幂等依赖它，不可达时调用方应拒绝启动。"""
@@ -689,7 +739,9 @@ class MemoryManager:
             except (TypeError, ValueError):
                 importance = 0.5
             try:
-                updated = datetime.fromisoformat(str(meta.get("ts", "")).replace("Z", "+00:00"))
+                seen = int(meta.get("seen", 0))
+                importance *= 1 + 0.1 * min(seen, 5)
+                updated = datetime.fromisoformat(max(str(meta.get("ts", "")), str(meta.get("last_seen", ""))).replace("Z", "+00:00"))
                 if updated.tzinfo is None:
                     updated = updated.replace(tzinfo=timezone.utc)
                 age_days = max(0.0, (datetime.now(timezone.utc) - updated).total_seconds() / 86400)
@@ -728,8 +780,8 @@ class MemoryManager:
         return deduped
 
     async def _merge_summary(self, old_summary: str, new_summary: str) -> str:
-        old_summary = self._safe_text(old_summary).strip()
-        new_summary = self._safe_text(new_summary).strip()
+        old_summary = redact_text(self._safe_text(old_summary)).strip()
+        new_summary = redact_text(self._safe_text(new_summary)).strip()
         if not old_summary:
             return new_summary[: self.SUMMARY_MAX_CHARS]
         if not new_summary:
@@ -749,10 +801,10 @@ class MemoryManager:
         )
         try:
             resp = await complete_text(self._llm, prompt, max_tokens=256, temperature=0.0)
-            merged = self._safe_text(resp.text).strip()
+            merged = redact_text(self._safe_text(resp.text)).strip()
             if merged:
                 return merged[: self.SUMMARY_MAX_CHARS]
-        except Exception as ex:
+        except (TimeoutError, ModelConnectionError, ModelHTTPError, UnexpectedModelBehavior) as ex:
             logger.warning(f"合并摘要失败，回退为截断拼接: {ex}")
 
         merged = self._safe_text(f"{old_summary}\n{new_summary}").strip()

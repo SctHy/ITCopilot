@@ -114,6 +114,7 @@ GAPS: Dict[Tuple[str, str], Tuple[Request, str, str]] = {}
 # Act on the caller's own tenant only; ``test_own_scope_writes_stay_in_the_callers_tenant`` checks
 # the owner's data afterwards, and the routes' own tests cover the rest.
 OWN_SCOPE = {
+    ("GET", "/memory/me"), ("DELETE", "/memory/me"), ("DELETE", "/memory/me/episodic/{episodic_id}"),
     ("POST", "/tasks"), ("GET", "/auth/me"), ("POST", "/auth/logout-all"), ("POST", "/admin/sessions/revoke"),
     ("POST", "/knowledge/add"), ("POST", "/knowledge/upload"), ("GET", "/knowledge/stats"),
     ("GET", "/policy"), ("POST", "/policy/revalidate"),   # caller's tenant policy; platform admins sweep all

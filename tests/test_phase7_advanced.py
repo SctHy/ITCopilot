@@ -38,7 +38,7 @@ def test_memory_token_budget(texts, budget, expected):
 
 def test_memory_sensitive_profile_is_redacted():
     profile = MemoryManager._normalize_profile({"work": "password=secret", "environment": "token abc"})
-    assert profile["work"] == "[REDACTED]" and profile["environment"] == "[REDACTED]"
+    assert profile["work"] == "password=[REDACTED]" and profile["environment"] == "token [REDACTED]"
 
 
 def test_rag_vector_bm25_hybrid_and_citation():

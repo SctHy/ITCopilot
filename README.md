@@ -63,7 +63,7 @@
 - **策略变更即时复核**：策略文件按修改时间热加载；版本变化后，旧版本下的待审批单失效或提高审批人数，未执行的动作取消，生效中的授权按新上限提前回收；审批人决定前、worker 每次执行尚未生效的动作前（含临时失败后的重试）都会再查一次（[ADR 0008](docs/adr/0008-revalidate-on-policy-change.md)）。
 - **IM 入口**（借鉴 DeepSeek dsh-superagent）：飞书消息先落库再处理，回复与审批通知走出站 outbox，按会话保序、退避重试、幂等去重；只在被叫到时说话，一次请求最多一次回应、一次答复、一次结果通知（[ADR 0009](docs/adr/0009-feishu-channel-stored-work.md)）。
 - **共享事项会话**：申请人、受邀或指定的审批人与 Agent 在同一网页事项中讨论。消息内嵌审批卡片，支持「同意审批」「拒绝申请」「要求补充说明」；正式投票独立留痕，讨论不代替审批。持久化任务层通过独立事件源接收审批结果并唤醒只读跟进，重启后可恢复；任务存储、Agent 执行、审批业务与网页交互通过接口组合，共享上下文不读取私人聊天记忆（[ADR 0012](docs/adr/0012-shared-service-tasks.md)、[当前访问规则](docs/adr/0016-identity-scope-and-task-history.md)）。
-- **用户隔离与历史流程续接**：私聊记忆、回执和事件流按“租户＋用户”隔离；共享事项使用显式成员权限。私聊可召回本人发起事项的当前摘要，网页可按权限查找、关联并继续原流程；关联不复制讨论或授予源事项权限（[ADR 0016](docs/adr/0016-identity-scope-and-task-history.md)）。
+- **用户隔离与历史流程续接**：私聊记忆、回执和事件流按“租户＋用户”隔离；共享事项使用显式成员权限。私聊可召回本人发起事项的当前摘要，网页可按权限查找、关联并继续原流程；关联不复制讨论或授予源事项权限（[ADR 0016](docs/adr/0016-identity-scope-and-task-history.md)）。 长期记忆写入前统一脱敏并按业务证据准入，近重复合并、画像字段180天过期，员工可查看或删除本人记忆（[ADR 0032](docs/adr/0032-long-term-memory-governance.md)）。
 - **可观测与可验收**：Prometheus / OpenTelemetry 关联运行指标与调用轨迹；安全回归、PostgreSQL 并发、真实 Keycloak/Gitea 集成在 CI 中运行；真实模型实验以业务状态断言判定成功并保留失败样本。
 
 当前边界：本项目不宣称跨系统 exactly-once（外部系统无幂等键时依靠目标状态回查）；Gitea 是权限系统的沙箱替身，不是企业 IAM。详见 [设计取舍](docs/design-tradeoffs.md)、[ADR](docs/adr/) 与 [威胁模型](docs/threat-model.md)。

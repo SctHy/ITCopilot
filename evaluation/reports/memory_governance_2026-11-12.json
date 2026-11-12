@@ -1,0 +1,114 @@
+{
+  "scope": "memory write/admission/profile pipeline; deterministic FunctionModel, real SQLite/vector embeddings, fakeredis",
+  "dialogs": 20,
+  "passed": 20,
+  "cases": [
+    {
+      "id": "password",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "mobile",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "identity",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "card",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "api_key",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "bearer",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "otp",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "business_ids",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "greeting",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "chitchat",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "out_of_scope",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "failed",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "missing",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "no_evidence",
+      "passed": true,
+      "admitted": false
+    },
+    {
+      "id": "duplicate1",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "duplicate2",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "duplicate3",
+      "passed": true,
+      "admitted": true
+    },
+    {
+      "id": "department_0",
+      "passed": true
+    },
+    {
+      "id": "department_1",
+      "passed": true
+    },
+    {
+      "id": "old_profile",
+      "passed": true
+    }
+  ],
+  "checks": {
+    "sensitive_patterns_absent": true,
+    "duplicates_seen": 3,
+    "department_replaced": true,
+    "old_profile_excluded": true
+  },
+  "memory_ablation": {
+    "status": "未运行",
+    "reason": "本报告仅覆盖确定性治理断言；召回收益需另跑真实模型对照"
+  }
+}
