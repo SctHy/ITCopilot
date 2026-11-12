@@ -33,3 +33,5 @@
 覆盖分桶稳定性和比例、能力优先级与歧义拒绝、默认指令与工具不漂移、租户名单、粘性、回滚后新旧会话差异、发布报告拒绝、管理权限、MCP 断开和合成失败版本自动回滚。PostgreSQL 使用 `IT_COPILOT_TEST_DATABASE_URL=...` 运行同一套存储测试。
 
 创建共享事项时先通过已装配的意图识别端口获得实际 intent_group，再在写入初始事件的同一事务中冻结所选规格版本；首次 worker 回合复用识别缓存。发布离线回归通过 pytest 的 --agent-spec/--agent-version 参数运行并断言 trace 版本，避免候选门禁误跑默认规格。
+
+2026-11-13 完整验收：SQLite/PostgreSQL 的规格与灰度契约、目标规格安全回归均纳入验证。用户确认暂无人工审阅线上样本；真实 online_regression 命令以空数据集拒绝执行，发布门禁保持阻塞，不将确定性夹具当成线上样本。详见 docs/improvement-acceptance.md。

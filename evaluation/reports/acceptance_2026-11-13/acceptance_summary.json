@@ -1,0 +1,376 @@
+{
+  "date": "2026-11-13",
+  "status": "verification_complete_with_unmet_targets_and_release_blocker",
+  "tests": {
+    "sqlite": {
+      "passed": 728,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 733,
+      "skipped": 5
+    },
+    "real_identity_and_adapter": 3,
+    "frontend": 60,
+    "worker_faults": {
+      "passed": 24,
+      "total": 24
+    },
+    "memory_governance": {
+      "passed": 20,
+      "total": 20
+    }
+  },
+  "baseline": {
+    "cases": 330,
+    "passed": 312,
+    "success_rate": 0.9454545454545454,
+    "success_wilson_95": [
+      0.9154353219952588,
+      0.9652222243699068
+    ],
+    "completed_turns": 489,
+    "case_latency_s": {
+      "n": 330,
+      "p50": 3.672606249980163,
+      "p95": 11.146192791988142,
+      "p99": 15.83317012496991
+    },
+    "agent_latency_ms": {
+      "n": 489,
+      "p50": 1711.4939159946516,
+      "p95": 3980.4538329481147,
+      "p99": 5820.045124972239
+    },
+    "pipeline_stage_total_ms": {
+      "n": 489,
+      "p50": 2532.2999999999997,
+      "p95": 5988.6,
+      "p99": 8551.8
+    },
+    "stage_p99_ms": {
+      "agent": 5820.1,
+      "approval": 18.6,
+      "intent": 3571.7,
+      "memory_context": 36.1
+    },
+    "agent_cost_usd": 0.18760960799999998,
+    "agent_cost_per_success_usd": 0.0006013128461538461,
+    "sdk_returned_usage_cost_usd_peak": 0.227165,
+    "sdk_returned_usage_cost_per_success_usd_peak": 0.0007280929487179488,
+    "potentially_unreported_model_usage_turns": 0,
+    "sdk_usage": {
+      "prompt": 1787597,
+      "hit": 1545964,
+      "miss": 241633,
+      "output": 121166,
+      "reasoning": 0
+    },
+    "sdk_cache_hit_rate": 0.8648280345066589,
+    "sdk_calls": 918,
+    "routes": {
+      "agent_read": {
+        "turns": 226,
+        "round_limit": 0,
+        "deadline": 0
+      },
+      "agent_write": {
+        "turns": 262,
+        "round_limit": 0,
+        "deadline": 0
+      },
+      "unrecorded": {
+        "turns": 1,
+        "round_limit": 0,
+        "deadline": 0
+      }
+    },
+    "intent_sources": {
+      "jev": 351,
+      "llm_tool_use": 137,
+      "unrecorded": 1
+    }
+  },
+  "after": {
+    "cases": 330,
+    "passed": 312,
+    "success_rate": 0.9454545454545454,
+    "success_wilson_95": [
+      0.9154353219952588,
+      0.9652222243699068
+    ],
+    "completed_turns": 489,
+    "case_latency_s": {
+      "n": 330,
+      "p50": 3.745377708983142,
+      "p95": 10.910035040986259,
+      "p99": 17.212300041981507
+    },
+    "agent_latency_ms": {
+      "n": 489,
+      "p50": 1843.2478330214508,
+      "p95": 4313.457374984864,
+      "p99": 5954.074124980252
+    },
+    "pipeline_stage_total_ms": {
+      "n": 489,
+      "p50": 2639.7,
+      "p95": 6324.2,
+      "p99": 8239.4
+    },
+    "stage_p99_ms": {
+      "agent": 5954.1,
+      "approval": 17.9,
+      "intent": 3724.6,
+      "memory_context": 132.9
+    },
+    "agent_cost_usd": 0.18823073399999998,
+    "agent_cost_per_success_usd": 0.0006033036346153846,
+    "sdk_returned_usage_cost_usd_peak": 0.225381,
+    "sdk_returned_usage_cost_per_success_usd_peak": 0.000722375,
+    "potentially_unreported_model_usage_turns": 0,
+    "sdk_usage": {
+      "prompt": 1780645,
+      "hit": 1537255,
+      "miss": 243390,
+      "output": 119284,
+      "reasoning": 0
+    },
+    "sdk_cache_hit_rate": 0.863313574575505,
+    "sdk_calls": 913,
+    "routes": {
+      "agent_read": {
+        "turns": 224,
+        "round_limit": 0,
+        "deadline": 0
+      },
+      "agent_write": {
+        "turns": 261,
+        "round_limit": 0,
+        "deadline": 0
+      },
+      "unrecorded": {
+        "turns": 4,
+        "round_limit": 0,
+        "deadline": 0
+      }
+    },
+    "intent_sources": {
+      "llm_tool_use": 130,
+      "jev": 355,
+      "unrecorded": 4
+    }
+  },
+  "comparison": {
+    "success_rate_delta": 0.0,
+    "success_delta_newcombe_wilson_95": [
+      -0.0359432178136489,
+      0.0359432178136489
+    ],
+    "success_noninferior": true,
+    "sdk_returned_usage_cost_per_success_nonincreasing": true,
+    "cost_target_nonincreasing": true,
+    "fixed_delay_stream_p99_reduction": {
+      "1": 0.0631349782293178,
+      "4": -0.005807622504537147,
+      "8": -0.035038542396636396
+    },
+    "fixed_delay_stream_p99_reduction_at_least_30_percent_all_concurrencies": false,
+    "real_agent_p99_reduction": -0.023028859249377698,
+    "real_agent_p99_reduction_at_least_30_percent": false,
+    "real_pipeline_stage_total_p99_reduction": 0.03653032110199017,
+    "real_pipeline_stage_total_p99_reduction_at_least_30_percent": false,
+    "agent_read_round_limit_below_1_percent": true
+  },
+  "memory_ablation": [
+    {
+      "mode": "working",
+      "path": "acceptance_2026-11-13/memory_ablation_working_20261112.json",
+      "sessions": 4,
+      "turns": 84,
+      "repeats": 1,
+      "probes_passed": 19,
+      "probes_total": 19,
+      "write_sessions_passed": 3,
+      "failed_or_partial_turns": 0,
+      "maintenance_timeouts": 0,
+      "wall_s": 320.36992074997397,
+      "turns_per_s": 0.26219689976936394,
+      "output_tokens_per_wall_s": 89.83053069598245,
+      "chat_p50_s": 2.6414307079976425,
+      "chat_p95_s": 4.404111083946191,
+      "cost_usd_peak": 0.07632,
+      "cost_usd_off_peak": 0.03816,
+      "by_session": [
+        {
+          "id": "L1",
+          "probes_passed": 6,
+          "probes_total": 6,
+          "writes_passed": true
+        },
+        {
+          "id": "L2",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": true
+        },
+        {
+          "id": "L3",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": false
+        },
+        {
+          "id": "L4",
+          "probes_passed": 3,
+          "probes_total": 3,
+          "writes_passed": true
+        }
+      ],
+      "probe_rate": 1.0
+    },
+    {
+      "mode": "state",
+      "path": "acceptance_2026-11-13/memory_ablation_state_20261112.json",
+      "sessions": 4,
+      "turns": 84,
+      "repeats": 1,
+      "probes_passed": 19,
+      "probes_total": 19,
+      "write_sessions_passed": 3,
+      "failed_or_partial_turns": 0,
+      "maintenance_timeouts": 0,
+      "wall_s": 314.00291408295743,
+      "turns_per_s": 0.26751344090331525,
+      "output_tokens_per_wall_s": 86.9768998156005,
+      "chat_p50_s": 2.704550249996828,
+      "chat_p95_s": 4.50967020803364,
+      "cost_usd_peak": 0.073355,
+      "cost_usd_off_peak": 0.036678,
+      "by_session": [
+        {
+          "id": "L1",
+          "probes_passed": 6,
+          "probes_total": 6,
+          "writes_passed": true
+        },
+        {
+          "id": "L2",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": true
+        },
+        {
+          "id": "L3",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": false
+        },
+        {
+          "id": "L4",
+          "probes_passed": 3,
+          "probes_total": 3,
+          "writes_passed": true
+        }
+      ],
+      "probe_rate": 1.0
+    },
+    {
+      "mode": "full",
+      "path": "acceptance_2026-11-13/memory_ablation_full_20261112.json",
+      "sessions": 4,
+      "turns": 84,
+      "repeats": 1,
+      "probes_passed": 19,
+      "probes_total": 19,
+      "write_sessions_passed": 3,
+      "failed_or_partial_turns": 0,
+      "maintenance_timeouts": 0,
+      "wall_s": 300.7325309590087,
+      "turns_per_s": 0.2793179697990491,
+      "output_tokens_per_wall_s": 89.04590372915162,
+      "chat_p50_s": 2.550082604022464,
+      "chat_p95_s": 4.039198417041916,
+      "cost_usd_peak": 0.072379,
+      "cost_usd_off_peak": 0.03619,
+      "by_session": [
+        {
+          "id": "L1",
+          "probes_passed": 6,
+          "probes_total": 6,
+          "writes_passed": true
+        },
+        {
+          "id": "L2",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": true
+        },
+        {
+          "id": "L3",
+          "probes_passed": 5,
+          "probes_total": 5,
+          "writes_passed": false
+        },
+        {
+          "id": "L4",
+          "probes_passed": 3,
+          "probes_total": 3,
+          "writes_passed": true
+        }
+      ],
+      "probe_rate": 1.0
+    }
+  ],
+  "release_blocker": "User confirmed no reviewed online samples; online_regression empty, command exits 2.",
+  "quality_risks": [
+    "profile qualification 3/9",
+    "18/330 authored application trials fail business checks",
+    "memory write sessions 3/4 in each mode"
+  ],
+  "limitations": [
+    "Authored local business sandbox, real configured model; no user or production availability study.",
+    "Case latency includes multiple turns and approval checks; pipeline stage total excludes commit/transport overhead.",
+    "Fixed-delay model benchmark measures streaming infrastructure; its P99 is not real-provider latency.",
+    "Wilson/Newcombe intervals treat runs as independent; repeated authored cases correlate, so intervals are descriptive.",
+    "Frozen source/dataset hashes identify the measured code; build_sha may reflect concurrent commits to the parent checkout and is not an A/B grouping key.",
+    "Actual intent sources are counted from traces; the raw runner's legacy intent_strategy label does not override them.",
+    "Cost estimates use returned OpenAI-compatible SDK usage at peak prices; cancelled requests without usage, Jev and embedding charges are unknown and excluded.",
+    "Snapshots also differ in reliability fixes; measurement is descriptive, not a controlled causal estimate."
+  ],
+  "evidence": {
+    "after_strata_partial.json": "c0d49b3dbc7b598bff893e11ad3b1efebe9b07d2f103a8fae42d4562abf08bd3",
+    "memory_governance.json": "36c517f3981d51ac9ca3e3d9a674fbbda1237f33c71d419446bcdb805ab35146",
+    "baseline_pilot.json": "976cbe3e08542587d1feb2a137ecfcc87e09cf1b49588d607ac7da04ab03f868",
+    "latency_cost_baseline.json": "81aab04d257ac341e83ec08eb88f12b34b9d60398603c982ecd7f1b1c774b43c",
+    "after_stream_1.json": "aa7628b59b79be247c019240907763fe8825394bcfbd784a9fb991ee6b5cb979",
+    "release_blocker.json": "c8ee60e3df6ee6f36106bfe3b5d3275e2ebfbb2c20c6703b3a5f54d660c0b982",
+    "baseline_stream_4.json": "3b7dba94ed7d19258801756adc07132fb3a229e167bb30f671efeb7d39c6fdd9",
+    "after_hard_partial.json": "e9f47e76635c698bffd3e8fb7ebbbcb1187974c4c8bd75b1c42d0eace3a4d3d5",
+    "baseline_stream_8.json": "a681485e635890fb35702096176d332bc3c3c50859e6692fe64db48a1fd7c2d8",
+    "baseline_strata_partial.json": "5dd75cefa1f5cd1d6e4dc9ef8340d4769f909b369b20dc75c6a88a95fb620d5e",
+    "measured_source_manifest.json": "1f062357230fbd336bb4c635222e212f90edcff766134269f945bcc3f30290f3",
+    "memory_ablation_full_20261112_partial.json": "feed16d6e05cf2682366c9e5e77d76ddbb7128d0338ecbcd9ad335d258e780bc",
+    "after_stream_8.json": "c1c6490c17e6ad03d2d9c419c51236c7fb36629f8987511b4b22431b6484d800",
+    "baseline_hard_partial.json": "eb7dc2f072c8506e99974cd1f4d28f37ba60fe6c25ad17c2392de5fbd28c0562",
+    "after_strata.json": "4ff32a01c64de0a88539849f5f11c0afc8aaaf0f0ee72de0caf842e44c82de7a",
+    "after_hard.json": "734963537b7189d3881a88feecb66dc219c581cd6e964a960ee293e6b3976fc8",
+    "memory_ablation_full_20261112.json": "33accaea343732c816f7d76fbeb2b410e17a97827669de3301d5cd519331bb68",
+    "worker_kill.json": "b5c6be94e411ca1c26b3f4a860d1a7d9085933ba00a65774c5a6d52d53e24aa5",
+    "verification_logs.json": "f2c8d82d4d8e28da2d1dce41c4c90c8b72d6e003a913761e588aeb5944a8114f",
+    "baseline_source_manifest.json": "c19aedd3be165a033b8b78465f899423061a27f63beec385bc1265bf356d26e1",
+    "after_stream_4.json": "3ae3e8a322b4737249879855d9468047c74d5998479e82cc251728b965f6632c",
+    "baseline_strata.json": "abb5bd184e9b2188c141d7cd52c9212da49f0b5c7fe5967056f83f055794cc8f",
+    "memory_ablation_working_20261112.json": "26515abb42a15ae4c45a420c40f7fb037852906797c54644a40c022c0f502895",
+    "security_v3.json": "3810c5861ff422e750573d0fb5edb6703cd74d3f3132c7a28b52582046afcd1a",
+    "baseline_hard.json": "6cf7cfdf45cd4bfc7a67c85a2aa4b7d7d1a42c596e020b698b50ba028b6d1d28",
+    "memory_ablation_state_20261112_partial.json": "11316a819eef3e6633028283e641ccaf1ab202b8307dc6b303c68ed4fc41db9f",
+    "memory_ablation_working_20261112_partial.json": "944390067c0318e27fd21bd4d0957a3226f98a8246a138c17131ccc5b9c4cb29",
+    "application_failures.json": "01cd90a970b7e79c6edef40dfec51087cc1d4312c9348ad242b6a495a02d2d9e",
+    "baseline_pilot_partial.json": "ee903bfd65362f71110a2eb16087939b6687f102d23fd00a64b2ca59a353f64f",
+    "memory_ablation_state_20261112.json": "343924c8f1c5958c07323ed295c36d2b0264a37ea17a5f45c3322fcb8ecf5d82",
+    "baseline_stream_1.json": "09336ef9a596d46128d7ac62f0b1ef942295b5ec2bf8e07d9881e118672d6282",
+    "latency_cost_after.json": "0494a790b4650a6abbe323d1891e7c499831842d32bdc347e7d5c7bcd41a3819",
+    "memory_ablation.json": "b9d2457016189a4a25f0512e2c2a7ccbf5da305525a441fe302f7d806a3e48a2"
+  }
+}

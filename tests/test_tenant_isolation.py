@@ -144,7 +144,6 @@ PLATFORM = {
     ("POST", "/admin/agents/{name}/canary"): "Same global platform-admin boundary",
     ("POST", "/admin/agents/{name}/promote"): "Same global platform-admin boundary",
     ("POST", "/admin/agents/{name}/rollback"): "Same global platform-admin boundary",
-
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
     ("POST", "/channels/feishu/events"): "signed by Feishu; tenant mapping in 阶段 1",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",

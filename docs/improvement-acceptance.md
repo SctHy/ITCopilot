@@ -1,0 +1,70 @@
+# 改进计划验收（2026-11-13）
+
+本文件区分实现契约通过、真实模型目标未达成和外部证据缺失。`complete` 报告只表示运行结束，不等于业务断言全部通过。
+
+## 验收范围
+
+| 工作包 | 验收入口 | 判定边界 |
+|---|---|---|
+| WP1 资源串行化 | test_overlapping_grants、test_workflow、真实 Gitea 集成 | SQLite 与 PostgreSQL；重叠、并发、未知结果、漂移、迁移 |
+| WP2 持久回合 | test_turn_records、test_policy_change_atomicity | HTTP 结算、版本指纹、错误分类、策略审计事务 |
+| WP3 跨天任务 | test_grant_reconciler、evaluate_long_tasks | 漂移观察、通知补发、老化告警、设备/工单核验、SIGKILL |
+| WP4 Badcase 闭环 | test_badcases、test_online_regressions | 确定性闭环通过与真实线上样本可用性分开判定 |
+| WP5 模型路由 | test_model_router、test_route_qualification、check_model_routes | 路由契约、实际角色调用、配置匹配、相对资格；相对门禁不证明绝对质量 |
+| WP6 延迟成本 | test_turn_deadline、test_latency_cost_report、benchmark_stream、compare_latency_cost | 配对完整报告；固定延迟流式基准不等于服务商延迟 |
+| WP7 记忆治理 | test_memory_governance、evaluate_memory_governance、evaluate_long_dialogue --ablation | 脱敏/准入/去重契约与真实模型召回收益分别验收 |
+| WP8 规格与灰度 | test_agent_registry、安全回归 | 粘性、回滚、默认规格不漂移、拒绝缺失发布报告；不伪造线上样本 |
+| WP9 归因 | test_attribution | 合成 rate/mix、时间线、工具分母、缓存指纹提示；不将相关性当作因果 |
+
+## 环境与可复现性
+
+- 在 main 的当前工作区验证；原有改动保留，按工作包整理提交。
+- PostgreSQL 使用独立 pgvector/PostgreSQL 18 测试容器，每项测试单独 schema；没有连接生产数据库。
+- Keycloak 26.8 与 Gitea 1.27 使用本轮创建的独立容器与演示账户。
+- 真实模型应用评测使用临时 SQLite 台账和专用 Redis；每个用例、每次重复均重新建业务台账。样本为仓库编写的业务场景，不是线上流量。
+- 性能基线来自此前保留的 WP6 前源码快照，优化后来自本轮工作区；原始报告保留源码/数据集哈希、路由配置及时间。两组共享同一模型服务商，存在外部负载、缓存、并行评测和随机性影响，结果不能用于因果推断。源码快照间还包含策略审计原子性、Badcase 生命周期和反馈校验修复，不能将测量差异全部归因于截止时间。
+- 原始评测保存在 `evaluation/reports/acceptance_2026-11-13/`；候选资格摘要保存在 `evaluation/reports/routing/`，后者纳入 Git 供 CI 使用。
+
+## 已确认的发布阻塞
+
+`evaluation/datasets/online_regression.json` 为空。用户于 2026-11-13 确认暂无已审阅样本，要求记录为发布阻塞。保留空数据集；确定性测试夹具不冒充线上样本，不产生通过的版本发布报告。记录见 `evaluation/reports/acceptance_2026-11-13/release_blocker.json`。
+
+## 本轮修复
+
+- 真实 Gitea 集成测试的直接适配器调用补上租户上下文；生产租户校验保持严格。
+- PostgreSQL CI 增加九个工作包中新引入的存储契约测试。
+- 已有资格摘要此前已强制纳入 Git。报告忽略规则现在允许新增候选摘要正常提交，原始大报告继续本地保存；当前 CI 门禁等待替换的是失效读写报告。
+
+## 结果
+
+- 最终 SQLite 全量：728 passed、10 skipped；PostgreSQL 全量：733 passed、5 skipped。PostgreSQL 的三个外部服务跳过项已另行运行并通过，剩余是空线上样本和空已知租户缺口清单。
+- 真实 Keycloak/Gitea 集成：3/3；前端：60/60，typecheck/build 通过；ruff 与 diff 检查通过。
+- 真实子进程故障评测：24/24；安全回归通过，未观察到越权读写。
+
+- 当前实现的应用业务评测：strata_v3 182/192、hard_v4 130/138，共 312/330。失败样本保留在 `application_failures.json`，覆盖复合事项漏建单、取消后草稿、跨轮申请与检索证据；不将这些失败排除分母。
+- 记忆治理：确定性 20/20；真实模型 working/state/full 各 84 轮，回忆探针各 19/19，写操作会话各 3/4。只证明本次固定会话探针未观察到退化，不证明跨会话召回或生产收益。
+- 画像角色烟测 3/9，其余辅助角色报告完整。相对资格门禁通过不能掩盖画像绝对质量不足。
+- 基线重跑期间发现旧快照未加载根目录凭据，认证失败的报告已移入 `invalid_missing_credentials/`，不用于性能结论。修正后先完成真实调用单例，再运行完整基线；CLI 已增加缺失凭据的启动拒绝，对比脚本拒绝没有实测 token 用量的窗口。
+
+## 性能与成本判定
+
+有效基线和当前版本均为两个数据集各三遍：各 330 次用例试验、489 个回合。认证失败的旧报告全部排除。
+
+| 指标 | 基线 | 当前 | 判定 |
+|---|---:|---:|---|
+| 业务通过数 | 312/330 | 312/330 | 效果不劣门禁通过 |
+| Agent P99 | 5.820 秒 | 5.954 秒 | 未改善 |
+| 流水线阶段总时延 P99 | 8.552 秒 | 8.239 秒 | 下降 3.65%，未达到 30% |
+| 每成功用例已知 SDK 用量成本 | $0.00072809 | $0.00072238 | 未上升 |
+
+固定延迟模型的并发 1/4/8 也未全部达到 P99 下降 30%。读路由 round_limit 率门禁通过。预算限制为 20/30 秒，正常样本的 Agent P99 远低于该预算，本次数据没有证明截止时间能显著降低常见尾延迟；它的价值由超时边界回归证明。成本按配置峰值价和 SDK 返回用量估算，排除 Jev/embedding 费用，不是账单。阶段总时延不含完整提交/传输，不冒充端到端 HTTP 时延。
+
+## 总体判定与交付
+
+- WP1/2/3/4/8/9 的实现契约已验收；WP8 真实发布仍被空线上样本阻塞。
+- WP5 路由契约与相对资格门禁通过，画像 3/9 的绝对质量问题保留。
+- WP7 治理契约通过，本次固定会话的回忆探针没有观察到下降；不能宣称全部业务断言通过。
+- WP6 实现契约、效果和已知成本门禁通过，P99 下降 30% 目标未达成。按计划如实记录，不放宽目标、不调参凑结果。
+
+可执行验收已完成，不等于全部目标通过或具备发布资格。精简摘要见 [acceptance_summary.json](../evaluation/reports/acceptance_2026-11-13/acceptance_summary.json)，原始报告仍保留在同目录。基线凭据事故及隔离记录一并保留以便复核。
+

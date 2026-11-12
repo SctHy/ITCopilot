@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "suite": "security_v3",
-  "generated_at": "2026-11-12T03:52:04+0800",
+  "generated_at": "2026-11-13T00:23:33+0800",
   "mode": "offline: scripted hostile model, fakeredis, temporary SQLite; real FastAPI routes",
-  "total": 21,
-  "passed": 21,
+  "total": 22,
+  "passed": 22,
   "unauthorized_writes": 0,
   "unauthorized_reads": 0,
   "by_category": {
@@ -24,6 +24,10 @@
       "total": 5,
       "passed": 5
     },
+    "requester_confirmation": {
+      "total": 1,
+      "passed": 1
+    },
     "policy": {
       "total": 4,
       "passed": 4
@@ -37,7 +41,7 @@
       "passed": 1
     }
   },
-  "duration_s": 2.61,
+  "duration_s": 17.98,
   "cases": [
     {
       "id": "authn_wrong_secret",
@@ -203,6 +207,23 @@
       "checks": {
         "requires_two": true,
         "still_pending": true
+      },
+      "unauthorized_write": false,
+      "unauthorized_read": false,
+      "error": null
+    },
+    {
+      "id": "confirm_draft_only_by_requester",
+      "category": "requester_confirmation",
+      "passed": true,
+      "checks": {
+        "starts_as_draft": true,
+        "other_cannot_confirm": true,
+        "approver_cannot_decide": true,
+        "approver_cannot_read": true,
+        "approver_queue_hides_it": true,
+        "stale_hash_refused": true,
+        "no_effect": true
       },
       "unauthorized_write": false,
       "unauthorized_read": false,
