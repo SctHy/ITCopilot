@@ -1,4 +1,41 @@
-# IT-Copilot · 企业 IT 服务 Agent 平台
+# IT-Copilot · 企业 IT 服务 Agent
+
+员工用一句话报障或申请权限，Agent 负责检索知识、诊断和起草变更；**真正的变更只能在人工审批之后由代码执行**，到期自动回收。模型只负责提议，身份、策略、审批和执行都由代码把关。
+
+<p align="center">
+  <img src="docs/assets/03-pending-approval.png" alt="写操作生成待审批" width="80%"><br>
+  <em>申请权限：Agent 只生成冻结参数的待审批单，审批人批准后 worker 才在 Gitea 沙箱中授权，并登记到期回收</em>
+</p>
+
+## 30 秒看懂
+
+| 关注点 | 结果 | 口径 |
+|---|---|---|
+| 安全：模型被注入后能不能越权写 | AgentDojo 4 个套件 949 个攻击组合，**需要写操作的攻击 0/908 成功** | 第三方公开基准；写操作不经审批直接执行时的结果，见[公开基准评测](docs/evaluation-public.md) |
+| 能力：真实模型能不能把事办完 | 110 个业务场景 **106/110**；50 个 LLM 模拟用户的多轮任务 pass^1 **0.87**、pass^3 **0.72–0.76**，3 个子任务的 T3 层 pass^3 0.58–0.75 | 场景由作者编写，按审批执行后的业务状态判分；多轮任务换两种模拟用户各跑 3 遍，见[深度评测 §9、§13](docs/evaluation-deep.md) |
+| 检索：真实企业文档找不找得到 | GitLab 公开 Handbook 540 篇、124 个员工自写问题：文档 Hit@5 **0.90**，含答案片段 Hit@5 0.51 | 题目和标注不经作者之手，见[深度评测 §2.4](docs/evaluation-deep.md) |
+| 体验与成本 | 首字 p50 1.29 s，整轮 p50 2.48 s；**每轮约 $0.00035** | 真实口吻 26 轮，deepseek-flash 非高峰价，见[深度评测 §10](docs/evaluation-deep.md) |
+
+**最值得看的是怎么迭代出来的**：[5 次"评测发现问题 → 定位 → 改动 → 结果"](docs/iteration-stories.md)，包括评测后删掉的多 Agent 架构、修复本身引入的新问题，以及重新做的意图盲测（严格口径比原留出集低约 10 个点）。
+
+当前边界：没有真实用户；Gitea 是权限系统的沙箱替身，不是企业 IAM；不宣称跨系统 exactly-once。
+
+<details>
+<summary>更多界面截图</summary>
+
+<p align="center">
+  <img src="docs/assets/01-readonly-rag.png" alt="只读问答" width="80%"><br>
+  <em>只读问答：意图识别 + 混合检索 RAG，回答引用知识库证据</em>
+</p>
+
+<p align="center">
+  <img src="docs/assets/02-slot-clarification.png" alt="缺槽位澄清" width="80%"><br>
+  <em>缺槽位澄清：写操作信息不全时先反问，不执行任何写工具</em>
+</p>
+
+</details>
+
+## 项目概述
 
 面向企业员工报障、账号权限申请与工单协作，提供从自然语言受理、知识检索、任务编排到人工审批、业务执行和审计追踪的完整处理链路。员工通过对话提交诉求，IT 支持人员查看诊断证据与执行记录，审批人员确认冻结的变更参数后触发业务操作。
 
@@ -62,7 +99,7 @@ flowchart LR
 
 ## 核心能力
 
-- 意图识别 Jev（TypeSafe System One）优先、低置信度转 PydanticAI 结构化输出（`classify_it_request`），多轮补槽和纠正；模型都不可用时退回关键词规则，结果标明来源。156 条难例集上留出集 75/75，p50 0.3s。
+- 意图识别 Jev（TypeSafe System One）优先、低置信度转 PydanticAI 结构化输出（`classify_it_request`），多轮补槽和纠正；模型都不可用时退回关键词规则，结果标明来源。p50 0.3s。原 156 条难例集的 test 划分参与过 prompt 调优，不算留出集；新建的 83 条冻结盲测集上，宽松口径 83/83，严格口径 88.0%（v3 上为 97.4%），主要错误来自类别体系缺少安全事件和外设（[深度评测 §12](docs/evaluation-deep.md)）。
 - 单个 IT 服务 Agent 持有全部工具（7 个本地工具 + 知识检索 + 可选外部 MCP），一条消息含多个问题时逐个处理；曾实现的多 Agent 规划在评测中没有成功率或速度收益，已移除（见[评测说明](docs/evaluation.md)第 5 节）。
 - 向量、BM25、Hybrid 三种检索，Hybrid 使用 RRF 合并并返回 citation；可选结果重排（`IT_COPILOT_RAG_RERANK`，WixQA 上 Recall@5 0.57→0.77）与查询改写（`IT_COPILOT_RAG_REWRITE`），均默认关闭。
 - Redis 分布式锁、`client_request_id` 幂等回执、工作/情景/画像三级记忆。
@@ -107,7 +144,7 @@ flowchart LR
 | 实时事件流 | 真实 uvicorn + TCP、模拟 0.8s/次模型时延、20 次：首个执行事件 P50 0.93s，整轮完成 P50 2.56s |
 | 工作流并发 | 工作流测试（并发批准、双人审批并发投票、结果未知回查、worker 崩溃恢复、saga 补偿、到期回收与漂移保护、待审批申请替代）在 SQLite 与 PostgreSQL 18 上均通过 |
 | 真实系统集成 | Keycloak 令牌映射 / 篡改与受众校验；Gitea 授权 → 到期撤销 → 他人改动后不误删，均对真实服务运行 |
-| 真实模型应用评测 | 64 场景（单领域/双领域/三领域/多轮/不应写入），deepseek-flash：两次完整重跑均 64/64，p50 6.3 s / p95 11.4 s，其中 Agent 占 79%、意图识别占 20%。与多 Agent 规划配对对比无显著差异，多 Agent token 多约 60%，因此只保留单个 Agent |
+| 真实模型应用评测 | 64 场景（单领域/双领域/三领域/多轮/不应写入），deepseek-flash：两次完整重跑均 64/64（之后 11-12 深度评测改为 Jev 意图识别、加入 hard_v4 后，同一集合为 60/64，修复虚假声明后 62/64，见[深度评测](docs/evaluation-deep.md)），p50 6.3 s / p95 11.4 s，其中 Agent 占 79%、意图识别占 20%。与多 Agent 规划配对对比无显著差异，多 Agent token 多约 60%，因此只保留单个 Agent |
 | τ-bench 式多轮评测 | 50 个组合任务（1–3 个子任务 + 违规请求），LLM 模拟用户只在被问到时透露信息，按审批执行后的员工最终状态评分。服务端额度耗尽前完成的 33 个任务上 pass^1 0.80、pass^2 22/33；评测发现的重复建单缺陷已改为同会话新申请替代旧单 |
 | 共享事项 | 10 个三方 HTTP 场景 × 3 次：确定性处理器 30/30、真实模型 30/30、显式邀请隔离 30/30。本地业务适配器，不代表浏览器或生产成功率 |
 
@@ -249,24 +286,9 @@ docs/                设计取舍、ADR、威胁模型、评测说明与截图
 - [威胁模型](docs/threat-model.md)
 - [评测说明：安全、实时流、工作流、集成与策略对照](docs/evaluation.md)
 - [公开基准评测：WixQA 检索与 AgentDojo 间接注入](docs/evaluation-public.md)
+- [迭代记录：评测发现问题 → 定位 → 改动 → 结果](docs/iteration-stories.md)
+- [全流程深度评测](docs/evaluation-deep.md)
 - [变更记录](CHANGELOG.md)
-
-## 界面演示
-
-<p align="center">
-  <img src="docs/assets/01-readonly-rag.png" alt="只读问答" width="80%"><br>
-  <em>只读问答：意图识别 + 混合检索 RAG，回答引用知识库证据</em>
-</p>
-
-<p align="center">
-  <img src="docs/assets/02-slot-clarification.png" alt="缺槽位澄清" width="80%"><br>
-  <em>缺槽位澄清：写操作信息不全时先反问，不执行任何写工具</em>
-</p>
-
-<p align="center">
-  <img src="docs/assets/03-pending-approval.png" alt="待审批" width="80%"><br>
-  <em>待审批（HITL）：写操作只生成 pending_approval，人工批准后才执行</em>
-</p>
 
 ## License
 
