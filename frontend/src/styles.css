@@ -222,7 +222,6 @@ summary::-webkit-details-marker { display: none; }
 .request-metrics span { display: block; color: var(--faint); font-size: 10px; }
 .request-metrics strong { display: block; font-size: 20px; font-weight: 500; color: #686873; margin-top: 9px; font-variant-numeric: tabular-nums; }
 .request-metrics small { font-size: 9px; color: var(--faint); }
-.routing-note { margin-top: 17px; padding: 11px; background: #f5f5f7; border-radius: 7px; font-size: 10px; color: #9999a3; line-height: 1.9; }
 .inspector-tools { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line); }
 .inspector-tools summary { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #777781; cursor: pointer; list-style: none; }
 .inspector-tools summary .icon { width: 11px; height: 11px; margin-left: auto; }
@@ -232,7 +231,6 @@ summary::-webkit-details-marker { display: none; }
 .trace-call-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; font-size: 10px; overflow-wrap: anywhere; }
 .trace-call-meta strong { font-weight: 500; min-width: 0; }
 .trace-call-meta span { flex-shrink: 0; }
-.trace-call-agent { margin-top: 4px; font-size: 10px; color: var(--faint); }
 .trace-call-error { margin-top: 6px; font-size: 10px; color: var(--danger); overflow-wrap: anywhere; }
 .runtime-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 15px; }
 .runtime-metrics span { display: block; color: var(--faint); font-size: 10px; }
@@ -511,7 +509,6 @@ body { background: var(--canvas); }
 .trace-toggle:hover:not(:disabled), .icon-button:hover:not(:disabled) { color: var(--accent-strong); background: var(--accent-soft); }
 .trace-step-icon { border-color: var(--accent-line); color: var(--accent); background: #f8fcfc; }
 .state-label .complete { background: var(--accent); }
-.routing-note { background: var(--accent-soft); color: #527675; border-left: 3px solid var(--accent); }
 .score-hero { background: linear-gradient(145deg, #164e63, var(--accent-strong)) !important; }
 .toast { background: #173c41; box-shadow: 0 8px 28px rgba(15, 118, 110, .18); }
 
@@ -521,12 +518,6 @@ body { background: var(--canvas); }
 .health-rows p { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 9px 0; font-size: 12px; border-bottom: 1px solid var(--line); }
 .health-rows p.muted { display: block; border-bottom: 0; }
 .health-rows strong { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-.report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-top: 14px; }
-.report-card { padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: white; }
-.report-card > strong { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 13px; }
-.report-card > strong small { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
-.report-card p { display: flex; justify-content: space-between; margin: 0; padding: 4px 0; font-size: 12px; color: var(--muted); }
-.report-card p b { color: var(--ink); font-weight: 600; }
 :root .approval-filters { display: flex; gap: 8px; margin: 0 0 14px; }
 :root .approval-filters button { background: #fff; color: #334155; border: 1px solid #cbd5e1; }
 :root .approval-filters button.active { background: #0f172a; color: #fff; border-color: #0f172a; }

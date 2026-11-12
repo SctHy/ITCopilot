@@ -15,14 +15,16 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import ApprovalCard from './ApprovalCard.vue'
-const props = defineProps({ room: { type: Object, required: true }, identity: Object,
-  approvalBusy: { type: Object, default: () => ({}) }, approvalErrors: { type: Object, default: () => ({}) } })
-defineEmits(['approval'])
+import type { Approval, ApprovalDecision, Identity, TaskRoom } from '../lib/types.ts'
+const props = withDefaults(defineProps<{ room: TaskRoom; identity: Identity | null; approvalBusy?: Record<string, boolean>; approvalErrors?: Record<string, string> }>(),
+  { approvalBusy: () => ({}), approvalErrors: () => ({}) })
+defineEmits<{ approval: [approval: Approval, decision?: ApprovalDecision] }>()
+// Each approval is shown once: under the first Agent message that proposed it, otherwise in the trailing section.
 const linked = computed(() => {
-  const used = new Set(), out = {}
+  const used = new Set<string>(), out: Record<string, Approval> = {}
   for (const event of props.room.events) {
     if (event.kind !== 'assistant') continue
     const approval = props.room.approvals?.find(item => item.approval_id === event.data?.approval_id)
@@ -31,8 +33,8 @@ const linked = computed(() => {
   return out
 })
 const unlinked = computed(() => (props.room.approvals || []).filter(item => !Object.values(linked.value).some(a => a.approval_id === item.approval_id)))
-const roles = { requester: '申请人', approver: '审批人 / IT 支持', collaborator: '协作者', assistant: 'Agent', approval: '审批状态', approval_vote: '正式审批决定', system: '系统', progress: '任务进度', todo: '协作待办', todo_answer: '待办答复', todo_changed: '待办调整', reminder: '定时提醒', approval_reminder: '审批提醒', budget: '运行预算', file: '附件材料', member: '成员管理', reviewer_assignment: '审批指派', suggestion: '进度建议' }
-function formatTime(seconds) { return new Date(seconds * 1000).toLocaleString('zh-CN', { hour12: false }) }
+const roles: Record<string, string> = { requester: '申请人', approver: '审批人 / IT 支持', collaborator: '协作者', assistant: 'Agent', approval: '审批状态', approval_vote: '正式审批决定', system: '系统', progress: '任务进度', todo: '协作待办', todo_answer: '待办答复', todo_changed: '待办调整', reminder: '定时提醒', approval_reminder: '审批提醒', budget: '运行预算', file: '附件材料', member: '成员管理', reviewer_assignment: '审批指派', suggestion: '进度建议' }
+function formatTime(seconds: number) { return new Date(seconds * 1000).toLocaleString('zh-CN', { hour12: false }) }
 </script>
 
 <style scoped>

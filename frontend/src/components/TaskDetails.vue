@@ -8,14 +8,14 @@
       <TaskVerificationPanel v-if="state.data.verification" :verification="state.data.verification" :checkpoints="state.data.checkpoints || []" :room="room" :can-manage="canManage" :busy="state.busy" :act="act" />
       <TaskTodoPanel ref="todos" :members="state.data.members || []" :reviewers="state.data.reviewers || []" :todos="state.data.todos" :room="room" :identity="identity" :busy="state.busy" :act="act" />
       <TaskReminderPanel :reminders="state.data.reminders" :room="room" :can-manage="canManage" :busy="state.busy" :act="act" />
-      <TaskRunsPanel :budget="state.data.budget" :attempts="state.data.attempts" :is-admin="identity?.roles?.includes('it_admin')" :busy="state.busy" :act="act" />
+      <TaskRunsPanel :budget="state.data.budget" :attempts="state.data.attempts" :is-admin="isAdmin" :busy="state.busy" :act="act" />
       <TaskFilesPanel :files="state.data.files || []" :room="room" :client="client" @changed="changed" />
-      <TaskMembersPanel :members="state.data.members || []" :reviewers="state.data.reviewers || []" :room="room" :client="client" :can-manage="canManage" :is-admin="identity?.roles?.includes('it_admin')" :busy="state.busy" :act="act" />
+      <TaskMembersPanel :members="state.data.members || []" :reviewers="state.data.reviewers || []" :room="room" :client="client" :can-manage="canManage" :is-admin="isAdmin" :busy="state.busy" :act="act" />
       <TaskNotificationsPanel v-if="state.data.notifications" :notifications="state.data.notifications" :members="state.data.members || []" :can-manage="canManage" :busy="state.busy" :act="act" />
     </template>
   </section>
 </template>
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
 import TaskSuggestionsPanel from './TaskSuggestionsPanel.vue'
 import TaskHistoryPanel from './TaskHistoryPanel.vue'
@@ -27,16 +27,20 @@ import TaskVerificationPanel from './TaskVerificationPanel.vue'
 import TaskTodoPanel from './TaskTodoPanel.vue'
 import TaskReminderPanel from './TaskReminderPanel.vue'
 import TaskRunsPanel from './TaskRunsPanel.vue'
-import { createTaskDetailsController } from '../lib/taskDetailsController.js'
-import { createPolling } from '../lib/stateMachine.js'
-const props = defineProps({ room: Object, identity: Object, client: Object })
-const emit = defineEmits(['changed', 'open'])
+import { createTaskDetailsController } from '../lib/taskDetailsController.ts'
+import { createPolling } from '../lib/stateMachine.ts'
+import type { TaskClient } from '../lib/taskClient.ts'
+import type { Approval, Identity, TaskRoom } from '../lib/types.ts'
+const props = defineProps<{ room: TaskRoom; identity: Identity | null; client: TaskClient }>()
+const emit = defineEmits<{ changed: []; open: [id: string] }>()
 const { state, refresh, perform, dispose } = createTaskDetailsController(props.client, props.room.id)
-const todos = ref(null), canManage = computed(() => props.room.requester === props.identity?.subject || props.identity?.roles?.includes('it_admin'))
+const todos = ref<InstanceType<typeof TaskTodoPanel> | null>(null)
+const canManage = computed(() => props.room.requester === props.identity?.subject || !!props.identity?.roles?.includes('it_admin'))
+const isAdmin = computed(() => !!props.identity?.roles?.includes('it_admin'))
 const polling = createPolling(refresh, 2000)
 async function changed() { await refresh(); emit('changed') }
-async function act(action, payload) { const ok = await perform(action, payload); if (ok) emit('changed'); return ok }
-async function clarify(approval) { if (!todos.value) { await refresh(); await nextTick() }; todos.value?.clarify(approval) }
+async function act(action: string, payload?: Record<string, unknown>) { const ok = await perform(action, payload); if (ok) emit('changed'); return ok }
+async function clarify(approval: Approval) { if (!todos.value) { await refresh(); await nextTick() }; todos.value?.clarify(approval) }
 defineExpose({ clarify })
 onMounted(() => { refresh(); polling.start() })
 onBeforeUnmount(() => { dispose(); polling.stop() })

@@ -3,8 +3,9 @@
     <path v-for="(path, index) in (paths[name] || paths.chat)" :key="index" :d="path" />
   </svg>
 </template>
-<script setup>
-defineProps({ name: { type: String, default: 'chat' } })
+<script setup lang="ts">
+import type { PropType } from 'vue'
+
 const paths = {
   plus: ['M12 5v14M5 12h14'],
   compose: ['M16 3h5v5M21 3 11 13M19 13v6H5V5h6'],
@@ -31,5 +32,8 @@ const paths = {
   alert: ['M12 3 2 21h20zM12 9v5M12 17v.1'],
   menu: ['M4 6h16M4 12h16M4 18h16'],
   it: ['M5 5h14v14H5z', 'M9 9v6M12 9v6M15 9v6', 'M8 7h8']
-}
+} satisfies Record<string, string[]>
+
+// A misspelled icon name is a type error at the call site instead of a blank icon.
+defineProps({ name: { type: String as PropType<keyof typeof paths>, default: 'chat' } })
 </script>

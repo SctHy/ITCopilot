@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createTaskDetailsController } from '../src/lib/taskDetailsController.js'
+import { createTaskDetailsController } from '../src/lib/taskDetailsController.ts'
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b }); return { resolve, reject, promise } }
 
 test('a lost todo response retains its idempotency key; unrelated actions stay independent', async () => {
@@ -29,4 +29,24 @@ test('latest workspace refresh wins', async () => {
   const c = createTaskDetailsController({ workspace: () => ++count === 1 ? pending.promise : Promise.resolve({progress: 'new'}) }, 'room')
   const first = c.refresh(); await c.refresh(); pending.resolve({progress: 'old'}); await first
   assert.equal(c.state.data.progress, 'new'); c.dispose()
+})
+
+test('a backend slower than the poll still delivers data, without piling up reads', async () => {
+  const pending = deferred(); let calls = 0
+  const c = createTaskDetailsController({ workspace: () => ++calls === 1 ? pending.promise : Promise.resolve({ progress: 'second' }) }, 'room')
+  const first = c.refresh()
+  c.refresh(); c.refresh() // poll ticks while the first read is still in flight
+  pending.resolve({ progress: 'first' }); await first
+  assert.equal(c.state.data.progress, 'second')
+  assert.equal(calls, 2)
+  c.dispose()
+})
+
+test('a failed refresh error clears once a later refresh succeeds', async () => {
+  let fail = true
+  const c = createTaskDetailsController({ workspace: async () => { if (fail) throw new Error('blip'); return { progress: 'ok' } } }, 'room')
+  await c.refresh(); assert.equal(c.state.error, 'blip')
+  fail = false; await c.refresh()
+  assert.equal(c.state.error, ''); assert.equal(c.state.data.progress, 'ok')
+  c.dispose()
 })

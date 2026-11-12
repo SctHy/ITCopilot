@@ -18,17 +18,19 @@
     </form>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, ref, watchEffect } from 'vue'
-const props = defineProps({ todos: Array, members: Array, reviewers: Array, room: Object, identity: Object, busy: Object, act: Function })
-const question = ref(''), due = ref(''), assignee = ref(props.room.requester), answers = ref({}), questionInput = ref(null)
-const changes = ref({})
-watchEffect(() => { for (const todo of props.todos) changes.value[todo.id] ||= {action: 'cancel', assignee: props.room.requester, reason: ''} })
-async function change(todo) { await props.act('todos/' + todo.id + '/change', changes.value[todo.id]) }
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { Approval, Identity, TaskMember, TaskRoom, TaskTodo } from '../lib/types.ts'
+const props = defineProps<{ todos: TaskTodo[]; members: TaskMember[]; reviewers: string[]; room: TaskRoom; identity: Identity | null; busy: Record<string, boolean>; act: TaskAct }>()
+const question = ref(''), due = ref(''), assignee = ref(props.room.requester), answers = ref<Record<string, string>>({}), questionInput = ref<HTMLTextAreaElement | null>(null)
+const changes = ref<Record<string, { action: 'cancel' | 'reassign'; assignee: string; reason: string }>>({})
+watchEffect(() => { for (const todo of props.todos) changes.value[todo.id] ||= { action: 'cancel', assignee: props.room.requester, reason: '' } })
+async function change(todo: TaskTodo) { await props.act('todos/' + todo.id + '/change', { ...changes.value[todo.id] }) }
 const names = computed(() => {
-  const result = { [props.room.requester]: props.room.requester_name }
-  if (props.room.can_write !== false && props.identity) result[props.identity.subject] = props.identity.username || '我'
-  const eventNames = Object.fromEntries(props.room.events.map(e => [e.actor, e.actor_name]))
+  const result: Record<string, string> = { [props.room.requester]: props.room.requester_name }
+  if (props.room.can_write !== false && props.identity?.subject) result[props.identity.subject] = props.identity.username || '我'
+  const eventNames: Record<string, string> = Object.fromEntries(props.room.events.map(e => [e.actor, e.actor_name]))
   for (const id of props.reviewers || []) result[id] = eventNames[id] || id
   for (const member of props.members || []) { if (member.role === 'collaborator') result[member.subject] = member.profile.username; else delete result[member.subject] }
   return result
@@ -36,7 +38,7 @@ const names = computed(() => {
 async function create() {
   if (await props.act('todos', { question: question.value, assignee: assignee.value, due_at: due.value ? new Date(due.value).getTime() / 1000 : null })) { question.value = ''; due.value = '' }
 }
-async function answer(todo) { if (await props.act('todos/' + todo.id + '/answer', { answer: answers.value[todo.id] })) answers.value[todo.id] = '' }
-async function clarify(approval) { question.value = `关于申请 ${approval.approval_id.slice(0, 12)}，请补充说明：`; assignee.value = props.room.requester; await nextTick(); questionInput.value?.focus() }
+async function answer(todo: TaskTodo) { if (await props.act('todos/' + todo.id + '/answer', { answer: answers.value[todo.id] })) answers.value[todo.id] = '' }
+async function clarify(approval: Approval) { question.value = `关于申请 ${approval.approval_id.slice(0, 12)}，请补充说明：`; assignee.value = props.room.requester; await nextTick(); questionInput.value?.focus() }
 defineExpose({ clarify })
 </script>

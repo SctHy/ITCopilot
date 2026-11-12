@@ -11,14 +11,20 @@
     </template>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-const props = defineProps({ members: Array, reviewers: Array, room: Object, client: Object, canManage: Boolean, isAdmin: Boolean, busy: Object, act: Function })
-const directory = ref([]), subject = ref(''), role = ref('collaborator'), selected = ref([...props.reviewers]), error = ref('')
+import type { TaskClient } from '../lib/taskClient.ts'
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { DirectoryPerson, TaskMember, TaskRoom } from '../lib/types.ts'
+const props = defineProps<{ members: TaskMember[]; reviewers: string[]; room: TaskRoom; client: Pick<TaskClient, 'directory'>; canManage: boolean; isAdmin: boolean; busy: Record<string, boolean>; act: TaskAct }>()
+const directory = ref<DirectoryPerson[]>([]), subject = ref(''), role = ref('collaborator'), selected = ref([...props.reviewers]), error = ref('')
 watch(() => [...props.reviewers].sort().join('\n'), () => { selected.value = [...props.reviewers] })
-const labels = { collaborator: '协作者', observer: '观察者', revoked: '已移除' }
-const names = computed(() => Object.fromEntries([...props.members.map(m => [m.subject, m.profile.username]), ...directory.value.map(p => [p.subject,p.username])]))
+const labels: Record<string, string> = { collaborator: '协作者', observer: '观察者', revoked: '已移除' }
+const names = computed<Record<string, string>>(() => Object.fromEntries([...props.members.map(m => [m.subject, m.profile.username]), ...directory.value.map(p => [p.subject, p.username])]))
 let alive = true
 onBeforeUnmount(() => { alive = false })
-async function load() { try { const result = await props.client.directory(props.room.id); if(alive) directory.value = result.items } catch(e) { if(alive) error.value = e.message } }
+async function load() {
+  try { const result = await props.client.directory(props.room.id); if (alive) directory.value = result.items }
+  catch (e) { if (alive) error.value = e instanceof Error ? e.message : String(e) }
+}
 </script>

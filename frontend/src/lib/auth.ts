@@ -1,29 +1,49 @@
-import { LOGIN, machine } from './stateMachine.js'
+import { LOGIN, machine } from './stateMachine.ts'
 // 登录与令牌：dev 模式向后端申请演示身份令牌；oidc 模式走 Keycloak 授权码 + PKCE（公开客户端，不存 client secret）。
 // 访问令牌只放 sessionStorage：关闭标签页即失效，不跨标签共享。身份展示用的 claims 仅供 UI，授权以后端校验为准。
 
 const TOKEN_KEY = 'it-copilot.access-token'
 const PKCE_KEY = 'it-copilot.pkce'
 
-export function storedToken(storage = sessionStorage) {
+type TokenStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+export interface JwtClaims {
+  exp?: number
+  sub?: string
+  preferred_username?: string
+  employee_id?: string
+  department?: string
+  roles?: string[]
+  realm_access?: { roles?: string[] }
+}
+
+export interface OidcConfig { issuer?: string; client_id?: string }
+
+function requireOidc(config: OidcConfig): { issuer: string; clientId: string } {
+  // A misconfigured server would otherwise send the browser to "undefined/protocol/...".
+  if (!config.issuer || !config.client_id) throw new Error('服务端 OIDC 配置缺少 issuer 或 client_id')
+  return { issuer: config.issuer, clientId: config.client_id }
+}
+
+export function storedToken(storage: TokenStorage = sessionStorage): string {
   const token = storage.getItem(TOKEN_KEY) || ''
   const claims = parseJwt(token)
   // 提前 30 秒视为过期，避免请求途中失效。
   return tokenState(token, claims) === 'valid' ? token : ''
 }
 
-export function tokenState(token, claims = parseJwt(token), now = Date.now()) {
+export function tokenState(token: string, claims: JwtClaims | null = parseJwt(token), now = Date.now()): 'missing' | 'invalid' | 'valid' | 'expired' {
   if (!token) return 'missing'
-  if (!claims || !Number.isFinite(claims.exp)) return 'invalid'
+  if (!claims || typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return 'invalid'
   return claims.exp * 1000 > now + 30000 ? 'valid' : 'expired'
 }
 
-export function storeToken(token, storage = sessionStorage) {
+export function storeToken(token: string, storage: TokenStorage = sessionStorage): void {
   if (token) storage.setItem(TOKEN_KEY, token)
   else storage.removeItem(TOKEN_KEY)
 }
 
-export function parseJwt(token) {
+export function parseJwt(token: unknown): JwtClaims | null {
   const part = String(token || '').split('.')[1]
   if (!part) return null
   try {
@@ -34,7 +54,7 @@ export function parseJwt(token) {
   }
 }
 
-export function identityFromToken(token) {
+export function identityFromToken(token: string) {
   const claims = parseJwt(token)
   if (!claims) return null
   const roles = claims.roles || claims.realm_access?.roles || []
@@ -46,17 +66,17 @@ export function identityFromToken(token) {
   }
 }
 
-function base64Url(bytes) {
+function base64Url(bytes: ArrayBuffer | Uint8Array): string {
   return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-export async function pkcePair(cryptoImpl = globalThis.crypto) {
+export async function pkcePair(cryptoImpl: Crypto = globalThis.crypto) {
   const verifier = base64Url(cryptoImpl.getRandomValues(new Uint8Array(32)))
   const challenge = base64Url(await cryptoImpl.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
   return { verifier, challenge }
 }
 
-export function authorizeUrl({ issuer, clientId, redirectUri, challenge, state }) {
+export function authorizeUrl({ issuer, clientId, redirectUri, challenge, state }: { issuer: string; clientId: string; redirectUri: string; challenge: string; state: string }): string {
   const params = new URLSearchParams({
     response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'openid',
     code_challenge: challenge, code_challenge_method: 'S256', state,
@@ -68,15 +88,16 @@ function redirectUri() {
   return `${window.location.origin}${window.location.pathname}`
 }
 
-export async function startOidcLogin(config) {
+export async function startOidcLogin(config: OidcConfig): Promise<void> {
+  const { issuer, clientId } = requireOidc(config)
   const { verifier, challenge } = await pkcePair()
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)))
-  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, issuer: config.issuer, clientId: config.client_id }))
-  window.location.assign(authorizeUrl({ issuer: config.issuer, clientId: config.client_id, redirectUri: redirectUri(), challenge, state }))
+  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, issuer, clientId }))
+  window.location.assign(authorizeUrl({ issuer, clientId, redirectUri: redirectUri(), challenge, state }))
 }
 
 // 回调页：校验 state，用 code + verifier 换取令牌，并从地址栏移除 code。
-export async function completeOidcLogin() {
+export async function completeOidcLogin(): Promise<string> {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code')
   if (!code) return ''
@@ -104,8 +125,9 @@ export async function completeOidcLogin() {
   }
 }
 
-export function oidcLogout(config) {
+export function oidcLogout(config: OidcConfig): void {
   storeToken('')
-  const params = new URLSearchParams({ client_id: config.client_id, post_logout_redirect_uri: redirectUri() })
-  window.location.assign(`${config.issuer.replace(/\/+$/, '')}/protocol/openid-connect/logout?${params}`)
+  const { issuer, clientId } = requireOidc(config)
+  const params = new URLSearchParams({ client_id: clientId, post_logout_redirect_uri: redirectUri() })
+  window.location.assign(`${issuer.replace(/\/+$/, '')}/protocol/openid-connect/logout?${params}`)
 }

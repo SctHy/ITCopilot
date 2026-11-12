@@ -9,9 +9,11 @@
     <p v-for="delivery in notifications.deliveries" :key="delivery.id">{{ delivery.channel }} · {{ labels[delivery.status] }} · 尝试 {{ delivery.attempts }} 次 <span v-if="delivery.error">（{{ delivery.error }}）</span></p>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
-const props = defineProps({ notifications: Object, members: Array, canManage: Boolean, busy: Object, act: Function })
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { TaskMember, TaskNotifications } from '../lib/types.ts'
+const props = defineProps<{ notifications: TaskNotifications; members: TaskMember[]; canManage: boolean; busy: Record<string, boolean>; act: TaskAct }>()
 const channel = ref(props.notifications.subscription?.channel || props.notifications.channels[0] || 'email'), enabled = ref(!!props.notifications.subscription?.enabled), escalation = ref(props.notifications.subscription?.escalate_to || '')
-const labels = { queued: '等待投递', sending: '投递中', sent: '已投递', failed: '投递失败', cancelled: '已取消' }
+const labels: Record<string, string> = { queued: '等待投递', sending: '投递中', sent: '已投递', failed: '投递失败', cancelled: '已取消' }
 </script>

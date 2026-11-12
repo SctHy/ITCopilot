@@ -22,10 +22,12 @@
     <button v-if="canManage && room.status !== 'open'" :disabled="busy.lifecycle" @click="act('lifecycle', { status: 'open' })">重新打开</button>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
-const props = defineProps({ progress: Object, room: Object, canManage: Boolean, busy: Object, act: Function })
-const draft = ref(null), resolution = ref(''), labels = { todo: '待处理', working: '进行中', done: '已完成' }
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { TaskProgress, TaskRoom } from '../lib/types.ts'
+const props = defineProps<{ progress: TaskProgress; room: TaskRoom; canManage: boolean; busy: Record<string, boolean>; act: TaskAct }>()
+const draft = ref<TaskProgress | null>(null), resolution = ref(''), labels: Record<string, string> = { todo: '待处理', working: '进行中', done: '已完成' }
 function edit() { draft.value = JSON.parse(JSON.stringify(props.progress)) }
-async function save() { if (await props.act('progress', draft.value)) draft.value = null }
+async function save() { if (draft.value && await props.act('progress', { ...draft.value })) draft.value = null }
 </script>

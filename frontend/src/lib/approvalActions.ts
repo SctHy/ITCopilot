@@ -1,12 +1,23 @@
 // Presentation only. The API independently checks identity, quorum and frozen hash.
-export function approvalPermissions(approval, identity) {
+import type { Approval, Identity } from './types.ts'
+
+export interface ApprovalPermissions {
+  canDecide: boolean
+  canClarify: boolean
+  canReconcile: boolean
+  canWithdraw: boolean
+  canRelease: boolean
+  reason: string
+}
+
+export function approvalPermissions(approval: Approval | null | undefined, identity: Identity | null | undefined): ApprovalPermissions {
   const roles = identity?.roles || []
   const reviewer = roles.some(role => role === 'approver' || role === 'it_admin')
   const ownRequest = !!identity && approval?.requester === identity.subject
   const ownTarget = !!identity?.employee_id && (approval?.action_requests || []).some(
     action => String(action.arguments?.employee_id) === String(identity.employee_id))
   const voted = !!identity && (approval?.decisions || []).some(vote => vote.actor === identity.subject)
-  const assigned = !approval?.assigned_reviewers?.length || approval.assigned_reviewers.includes(identity?.subject)
+  const assigned = !approval?.assigned_reviewers?.length || approval.assigned_reviewers.includes(identity?.subject ?? '')
   const writable = approval?.room_can_write !== false
   const pending = approval?.status === 'pending'
   // A revocation still waiting for its time is an active grant that can be given back early.

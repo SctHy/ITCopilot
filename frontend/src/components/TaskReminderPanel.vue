@@ -9,9 +9,11 @@
     </form>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
-const props = defineProps({ reminders: Array, room: Object, canManage: Boolean, busy: Object, act: Function })
-const text = ref(''), due = ref(''), wake = ref(false), labels = { pending: '待触发', fired: '已触发', cancelled: '已取消' }
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { TaskReminder, TaskRoom } from '../lib/types.ts'
+const props = defineProps<{ reminders: TaskReminder[]; room: TaskRoom; canManage: boolean; busy: Record<string, boolean>; act: TaskAct }>()
+const text = ref(''), due = ref(''), wake = ref(false), labels: Record<string, string> = { pending: '待触发', fired: '已触发', cancelled: '已取消' }
 async function create() { if (await props.act('reminders', { text: text.value, due_at: new Date(due.value).getTime() / 1000, wake: wake.value })) { text.value = ''; due.value = '' } }
 </script>

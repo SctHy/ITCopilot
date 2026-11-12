@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createTaskHistoryController } from '../src/lib/taskHistoryController.js'
-import { createTaskClient } from '../src/lib/taskClient.js'
+import { createTaskHistoryController } from '../src/lib/taskHistoryController.ts'
+import { createTaskClient } from '../src/lib/taskClient.ts'
 
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { resolve, reject, promise } }
 

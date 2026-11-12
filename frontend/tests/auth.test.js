@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { authorizeUrl, identityFromToken, parseJwt, pkcePair, storedToken } from '../src/lib/auth.js'
-import { readEventStream } from '../src/lib/backends.js'
+import { authorizeUrl, identityFromToken, parseJwt, pkcePair, storedToken } from '../src/lib/auth.ts'
+import { readEventStream } from '../src/api/chat.ts'
 
 function jwt(claims) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')

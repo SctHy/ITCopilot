@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeToolTraceResponse } from '../src/lib/backends.js'
+import { normalizeToolTraceResponse } from '../src/api/chat.ts'
 
 function detailedTrace() {
   return {
@@ -8,11 +8,11 @@ function detailedTrace() {
     found: true,
     trace: {
       request_id: 'req-1',
-      tools_used: ['search_knowledge_base', 'lookup_error_code', 'check_service_status'],
+      tools_used: ['search_knowledge_base', 'lookup_asset', 'query_ticket'],
       tool_traces: [
-        { agent_type: 'network_software', tool_name: 'search_knowledge_base', tool_use_id: 'call-1', input: { query: 'VPN 401' }, success: true, latency_ms: 12, error: '', retry_safe: true },
-        { agent_type: 'network_software', tool_name: 'lookup_error_code', tool_use_id: 'call-2', input: { error_code: '401' }, success: true, latency_ms: 0.5, error: '', retry_safe: true },
-        { agent_type: 'network_software', tool_name: 'check_service_status', tool_use_id: 'call-3', input: { service: 'corporate-vpn' }, success: false, latency_ms: 3, error: 'status adapter unavailable', retry_safe: true }
+        { tool_name: 'search_knowledge_base', tool_use_id: 'call-1', input: { query: 'VPN 401' }, success: true, latency_ms: 12, error: '', retry_safe: true },
+        { tool_name: 'lookup_asset', tool_use_id: 'call-2', input: { asset_id: 'DEV-1001' }, success: true, latency_ms: 0.5, error: '', retry_safe: true },
+        { tool_name: 'query_ticket', tool_use_id: 'call-3', input: { ticket_id: 'INC-1' }, success: false, latency_ms: 3, error: 'ledger unavailable', retry_safe: true }
       ]
     }
   }
@@ -26,7 +26,7 @@ test('maps backend tool_traces into toolCalls with detailed fields', () => {
   assert.deepEqual(out.trace.toolCalls[0].input, { query: 'VPN 401' })
   assert.equal(out.trace.toolCalls[0].success, true)
   assert.equal(out.trace.toolCalls[2].success, false)
-  assert.equal(out.trace.toolCalls[2].error, 'status adapter unavailable')
+  assert.equal(out.trace.toolCalls[2].error, 'ledger unavailable')
 })
 
 test('falls back to legacy tool_calls shape for older responses', () => {
@@ -57,7 +57,7 @@ test('returns empty lists for an empty or missing trace without throwing', () =>
 })
 
 test('knowledge search maps the API list into visible results and surfaces failures', async (t) => {
-  const { requestSearch } = await import('../src/lib/backends.js')
+  const { requestSearch } = await import('../src/api/knowledge.ts')
   const settings = { endpoints: { python: 'http://api.test' }, accessToken: '' }
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([{ title: 'VPN' }]), { status: 200 }))
   assert.deepEqual((await requestSearch('python', settings, 'VPN')).results, [{ title: 'VPN' }])

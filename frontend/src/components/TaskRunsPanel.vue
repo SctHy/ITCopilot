@@ -9,9 +9,11 @@
     </article>
   </details>
 </template>
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
-const props = defineProps({ budget: Object, attempts: Array, isAdmin: Boolean, busy: Object, act: Function })
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { TaskAttempt, TaskBudget } from '../lib/types.ts'
+const props = defineProps<{ budget: TaskBudget; attempts: TaskAttempt[]; isAdmin: boolean; busy: Record<string, boolean>; act: TaskAct }>()
 const tokens = ref(props.budget.token_limit), runs = ref(props.budget.run_limit)
-const labels = { running: '运行中', done: '已完成', failed: '失败', interrupted: '中断' }
+const labels: Record<string, string> = { running: '运行中', done: '已完成', failed: '失败', interrupted: '中断' }
 </script>

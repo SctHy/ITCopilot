@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { approvalPermissions } from '../src/lib/approvalActions.js'
-import { createTaskController } from '../src/lib/taskController.js'
-import { createTaskClient } from '../src/lib/taskClient.js'
+import { approvalPermissions } from '../src/lib/approvalActions.ts'
+import { createTaskController } from '../src/lib/taskController.ts'
+import { createTaskClient } from '../src/lib/taskClient.ts'
 
 const approval = { approval_id: 'approval-A', payload_hash: 'a'.repeat(64), status: 'pending', requester: 'alice',
   action_requests: [{ arguments: { employee_id: '1001' } }], decisions: [] }
@@ -165,4 +165,20 @@ test('approval transport binds the selected approval hash and snapshots the call
   assert.equal(calls[0].url, 'http://api.test/tasks/room%2FA/approvals/approval-A')
   assert.equal(calls[0].options.headers.get('Authorization'), 'Bearer bob-token')
   assert.deepEqual(JSON.parse(calls[0].options.body), { decision: 'approved', payload_hash: approval.payload_hash })
+})
+
+test('a transient poll failure keeps the open room; losing access closes it', async () => {
+  let failure = null
+  const c = createTaskController(client({ get: async id => { if (failure) throw failure; return room(id) } }))
+  await c.select('room')
+  failure = Object.assign(new Error('502 Bad Gateway'), { status: 502 })
+  await c.refresh()
+  assert.equal(c.state.room?.id, 'room')
+  assert.equal(c.state.error, '502 Bad Gateway')
+  failure = null; await c.refresh()
+  assert.equal(c.state.error, '')
+  failure = Object.assign(new Error('404 Not Found'), { status: 404 })
+  await c.refresh()
+  assert.equal(c.state.room, null)
+  c.dispose()
 })

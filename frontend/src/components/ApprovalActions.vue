@@ -13,13 +13,16 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-import { approvalPermissions } from '../lib/approvalActions.js'
-const props = defineProps({ approval: Object, identity: Object, busy: Boolean, allowClarification: Boolean })
-const emit = defineEmits(['action'])
+import { approvalPermissions } from '../lib/approvalActions.ts'
+import type { Approval, ApprovalDecision, Identity } from '../lib/types.ts'
+
+const props = defineProps<{ approval: Approval | null; identity: Identity | null; busy?: boolean; allowClarification?: boolean }>()
+// No decision means "reload this approval".
+const emit = defineEmits<{ action: [decision?: ApprovalDecision] }>()
 const permissions = computed(() => approvalPermissions(props.approval, props.identity))
-function confirmThen(action, message) {
+function confirmThen(action: ApprovalDecision, message: string) {
   if (typeof window === 'undefined' || window.confirm(message)) emit('action', action)
 }
 const needsReview = computed(() => [...(props.approval?.results || []), ...(props.approval?.revocations || [])].some(step => ['manual_review', 'unknown'].includes(step.status)))

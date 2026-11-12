@@ -56,35 +56,37 @@
   </section>
 </template>
 
-<script setup>
-import { computed, onBeforeUnmount, onMounted, ref, toRefs } from 'vue'
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue'
 import TaskConversation from './TaskConversation.vue'
 import TaskDetails from './TaskDetails.vue'
-import { createTaskClient } from '../lib/taskClient.js'
-import { createTaskController } from '../lib/taskController.js'
-import { createPolling } from '../lib/stateMachine.js'
+import { createTaskClient } from '../lib/taskClient.ts'
+import { createTaskController } from '../lib/taskController.ts'
+import { createPolling } from '../lib/stateMachine.ts'
+import type { Approval, ApprovalDecision, Identity, Settings } from '../lib/types.ts'
 
-const props = defineProps({ settings: { type: Object, required: true }, identity: { type: Object, default: null } })
+const props = defineProps<{ settings: Settings; identity: Identity | null }>()
 // App remounts this workspace when identity or endpoint changes.
 const client = createTaskClient(props.settings)
 const controller = createTaskController(client)
-const details = ref(null)
+const details = ref<InstanceType<typeof TaskDetails> | null>(null)
 
 const { items, room, selected, creating, title, initialMessage, message, askAgent, busy, error, notice, approvalBusy, approvalErrors, query, total, hasMore } = toRefs(controller.state)
 const { refresh, search, older, select, beginNew, create, send, retry, stop } = controller
-const composer = ref(null)
-const phases = { working: 'Agent 处理中', waiting: '等待后续消息', awaiting_approval: '等待审批', executing: '业务执行中', manual_review: '需人工核对', failed: 'Agent 回合失败', stopped: '已停止跟进', resolved: '已解决', budget_paused: '累计预算已用完，等待管理员调整' }
+const composer = ref<HTMLTextAreaElement | null>(null)
+const phases: Record<string, string> = { working: 'Agent 处理中', waiting: '等待后续消息', awaiting_approval: '等待审批', executing: '业务执行中', manual_review: '需人工核对', failed: 'Agent 回合失败', stopped: '已停止跟进', resolved: '已解决', budget_paused: '累计预算已用完，等待管理员调整' }
 const failedRuns = computed(() => (room.value?.runs || []).filter(run => run.status === 'failed'))
-const canStop = computed(() => room.value?.requester === props.identity?.subject || props.identity?.roles?.includes('it_admin'))
+const canStop = computed(() => room.value?.requester === props.identity?.subject || !!props.identity?.roles?.includes('it_admin'))
 const polling = createPolling(refresh, 2000)
-async function handleApproval(approval, decision) {
+const message_ = (e: unknown) => e instanceof Error ? e.message : String(e)
+async function handleApproval(approval: Approval, decision?: ApprovalDecision) {
   if (decision === 'clarify') { details.value?.clarify(approval); return }
   await controller.decide(approval, decision)
 }
-async function archive() { try { await client.capability(selected.value, 'archive', { archived: !query.value.archived }); await refresh() } catch(e) { error.value = e.message } }
+async function archive() { try { await client.capability(selected.value, 'archive', { archived: !query.value.archived }); await refresh() } catch (e) { error.value = message_(e) } }
 async function markRead() {
-  try { await client.capability(selected.value, 'read', { seq: Math.max(0, ...room.value.events.map(e => e.seq)) }); await refresh() }
-  catch (e) { error.value = e.message }
+  try { await client.capability(selected.value, 'read', { seq: Math.max(0, ...(room.value?.events ?? []).map(e => e.seq)) }); await refresh() }
+  catch (e) { error.value = message_(e) }
 }
 async function copyLink() {
   const url = new URL(window.location.href)
@@ -95,6 +97,12 @@ async function copyLink() {
 onMounted(() => {
   selected.value = new URL(window.location.href).searchParams.get('task') || ''
   refresh(); polling.start()
+  // Keep ?task= in step with the open room, so reload or coming back reopens what the user last chose.
+  watch(selected, id => {
+    const url = new URL(window.location.href)
+    if (id) url.searchParams.set('task', id); else url.searchParams.delete('task')
+    window.history.replaceState({}, '', url)
+  })
 })
 onBeforeUnmount(() => { controller.dispose(); polling.stop() })
 </script>

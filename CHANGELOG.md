@@ -12,6 +12,7 @@
 - Token：规则加“不写过渡语”、回复“每个问题一般不超过 200 字”（system 预算 300→320 字）；预取知识改为紧凑文本（`knowledge_text`）；情景记忆加余弦距离门槛（`IT_COPILOT_MEMORY_MAX_DISTANCE`，默认 0.6），改按相关度 × 重要度排序；技能支持 full/progressive/auto 披露（`IT_COPILOT_SKILL_DISCLOSURE`，SKILL.md 新增 `intent_groups`、`write_tools`），当前规模下 auto 取 full。同为关闭思考时，总输入 −5% ~ −10%、输出 −10% ~ −13%、时延 p50 −6% ~ −10%。
 - 评测：`evaluation/token_audit.py` 按组成部分统计每次模型调用并记录真实用量与费用，三个业务评测脚本默认开启；`scripts/compare_token_modes.py` 对比多组报告。
 - 评测：Jev 预取命中计为知识检索证据（`evaluate_application.py`、`evaluate_simulated.py`）；`forbid_text` 前 4 字内有否定词时不计；新增 `scripts/evaluate_experience.py`（真实口吻对话 + SSE 时延）与 `scripts/evaluate_rag_gitlab.py`（GitLab 公开 Handbook 检索）。
+- 前端：全部改为 TypeScript（strict，CI 增加 `npm run typecheck`）；App.vue 拆成页面（`src/views/`）、接口层（`src/api/`）与可单测的会话模块（`chatSession`、`authSession`），对话切页不丢；共享事项轮询改为单飞，临时失败不再关闭事项；OIDC 配置缺 `issuer`/`client_id` 时直接报错；构建依赖移到 devDependencies。
 
 ## v4.0 — 精简（破坏性更新）
 

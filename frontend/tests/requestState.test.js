@@ -1,8 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import vm from 'node:vm'
-import { createRequestState } from '../src/lib/requestState.js'
+import { createRequestState, loadCurrent } from '../src/lib/requestState.ts'
 
 function state() { return { backend:'python', conversationId:'', endpoints:{python:'/py'} } }
 
@@ -29,36 +27,31 @@ test('latest request wins within each slot and request settings are snapshots', 
   assert.equal(fresh.isCurrent(), false)
 })
 
-const source = fs.readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
-function loadFunction(name, context) {
-  const start = source.indexOf(`async function ${name}(`)
-  const next = source.slice(start + 1).search(/\n(?:async )?function /)
-  const end = next < 0 ? source.indexOf('</script>',start) : start + 1 + next
-  vm.runInContext(source.slice(start,end),context)
+// Every loader (stats, monitor, skills, identity, approvals…) goes through loadCurrent.
+for (const fail of [false, true]) {
+  test(`loadCurrent: stale ${fail ? 'error' : 'success'} cannot overwrite switched state`, async () => {
+    const settings = state()
+    const requests = createRequestState(settings)
+    let resolve, reject
+    const pending = new Promise((a, b) => { resolve = a; reject = b })
+    const field = { value: 'new' }
+    const task = loadCurrent(requests, 'stats', () => pending, value => { field.value = value }, () => { field.value = 'failed' })
+    settings.endpoints.python = '/other'; requests.invalidate()
+    if (fail) reject(new Error('old')); else resolve('old')
+    await task
+    assert.equal(field.value, 'new')
+  })
 }
 
-for (const [name, requestName, field, result] of [
-  ['loadStats','requestKnowledgeStats','knowledgeCount',{total_chunks: 99}],
-  ['loadMonitor','requestMonitor','monitorData',{agents:{old:true}}],
-  ['loadReports','requestEvaluationReports','evalReports',{gate:{all_passed:true},suites:[]}],
-  ['loadSkills','requestSkills','skillsData',{skills:['old']}],
-]) {
-  for (const fail of [false,true]) {
-    test(`${name}: stale ${fail ? 'error' : 'success'} cannot overwrite switched state`, async () => {
-      const settings = state()
-      const requests = createRequestState(settings)
-      let resolve, reject
-      const pending = new Promise((a,b)=>{resolve=a;reject=b})
-      const context = vm.createContext({settings,requestState:requests,[field]:{value:'new'},[requestName]:()=>pending})
-      loadFunction(name,context)
-      const task = context[name]()
-      settings.endpoints.python='/other'; requests.invalidate()
-      if (fail) reject(new Error('old')); else resolve(result)
-      await task
-      assert.equal(context[field].value,'new')
-    })
-  }
-}
+test('loadCurrent applies a current result with the request snapshot, and reports current errors', async () => {
+  const settings = state()
+  const requests = createRequestState(settings)
+  const seen = []
+  await loadCurrent(requests, 'approvals', (backend, snapshot) => Promise.resolve([backend, snapshot.endpoints.python]),
+    (value, request) => seen.push(value, request.backend))
+  await loadCurrent(requests, 'approvals', () => Promise.reject(new Error('down')), () => seen.push('applied'), error => seen.push(error.message))
+  assert.deepEqual(seen, [['python', '/py'], 'python', 'down'])
+})
 
 test('changing identity invalidates responses even when the endpoint stays the same', () => {
   const settings = { ...state(), accessToken: 'alice' }
@@ -74,10 +67,7 @@ test('approval inbox discards a response from the previous identity', async () =
   let resolve
   const pending = new Promise(r => { resolve = r })
   const inbox = { value: [] }
-  const context = vm.createContext({ settings, requestState, approvalFilter: { value: 'pending' },
-    approvalInbox: inbox, listApprovals: () => pending, showToast: () => {} })
-  loadFunction('loadApprovals', context)
-  const task = context.loadApprovals()
+  const task = loadCurrent(requestState, 'approvals', () => pending, body => { inbox.value = body.items })
   settings.accessToken = 'bob'
   requestState.invalidate()
   resolve({ items: [{ approval_id: 'alice-private-approval' }] })

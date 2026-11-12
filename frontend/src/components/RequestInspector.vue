@@ -33,8 +33,8 @@
             <AppIcon name="route" />
           </span>
           <div>
-            <strong>Agent 路由</strong>
-            <p>{{ lastResponse ? lastResponse.primaryAgent || lastResponse.agentType || '未返回 Agent' : '分配给合适的 Agent' }}</p>
+            <strong>工具调用</strong>
+            <p>{{ lastResponse ? lastResponse.toolsUsed?.length ? lastResponse.toolsUsed.join(' · ') : '未调用工具' : '按需调用工具' }}</p>
           </div>
         </li>
         <li>
@@ -56,11 +56,10 @@
           </strong>
         </div>
         <div>
-          <span>路由置信度</span>
-          <strong>{{ lastResponse ? formatPercent(lastResponse.routingConfidence) : '—' }}</strong>
+          <span>意图置信度</span>
+          <strong>{{ lastResponse ? formatPercent(lastResponse.intentConfidence) : '—' }}</strong>
         </div>
       </div>
-      <p v-if="lastResponse?.routingReason" class="routing-note">{{ lastResponse.routingReason }}</p>
       <details v-if="lastTrace?.trace" class="inspector-tools">
         <summary>
           <span>工具调用</span>
@@ -90,10 +89,6 @@
           <strong>{{ monitorData.loaded ? totalRequests : '—' }}</strong>
         </div>
         <div>
-          <span>Agent</span>
-          <strong>{{ monitorData.loaded ? agentCount : '—' }}</strong>
-        </div>
-        <div>
           <span>告警</span>
           <strong :class="{ danger: activeAlerts.length }">{{ monitorData.loaded ? activeAlerts.length : '—' }}</strong>
         </div>
@@ -107,24 +102,20 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { formatJson, formatPercent } from '../lib/format.ts'
+import type { MonitorData } from '../lib/types.ts'
 
-const props = defineProps({
-  lastResponse: { type: Object, default: null },
-  lastTrace: { type: Object, default: null },
-  busy: { type: Boolean, default: false },
-  monitorData: { type: Object, required: true }
-})
-defineEmits(['refresh'])
-// /monitor 响应：{ agents, tools, monitor: { alerts, slos, ... }, mcp }
+const props = withDefaults(defineProps<{
+  lastResponse?: Record<string, any> | null
+  lastTrace?: Record<string, any> | null
+  busy?: boolean
+  monitorData: MonitorData
+}>(), { lastResponse: null, lastTrace: null, busy: false })
+defineEmits<{ refresh: [] }>()
+// /monitor 响应：{ agent, tools, monitor: { alerts, slos, ... }, mcp }
 const activeAlerts = computed(() => props.monitorData.monitor?.alerts || [])
-const agentCount = computed(() => Object.keys(props.monitorData.agents || {}).length)
-const totalRequests = computed(() => Object.values(props.monitorData.agents || {}).reduce((sum, item) => sum + Number(item.total || 0), 0))
-function formatPercent(value) {
-  const number = Number(value || 0)
-  return `${(number <= 1 ? number * 100 : number).toFixed(1)}%`
-}
-function formatJson(value) { return JSON.stringify(value ?? {}, null, 2) }
+const totalRequests = computed(() => Number(props.monitorData.agent?.total || 0))
 </script>

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { requestChatStream } from '../src/lib/backends.js'
+import { requestChatStream } from '../src/api/chat.ts'
 
 const settings = { backend: 'python', endpoints: { python: 'http://api.test' }, conversationId: 'c1', accessToken: '' }
 

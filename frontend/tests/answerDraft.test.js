@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createAnswerDraft } from '../src/lib/answerDraft.js'
+import { createAnswerDraft } from '../src/lib/answerDraft.ts'
 
 const ids = () => { let n = 0; return () => `m${++n}` }
 

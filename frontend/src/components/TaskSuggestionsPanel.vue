@@ -12,7 +12,9 @@
     </article>
   </details>
 </template>
-<script setup>
-defineProps({ suggestions: Array, version: Number, room: Object, busy: Object, act: Function })
-const labels = { pending: '待处理', accepted: '已采纳', dismissed: '已忽略' }, stages = { todo: '待处理', working: '进行中', done: '有完成证据' }
+<script setup lang="ts">
+import type { TaskAct } from '../lib/taskDetailsController.ts'
+import type { TaskRoom, TaskSuggestion } from '../lib/types.ts'
+defineProps<{ suggestions: TaskSuggestion[]; version: number; room: TaskRoom; busy: Record<string, boolean>; act: TaskAct }>()
+const labels: Record<string, string> = { pending: '待处理', accepted: '已采纳', dismissed: '已忽略' }, stages: Record<string, string> = { todo: '待处理', working: '进行中', done: '有完成证据' }
 </script>
