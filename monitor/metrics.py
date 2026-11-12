@@ -40,6 +40,7 @@ RETENTION_DELETED = Counter("it_copilot_retention_deleted_total", "按保留期�
 RATE_LIMITED = Counter("it_copilot_rate_limited_total", "按身份限流拒绝的请求", ["bucket", "channel"])
 
 # ── 受控执行（outbox worker） ─────────────────────────────────────────────────
+GRANT_DRIFT = Counter("it_copilot_grant_drift_total", "授权资源发生外部漂移", ["system"])
 WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])
 POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后对在途审批与授权的处置", ["outcome"])
 

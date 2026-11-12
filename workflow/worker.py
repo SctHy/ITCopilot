@@ -9,15 +9,15 @@ Per action:
 1. Claimed with a lease. If the previous status was ``unknown`` or an expired
    ``executing`` lease (crash mid-call), observe the target first and only re-apply
    when the effect is absent.
-2. Grants record the holder's baseline level *before* the first change; an existing
-   equal-or-higher permission is left untouched and never revoked later.
+2. Grants inherit the resource's original baseline from its active ledger. Live state
+   must still match that ledger; external changes require review before a new grant.
 3. After apply, verify with an independent read. Verification failure is treated
    as an ambiguous outcome, not success.
 4. Successful grants schedule their revocation at expiry in the same transaction.
    Before an approval's first effect, and whenever the policy version changes, open
    work is re-checked against the current policy (``WorkflowStore.revalidate``).
-   Revocation checks for drift: if someone changed the permission since we granted
-   it, the worker stops and asks for review instead of deleting their change.
+   Revocation compares the live state with the complete active ledger, then restores
+   its remaining desired state. Unknown commands reserve the resource until reconciled.
 """
 from __future__ import annotations
 
@@ -239,7 +239,8 @@ class ExecutionWorker:
                     saved = {"restore_to": adapter.level(restore) if restore is not None else None}
                     await asyncio.to_thread(self.store.save_result, action, saved)
                 spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": saved["restore_to"]}}
-            if action["kind"] == "apply" and action["prev_status"] == ActionStatus.QUEUED:
+            if action["kind"] == "apply" and (action["prev_status"] == ActionStatus.QUEUED or (
+                    action["tool_name"] == "request_access" and action["result"] is None)):
                 flow.send("preflight")
                 # The policy may have changed since approval. QUEUED means this action has made no
                 # change yet, including a retry after a definite (transient) failure: the policy sweep
@@ -258,6 +259,19 @@ class ExecutionWorker:
                 flow.send("observe")
                 observed = await adapter.observe(action["id"], spec)
             if observed:
+                if action["tool_name"] == "revoke_access":
+                    latest = await asyncio.to_thread(self.store.revocation_context, action)
+                    restore = latest["restore_to"]
+                    restore = adapter.level(restore) if restore is not None else None
+                    current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
+                    if current != restore:
+                        flow.send("baseline")
+                        await asyncio.to_thread(self.store.fail, action,
+                            f"旧回收目标 {spec['arguments']['restore_to']} 已生效，但当前权限 {current} 不等于最新台账目标 {restore}；不能复用幂等键修改目标，需要人工核查",
+                            status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
+                        flow.send("drift")
+                        await self._emit(action, "action_drifted", current=current, restore_to=restore)
+                        return
                 flow.send("reconciled")
                 result = {**(action.get("result") or {}), "reconciled": True}
                 preexisting = action["tool_name"] == "request_access" and rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"]))
@@ -270,6 +284,17 @@ class ExecutionWorker:
                 flow.send("baseline")
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 grant_context = await asyncio.to_thread(self.store.grant_context, action, current)
+                if grant_context["covering"]:
+                    expected = grant_context["expected_level"]
+                    expected = adapter.level(expected) if expected is not None else None
+                    if current != expected:
+                        await asyncio.to_thread(self.store.fail, action,
+                            "当前权限与有效授权台账不一致，停止新授权并转人工核查", status=ActionStatus.MANUAL_REVIEW,
+                            resource_drift={"current": current, "expected": expected})
+                        flow.send("drift")
+                        metrics.GRANT_DRIFT.labels(system=spec["arguments"]["system"]).inc()
+                        await self._emit(action, "action_drifted", current=current, expected=expected)
+                        return
                 if "baseline_level" not in result:
                     result["baseline_level"] = grant_context["baseline_level"]
                     await asyncio.to_thread(self.store.save_result, action, result)
@@ -280,7 +305,8 @@ class ExecutionWorker:
                     await self._emit(action, "action_succeeded", preexisting=True)
                     return
                 covered = next((grant["action_id"] for grant in grant_context["covering"]
-                                if rank(adapter.level(grant["role"])) >= rank(adapter.level(spec["arguments"]["role"]))), None)
+                                if rank(adapter.level(grant["role"])) >= rank(adapter.level(spec["arguments"]["role"]))
+                                and rank(current) >= rank(adapter.level(spec["arguments"]["role"]))), None)
                 if covered is not None:
                     flow.send("preexisting")
                     await asyncio.to_thread(self.store.succeed, action, {**result, "covered_by": covered})
@@ -289,6 +315,7 @@ class ExecutionWorker:
                     return
             elif action["tool_name"] == "revoke_access":
                 flow.send("baseline")
+                revocation = await asyncio.to_thread(self.store.revocation_context, action)
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 expected = revocation["expected"]
                 if current != (adapter.level(expected) if expected is not None else None):
@@ -296,6 +323,12 @@ class ExecutionWorker:
                     flow.send("drift")
                     await self._emit(action, "action_drifted", current=current)
                     return
+                restore = revocation["restore_to"]
+                restore = adapter.level(restore) if restore is not None else None
+                if result["restore_to"] != restore:
+                    result["restore_to"] = restore
+                    await asyncio.to_thread(self.store.save_result, action, result)
+                spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": restore}}
             flow.send("apply")
             result.update(await adapter.apply(action["id"], spec))
             flow.send("verify")

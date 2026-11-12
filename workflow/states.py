@@ -59,7 +59,7 @@ EXECUTION = Machine(Execution, """
 
 ACTION = Machine(ActionStatus, """
     queued        -> executing | cancelled        # cancelled: policy change or saga compensation
-    unknown       -> executing
+    unknown       -> executing | cancelled        # cancelled: periodic reconciliation found external drift
     executing     -> succeeded | queued | unknown | failed | manual_review
     manual_review -> unknown                      # operator requeue: observe before applying again
 """)

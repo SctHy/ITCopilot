@@ -866,6 +866,20 @@ class WorkflowStore:
             earlier.c.seq < actions.c.seq, earlier.c.status != ActionStatus.SUCCEEDED,
         ).exists()
         due = and_(due, or_(actions.c.kind != "apply", ~blocked))
+        holder = actions.alias("resource_holder")
+        same_resource = (holder.c.tenant == actions.c.tenant, holder.c.resource_key == actions.c.resource_key,
+                         holder.c.id != actions.c.id)
+        reserved = select(holder.c.id).where(*same_resource,
+            holder.c.status.in_((ActionStatus.EXECUTING, ActionStatus.UNKNOWN, ActionStatus.MANUAL_REVIEW))).exists()
+        older_unknown = and_(holder.c.status == ActionStatus.UNKNOWN,
+            or_(holder.c.created_at < actions.c.created_at,
+                and_(holder.c.created_at == actions.c.created_at, holder.c.id < actions.c.id)))
+        recovery_blocked = select(holder.c.id).where(*same_resource,
+            or_(holder.c.status.in_((ActionStatus.EXECUTING, ActionStatus.MANUAL_REVIEW)), older_unknown)).exists()
+        manual_blocked = select(holder.c.id).where(*same_resource, holder.c.status == ActionStatus.MANUAL_REVIEW).exists()
+        due = and_(due, or_(and_(actions.c.status == ActionStatus.QUEUED, ~reserved),
+            and_(actions.c.status == ActionStatus.UNKNOWN, ~recovery_blocked),
+            and_(actions.c.status == ActionStatus.EXECUTING, ~manual_blocked)))
         if self.active_tenants_only:
             # Multi-tenant mode (ADR 0023): a suspended or offboarding tenant's actions wait, unclaimed,
             # until it is active again; nothing is cancelled and the queue order is kept.
@@ -879,6 +893,20 @@ class WorkflowStore:
             if len(claimed) >= limit:
                 break
             with self.engine.begin() as db:
+                if db.dialect.name == "postgresql":
+                    key = int.from_bytes(hashlib.sha256(row["resource_key"].encode()).digest()[:8], signed=True)
+                    db.execute(select(func.pg_advisory_xact_lock(key)))
+                unsettled = db.execute(select(actions.c.id, actions.c.status, actions.c.created_at).where(
+                    actions.c.tenant == row["tenant"], actions.c.resource_key == row["resource_key"], actions.c.id != row["id"],
+                    actions.c.status.in_((ActionStatus.EXECUTING, ActionStatus.UNKNOWN, ActionStatus.MANUAL_REVIEW)))).mappings().all()
+                if row["status"] == ActionStatus.QUEUED and unsettled:
+                    continue
+                if row["status"] == ActionStatus.EXECUTING and any(other["status"] == ActionStatus.MANUAL_REVIEW for other in unsettled):
+                    continue
+                if row["status"] == ActionStatus.UNKNOWN and any(
+                    other["status"] in {ActionStatus.EXECUTING, ActionStatus.MANUAL_REVIEW} or
+                    (other["created_at"], other["id"]) < (row["created_at"], row["id"]) for other in unsettled):
+                    continue
                 if row["kind"] == "apply" and db.execute(select(actions.c.id).where(
                         actions.c.approval_id == row["approval_id"], actions.c.kind == "apply",
                         actions.c.seq < row["seq"], actions.c.status != ActionStatus.SUCCEEDED)).first():
@@ -954,6 +982,7 @@ class WorkflowStore:
         with schema.read(self.engine) as db:
             active = self._active_grants(db, action["tenant"], args["employee_id"], args["system"])
             return {"baseline_level": active[0]["baseline_role"] if active else current,
+                    "expected_level": self.desired_level(db, action["tenant"], args["employee_id"], args["system"]),
                     "covering": [{"action_id": grant["action_id"], "role": grant["role"]} for grant in active]}
 
     def revocation_context(self, action):
@@ -995,16 +1024,44 @@ class WorkflowStore:
             self._action_cas(db, action, status=status, error=error[:500], not_before=self.clock() + delay_s, lease_owner=None, lease_until=None)
             self._audit(db, action["approval_id"], f"{action['kind']}_{status}", action["lease_owner"], action_id=action["id"], detail={"error": error[:500]})
 
-    def fail(self, action: Dict[str, Any], error: str, *, status: str = ActionStatus.FAILED, ledger_status: Optional[str] = None) -> None:
+    def fail(self, action: Dict[str, Any], error: str, *, status: str = ActionStatus.FAILED, ledger_status: Optional[str] = None,
+             resource_drift=None) -> None:
         now = self.clock()
         with self.engine.begin() as db:
             self._action_cas(db, action, status=status, error=error[:500], lease_owner=None, lease_until=None)
             self._audit(db, action["approval_id"], f"{action['kind']}_{status}", action["lease_owner"], action_id=action["id"], detail={"error": error[:500]})
+            if resource_drift is not None:
+                args = action["arguments"]
+                active = self._active_grants(db, action["tenant"], args["employee_id"], args["system"])
+                self._drift_grants(db, active, resource_drift["current"], resource_drift["expected"], reason="授权前发现漂移")
             if action["kind"] == "revoke":
                 self._settle_grant(db, action["id"], ledger_status or GrantStatus.REVOKE_FAILED, now)
             else:
                 self._compensate(db, action, now)
             self._refresh_execution(db, action["approval_id"])
+
+    def _drift_grants(self, db, active, current, expected, *, reason):
+        changed = []
+        now = self.clock()
+        for grant in active:
+            GRANT.check(grant["status"], GrantStatus.DRIFTED)
+            done = db.execute(update(access_grants).where(access_grants.c.tenant == grant["tenant"],
+                access_grants.c.action_id == grant["action_id"], access_grants.c.status == GrantStatus.ACTIVE,
+                access_grants.c.updated_at == grant["updated_at"]).values(status=GrantStatus.DRIFTED, updated_at=now)).rowcount
+            if done != 1:
+                continue
+            revoke = db.execute(select(actions).where(actions.c.tenant == grant["tenant"],
+                actions.c.id == grant["revoke_action_id"])).mappings().one()
+            if revoke["status"] in {ActionStatus.QUEUED, ActionStatus.UNKNOWN}:
+                ACTION.check(revoke["status"], ActionStatus.CANCELLED)
+                db.execute(update(actions).where(actions.c.tenant == grant["tenant"], actions.c.id == revoke["id"],
+                    actions.c.version == revoke["version"]).values(status=ActionStatus.CANCELLED,
+                    error=reason, lease_owner=None, lease_until=None,
+                    version=revoke["version"] + 1, updated_at=now))
+            self._audit(db, grant["approval_id"], "grant_drift_detected", "system", action_id=grant["action_id"],
+                detail={"system": grant["system"], "employee_id": grant["employee_id"], "expected": expected, "actual": current})
+            changed.append(grant["action_id"])
+        return changed
 
     @staticmethod
     def _settle_grant(db, revoke_action_id: str, status: str, now: float) -> None:

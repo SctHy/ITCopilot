@@ -110,6 +110,145 @@ def test_overlaps_preserve_permanent_baseline_when_shorter_upgrade_expires_first
     assert store.employee("1001", "default")["grants"][0]["role"] == "readonly"
 
 
+def test_a_missing_live_grant_cannot_cover_a_new_request_from_the_ledger_alone(db_url):
+    from tests.conftest import run_in_tenant
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "developer", 24)
+    asyncio.run(worker.run_until_idle())
+    run_in_tenant(local.apply("external-delete", {"tool_name": "revoke_access", "arguments": {
+        "employee_id": "1001", "system": "gitlab", "restore_to": None}}))
+    approve(store, "b", "developer", 72)
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"] == []
+    assert store.get("b")["results"][0]["status"] == "manual_review"
+    assert "covered_by" not in store.get("b")["results"][0]
+
+
+def test_a_new_request_cannot_hide_an_external_upgrade_as_a_temporary_grant(db_url):
+    from tests.conftest import run_in_tenant
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "reporter", 24)
+    asyncio.run(worker.run_until_idle())
+    run_in_tenant(local.apply("external-upgrade", access(role="developer", system="gitlab")))
+    approve(store, "b", "developer", 72)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("b")["results"][0]["status"] == "manual_review"
+    assert store.get("a")["revocations"][0]["status"] == "cancelled"
+    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "drifted"
+    clock.t += 73 * 3600
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"][0]["role"] == "developer"
+    assert "grant_drift_detected" in [row["event"] for row in store.audit("a")]
+
+
+def test_unattempted_manual_grant_rechecks_policy_after_operator_reconcile(db_url):
+    from tests.conftest import run_in_tenant
+    from tests.test_policy_revalidation import changed
+    from tests.test_workflow import ERIN
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "reporter", 24)
+    asyncio.run(worker.run_until_idle())
+    run_in_tenant(local.apply("external-upgrade", access(role="developer", system="gitlab")))
+    approve(store, "b", "developer", 72)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("b")["results"][0]["status"] == "manual_review"
+    store.policy = changed("deny-developer", lambda policy: policy["systems"]["gitlab"]["roles"].pop("developer"))
+    store.requeue("b", ERIN)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("b")["results"][0]["status"] == "failed"
+    assert len(store.employee("1001", "default")["access_ledger"]) == 1
+
+
+@pytest.mark.parametrize("old_effect_applied", [False, True])
+def test_unknown_revoke_replans_after_a_new_grant_without_reusing_an_applied_command(db_url, old_effect_applied):
+    from core.tenant_context import system_scope
+    from tests.conftest import run_in_tenant
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "developer", 24)
+    asyncio.run(worker.run_until_idle())
+    clock.t += 24 * 3600 + 1
+    with system_scope():
+        revoke = store.claim("interrupted", 60, 1)[0]
+    store.save_result(revoke, {"restore_to": None})
+    store.retry_later(revoke, "unknown", "interrupted before settlement", 10)
+    approve(store, "b", "developer", 72)
+    # Historical rows could have been claimed while another command was UNKNOWN.
+    from sqlalchemy import update
+    from core.db import approvals
+    with store.engine.begin() as db:
+        row = db.execute(select(actions).where(actions.c.approval_id == "b", actions.c.kind == "apply")).mappings().one()
+        db.execute(update(actions).where(actions.c.id == row["id"]).values(status="executing", lease_owner="legacy",
+            lease_until=clock.t + 60, attempts=1, version=row["version"] + 1))
+        db.execute(update(approvals).where(approvals.c.id == "b").values(execution="executing"))
+    legacy = {**row, "status": "executing", "lease_owner": "legacy", "attempts": 1, "version": row["version"] + 1}
+    store.save_result(legacy, {"baseline_level": None})
+    store.succeed(legacy, {"baseline_level": None, "covered_by": "a"})
+    if old_effect_applied:
+        run_in_tenant(local.apply(revoke["id"], {"tool_name": "revoke_access", "arguments": {
+            "employee_id": "1001", "system": "gitlab", "restore_to": None}}))
+    clock.t += 11
+    asyncio.run(worker.run_once(limit=1))
+    result = store.get("a")["revocations"][0]
+    if old_effect_applied:
+        assert result["status"] == "manual_review" and "reconciled" not in result
+        assert store.employee("1001", "default")["grants"] == []
+    else:
+        assert result["status"] == "succeeded" and result["restore_to"] == "developer"
+        assert store.employee("1001", "default")["grants"][0]["role"] == "developer"
+
+
+@pytest.mark.parametrize("held_status", ["unknown", "manual_review"])
+def test_unsettled_apply_keeps_the_resource_until_its_baseline_is_in_the_ledger(db_url, held_status):
+    from core.tenant_context import system_scope
+    from tests.conftest import run_in_tenant
+    from tests.test_workflow import ERIN
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "reporter", 24)
+    with system_scope():
+        first = store.claim("interrupted", 60, 1)[0]
+    store.save_result(first, {"baseline_level": None})
+    run_in_tenant(local.apply(first["id"], {"tool_name": first["tool_name"], "arguments": first["arguments"]}))
+    if held_status == "unknown":
+        store.retry_later(first, "unknown", "interrupted after effect", 10)
+    else:
+        store.fail(first, "effect requires review", status="manual_review")
+    approve(store, "b", "developer", 72)
+    assert asyncio.run(worker.run_once()) == 0
+    assert store.get("b")["results"][0]["status"] == "queued"
+    if held_status == "manual_review":
+        store.requeue("a", ERIN)
+    else:
+        clock.t += 11
+    asyncio.run(worker.run_until_idle())
+    assert all(grant["baseline_role"] is None for grant in store.employee("1001", "default")["access_ledger"])
+    clock.t += 24 * 3600 + 1
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"][0]["role"] == "developer"
+    clock.t += 48 * 3600
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"] == []
+
+
 def test_claim_collision_does_not_block_a_different_resource_and_expired_lease_can_be_reclaimed(db_url):
     clock = Clock()
     store = WorkflowStore(db_url, clock=clock)
