@@ -33,8 +33,8 @@ TURN = Protocol("chat_turn", "new", {
 
 MODEL_RUN = Protocol("model_run", "new", {
     "new": {"run": "generating"},
-    "generating": {"correct": "correcting", "complete": "completed", "truncate": "partial", "fail": "failed", "cancel": "cancelled"},
-    "correcting": {"complete": "completed", "truncate": "partial", "fail": "failed", "cancel": "cancelled"},
+    "generating": {"correct": "correcting", "complete": "completed", "truncate": "partial", "deadline": "partial", "fail": "failed", "cancel": "cancelled"},
+    "correcting": {"complete": "completed", "truncate": "partial", "deadline": "partial", "fail": "failed", "cancel": "cancelled"},
 })
 
 TOOL_CALL = Protocol("tool_call", "new", {

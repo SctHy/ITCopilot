@@ -25,6 +25,7 @@ from agents.states import OnceState, once_state, MODEL_RUN, TOOL_CALL, SlotState
 from agents.intent.taxonomy import WRITE_ACTIONS
 from agents.prompting import (
     AGENT_RULES,
+    WRITE_LABELS,
     claim_problems,
     correction_prompt,
     fallback_note,
@@ -43,6 +44,7 @@ from agents.types import (
     Request,
 )
 from core.protocols import CacheState, cache_state
+from core.deadline_model import DeadlineModel, TurnDeadlineExceeded
 from core.llm import is_model_unavailable
 from core.model_router import MODEL_ERRORS, ModelRouter
 from core.tenant_context import current_tenant
@@ -166,6 +168,7 @@ class BaseAgent:
             content=result.content, success=ok, confidence=req.intent_confidence, latency_ms=ms,
             escalate=self._needs_escalation(result.content), tools_used=result.tools_used, tool_traces=result.tool_traces,
             status=result.status, token_usage=result.token_usage, observability=self._observability(req),
+            error_code=result.error_code,
         ))
 
     def _observe(self, response: AgentResponse, failure_reason: Optional[str] = None) -> AgentResponse:
@@ -195,6 +198,10 @@ class BaseAgent:
         if tenant is None or tenant == "*":
             tenant = "default"
         route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
+        self.router.reload()
+        route_config = self.router.config.routes[route]
+        deadline_at = time.monotonic() + route_config.turn_deadline_s
+        deadline = asyncio.timeout_at(deadline_at)
         measured = RunUsage()
         failed_over = False
         req.route_metadata = {"model": self.router.config.routes[route].candidates[0],
@@ -209,7 +216,8 @@ class BaseAgent:
                 prompt += "\n本租户当日模型预算已用完，不能起草新的写操作申请；请明确告知用户，仍可回答只读问题。"
             async def invoke(selection):
                 req.route_metadata.update(model=selection.name, route=selection.route, route_reason=selection.reason)
-                options = {**kwargs, **overrides, "model": selection.model, "model_settings": selection.settings,
+                model = DeadlineModel(selection.model, deadline=deadline_at, request_timeout_s=route_config.request_timeout_s)
+                options = {**kwargs, **overrides, "model": model, "model_settings": selection.settings,
                            "usage_limits": UsageLimits(request_limit=selection.max_rounds)}
                 started = time.monotonic()
                 before_usage = {key: int(getattr(measured, key)) for key in ("input_tokens", "output_tokens", "cache_read_tokens")}
@@ -217,10 +225,13 @@ class BaseAgent:
                     response = (await self._run_streaming(prompt, req, options)
                                 if req.stream_answer and req.emit is not None else
                                 await self._runtime().run(prompt, **options))
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, TurnDeadlineExceeded):
                     self.router.breakers[selection.name].abandon_probe(selection.generation)
                     raise
                 except MODEL_ERRORS as exc:
+                    if time.monotonic() >= deadline_at:
+                        self.router.breakers[selection.name].abandon_probe(selection.generation)
+                        raise TurnDeadlineExceeded("Agent turn deadline exceeded") from exc
                     self.router.record(selection, time.monotonic() - started, success=not is_model_unavailable(exc))
                     raise
                 finally:
@@ -237,10 +248,7 @@ class BaseAgent:
                 alternative = self.router.pick(route, tenant, excluding=frozenset({routed.name}), reason="failover")
                 return await invoke(alternative)
 
-        def known_usage():
-            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
-
-        try:
+        async def generate():
             result = await run(turn_prompt(req))
             problems = claim_problems(result.output or "", deps, req)
             if problems:
@@ -251,7 +259,34 @@ class BaseAgent:
                 metrics.AGENT_CLAIM_CHECKS.labels(outcome="corrected").inc()
                 req.signals.append("claim_corrected")
                 await req.publish("answer_reset", {})
-                result = await run(correction_prompt(problems), message_history=result.all_messages())
+                correcting_at = time.monotonic()
+                try:
+                    result = await run(correction_prompt(problems), message_history=result.all_messages())
+                finally:
+                    req.stage_ms["claim_correction"] = (time.monotonic() - correcting_at) * 1000
+            return result
+
+        def known_usage():
+            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
+
+        try:
+            async with deadline:
+                result = await generate()
+        except (TimeoutError, TurnDeadlineExceeded) as exc:
+            if not deadline.expired() and not isinstance(exc, TurnDeadlineExceeded):
+                flow.send("fail")
+                raise ModelUnavailableError("模型请求超时", deps.used, deps.traces, os.getenv("OPENAI_BASE_URL", ""), token_usage=known_usage()) from exc
+            flow.send("deadline")
+            req.signals.append("deadline")
+            writes = {trace["tool_name"]: trace["output"] for trace in deps.traces
+                      if trace["success"] and trace["tool_name"] in WRITE_ACTIONS}
+            content = (fallback_note([("", f"本轮已生成{WRITE_LABELS[name]}" + (
+                "草稿，请在审批卡片确认提交；审批通过后执行。" if output["requires_requester_confirmation"]
+                else "待审批申请，审批通过后执行。")) for name, output in sorted(writes.items())])
+                       if writes else "处理超时，请重试")
+            await req.publish("answer_reset", {})
+            return AgentCallResult(content, deps.used, deps.traces, "partial", {
+                key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}, error_code="deadline")
         except asyncio.CancelledError:
             flow.send("cancel")
             raise

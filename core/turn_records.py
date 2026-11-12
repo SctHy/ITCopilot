@@ -42,7 +42,7 @@ def build_record(req, result, *, channel, policy_version, kb_version, approval_i
         model_requests=usage.get("requests", 0), input_tokens=usage.get("input_tokens", 0),
         output_tokens=usage.get("output_tokens", 0), cache_read_tokens=usage.get("cache_read_tokens", 0),
         cost_usd=obs.get("cost_usd"), latency_ms=result.latency_ms, first_token_ms=obs["first_token_ms"],
-        stage_ms={} if stage_ms is None else dict(stage_ms), tools=tools, signals=sorted(set(signals)), approval_id=approval_id)
+        stage_ms={**({} if stage_ms is None else stage_ms), **req.stage_ms}, tools=tools, signals=sorted(set(signals)), approval_id=approval_id)
     record["quality"] = {
         "write_turn": bool(req.allowed_writes) or (req.intent is not None and req.intent.value in {"password_reset", "account_unlock", "permission_request", "ticket_create"}) or any(t["name"] in {"request_access", "reset_password", "unlock_account", "lock_device", "create_ticket"} for t in tools),
         "clarification_needed": bool(req.conversation_state is not None and req.conversation_state.get("missing_fields")),

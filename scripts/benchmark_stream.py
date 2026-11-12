@@ -30,6 +30,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from api.main import app  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
 from evaluation.fake_model import scripted_model  # noqa: E402
+from evaluation.reporting import percentile  # noqa: E402
 
 REPORT = _ROOT / "evaluation/reports/stream_latency_v3.json"
 
@@ -45,12 +46,7 @@ def slow_model(latency_s: float):
     return scripted_model(reply)
 
 
-def pct(values, q):
-    values = sorted(values)
-    return round(values[min(len(values) - 1, int(round(q * (len(values) - 1))))], 3)
-
-
-async def measure(runs: int, latency: float):
+async def measure(runs: int, latency: float, concurrency: int = 1, repeats: int = 1):
     rows = []
     async with application(model=slow_model(latency)) as (_asgi, _state):
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, lifespan="off", log_level="warning"))
@@ -59,18 +55,28 @@ async def measure(runs: int, latency: float):
             await asyncio.sleep(0.01)
         port = server.servers[0].sockets[0].getsockname()[1]
         http = httpx2.AsyncClient(base_url=f"http://127.0.0.1:{port}", headers=auth(), timeout=60)
-        for i in range(runs):
+        slots = asyncio.Semaphore(concurrency)
+        async def turn(i):
             started = time.monotonic()
             seen = {}
+            result = None
             # Unique text per run: the intent recognizer caches identical messages.
             payload = {"message": f"VPN 报错 VPN-691 怎么办（工位 {i}）", "conv_id": f"bench-{i}", "client_request_id": f"bench-{i}"}
             async with http.stream("POST", "/chat/stream", json=payload) as response:
                 async for line in response.aiter_lines():
                     if line.startswith("event: "):
                         seen.setdefault(line[7:], round(time.monotonic() - started, 3))
+                    elif line.startswith("data: ") and "completed" in seen:
+                        result = json.loads(line[6:])
             first_progress = min(v for k, v in seen.items() if k != "status")
-            rows.append({"first_progress_s": first_progress, "first_tool_s": seen.get("tool_started"),
-                         "completed_s": seen["completed"], "event_times": seen})
+            return {"first_progress_s": first_progress, "first_tool_s": seen.get("tool_started"),
+                    "first_token_s": seen.get("answer_delta"), "completed_s": seen["completed"],
+                    "stage_ms": result["stage_ms"], "event_times": seen}
+        async def bounded_turn(i):
+            async with slots:
+                return await turn(i)
+        for repeat in range(repeats):
+            rows.extend(await asyncio.gather(*(bounded_turn(repeat * runs + i) for i in range(runs))))
         await http.aclose()
         server.should_exit = True
         await serving
@@ -80,22 +86,32 @@ async def measure(runs: int, latency: float):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=20)
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--output", type=pathlib.Path, default=REPORT)
     parser.add_argument("--model-latency", type=float, default=0.8, help="seconds per simulated model call (3 calls per turn)")
     args = parser.parse_args()
-    rows = asyncio.run(measure(args.runs, args.model_latency))
+    if min(args.runs, args.concurrency, args.repeats) < 1 or args.model_latency < 0:
+        parser.error("runs, concurrency and repeats must be positive; model latency must be non-negative")
+    rows = asyncio.run(measure(args.runs, args.model_latency, args.concurrency, args.repeats))
     summary = {}
-    for key in ("first_progress_s", "first_tool_s", "completed_s"):
-        values = [r[key] for r in rows]
-        summary[key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "mean": round(statistics.mean(values), 3)}
+    for key in ("first_progress_s", "first_tool_s", "first_token_s", "completed_s"):
+        values = [r[key] for r in rows if r[key] is not None]
+        summary[key] = {"p50": percentile(values, 0.5), "p95": percentile(values, 0.95),
+                        "p99": percentile(values, 0.99), "n": len(values),
+                        "mean": round(statistics.mean(values), 3) if values else None}
+    stage_p99 = {stage: percentile([row["stage_ms"][stage] for row in rows if stage in row["stage_ms"]], .99)
+                 for stage in sorted({stage for row in rows for stage in row["stage_ms"]})}
     report = {
         "schema_version": 1, "suite": "stream_latency_v3", "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "mode": f"real uvicorn over loopback TCP; simulated model latency {args.model_latency}s x 3 calls/turn; fakeredis; not production latency",
-        "runs": args.runs, "summary": summary,
+        "runs": len(rows), "concurrency": args.concurrency, "repeats": args.repeats,
+        "summary": summary, "stage_p99_ms": stage_p99,
         "baseline_note": "Previous SSE replayed events after the turn completed: its first progress event ~= completed_s.",
         "rows": rows,
     }
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"runs": args.runs, "summary": summary, "first_run": rows[0]["event_times"]}, ensure_ascii=False, indent=2))
     return 0
 

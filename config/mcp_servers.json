@@ -10,7 +10,7 @@
         "microsoft_docs_fetch"
       ],
       "read_only": true,
-      "timeout_s": 25,
+      "timeout_s": 8,
       "cache_ttl": 300,
       "max_result_chars": 12000
     }

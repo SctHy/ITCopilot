@@ -52,7 +52,7 @@ class RouteConfig(ConfigModel):
     max_rounds: int = Field(default=1, ge=1)
     latency_slo_s: float | None = Field(default=None, gt=0)
     turn_deadline_s: float = Field(default=30, gt=0)
-    request_timeout_s: float = Field(default=90, gt=0)
+    request_timeout_s: float = Field(default=15, gt=0)
 
 
 class TenantConfig(ConfigModel):

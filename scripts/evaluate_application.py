@@ -258,6 +258,10 @@ async def main():
     if args.cases:
         wanted = set(args.cases.split(","))
         cases = [c for c in cases if c["id"] in wanted]
+    if not cases or args.repeats < 1:
+        p.error("Select at least one case and a positive number of repeats")
+    if not os.getenv("OPENAI_API_KEY"):
+        p.error("OPENAI_API_KEY is required for live evaluation; load the intended environment before running")
     started_at = datetime.now(timezone.utc).isoformat()
     code = hashlib.sha256()
     for folder in ("api", "agents", "core", "intake", "memory", "tooling", "workflow", "evaluation"):
@@ -303,7 +307,7 @@ async def main():
         "upstream": upstream_model(),
         "started_at": started_at,
         "code_sha256": code_sha256,
-        "intent_strategy": "llm",
+        "intent_strategy": os.getenv("IT_INTENT_BACKEND", "auto"),
         "dataset": str(source.relative_to(ROOT)) if source.is_relative_to(ROOT) else source.name,
         "dataset_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "source_calls": source_calls,

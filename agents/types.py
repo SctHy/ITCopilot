@@ -43,6 +43,7 @@ class Request:
     signals: List[str] = field(default_factory=list)
     route_metadata: Dict[str, Any] = field(default_factory=dict)
     first_token_ms: Optional[float] = None
+    stage_ms: Dict[str, float] = field(default_factory=dict)
     started_at: float = 0.0
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
     checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
@@ -82,6 +83,7 @@ class AgentCallResult:
     status: str = "success"
     token_usage: Dict[str, int] = field(default_factory=dict)
     observability: Dict[str, Any] = field(default_factory=dict)
+    error_code: Optional[str] = None
 
 
 class AgentCallError(RuntimeError):
