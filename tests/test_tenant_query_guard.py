@@ -25,6 +25,7 @@ SCOPED_BY = (".c.tenant ==", ".c.tenant.in_(", "tenant == ", "== principal.tenan
 
 SYSTEM = "system job over every tenant; plan phase 1 runs it once per tenant under tenant_context"
 UNSCOPED = {
+    "workflow/badcase_miner.py::_candidates": "platform mining job explicitly enters system_scope; selects candidate IDs across tenants, preserves each row tenant, and all user/admin reads and writes filter tenant",
     "workflow/store.py::expire_pending": SYSTEM,
     "workflow/store.py::revalidate": SYSTEM,
     "workflow/store.py::_revalidate_pending": SYSTEM,

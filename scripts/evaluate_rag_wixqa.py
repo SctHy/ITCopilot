@@ -25,7 +25,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from evaluation.reporting import ROOT, write_report
+from evaluation.reporting import percentile, ROOT, write_report
 
 REPO, REVISION = "Wix/WixQA", "d662dc42479c14e202eccd832f8c4b66a035c4cc"
 FILES = {
@@ -69,9 +69,6 @@ def load(name: str) -> list:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def percentile(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, int(q * len(values)))] if values else 0.0
 
 
 def scored(case, items, latency_ms):
@@ -96,7 +93,7 @@ def summarize(rows):
         "hit_at_5": round(sum(0 < r["first_rank"] <= 5 for r in rows) / n, 4),
         "mrr": round(sum(1 / r["first_rank"] for r in rows if r["first_rank"]) / n, 4),
         "latency_p50_ms": round(statistics.median(latencies), 1) if latencies else 0.0,
-        "latency_p95_ms": round(percentile(latencies, 0.95), 1),
+        "latency_p95_ms": round(percentile(latencies, 0.95), 1) if latencies else None,
     }
 
 

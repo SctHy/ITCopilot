@@ -97,6 +97,7 @@ export interface RelatedApproval extends ApprovalItem {
 }
 
 export interface ChatMessage {
+  requestId?: string
   id: string
   role: 'user' | 'assistant'
   content: string

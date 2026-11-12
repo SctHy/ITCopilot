@@ -108,7 +108,7 @@ export function createChatSession(settings: Settings, requestState: RequestState
       const related: RelatedApproval[] = response.relatedApprovals.map(entry => ({
         approvalId: entry.approval_id, kind: entry.kind, summary: entry.summary,
         approval: null, approvalSettings: request.settings, approvalBackend: request.backend }))
-      state.messages.push({ id: createId(), role: 'assistant', content: response.response, meta: replyMeta(response),
+      state.messages.push({ id: createId(), requestId: response.requestId, role: 'assistant', content: response.response, meta: replyMeta(response),
         trace: trace?.trace || null, taskReferences: response.taskReferences,
         approvalId: response.approvalId ?? undefined, approvalSettings: request.settings, approvalBackend: request.backend,
         relatedApprovals: related })

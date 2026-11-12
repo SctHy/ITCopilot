@@ -72,7 +72,7 @@
       <KnowledgeView v-else-if="activeView === 'knowledge'" :key="viewKey" :request-state="requestState" :identity="identity" @toast="showToast" @status="health.detail = $event" />
       <ApprovalsView v-else-if="activeView === 'approvals'" :key="viewKey" :settings="settings" :request-state="requestState" :identity="identity"
         @approval="(target, decision) => applyApprovalAction(target, settings, decision)" @toast="showToast" />
-      <OperationsView v-else :key="viewKey" :monitor-data="monitorData" @refresh="loadMonitor" />
+      <OperationsView v-else :key="viewKey" :settings="settings" :identity="identity" :monitor-data="monitorData" @refresh="loadMonitor" />
     </main>
     <ConnectionDialog ref="connectionDialog" :backend-label="currentBackend.label" :auth="auth" :health="health"
       @save="saveConnection" @check-health="checkHealth" @toast="showToast" />

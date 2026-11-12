@@ -319,7 +319,7 @@ class TaskStore:
             if not db.execute(update(runs).where(self._owned(claim)).values(status="done", lease_until=None, error=None)).rowcount:
                 raise LeaseLostError("事项运行提交时租约已失效")
 
-    def fail(self, claim, error):
+    def fail(self, claim, error, *, turn_record=None):
         with self.engine.begin() as db:
             task = self._require(db, claim["task_id"], lock=True)
             failed = claim["attempts"] >= 3
@@ -329,5 +329,8 @@ class TaskStore:
             if changed and self.governance:
                 self.governance.complete(db, claim, error=error)
             if changed and failed:
+                if turn_record is not None:
+                    from core.turn_records import record_turn as persist_turn
+                    persist_turn(db, turn_record)
                 self._append(db, task, key("failure", claim["id"], claim["version"]), "system", "system:tasks", "任务服务",
                              "Agent 回合处理失败，可在此重试；已提交的审批仍可查看。", {"run_id": claim["id"]})

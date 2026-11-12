@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select
 
-from core.db import change_events, read, shared_engine, turn_records
+from core.db import badcases, change_events, read, shared_engine, turn_records
 from core.tenant_context import system_scope
 from evaluation.attribution import attribute, markdown
 from evaluation.reporting import write_report
@@ -51,7 +51,11 @@ def main():
         if args.tenant:
             stmt = stmt.where((change_events.c.tenant == args.tenant) | change_events.c.tenant.is_(None))
         events = [dict(row) for row in db.execute(stmt.order_by(change_events.c.at)).mappings()]
-    report = attribute(*groups, events)
+        stmt = select(badcases.c.request_id, badcases.c.id)
+        if args.tenant:
+            stmt = stmt.where(badcases.c.tenant == args.tenant)
+        snapshots = dict(db.execute(stmt).all())
+    report = attribute(*groups, events, snapshots=snapshots)
     report["windows"] = {"baseline": args.baseline, "current": args.current}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     path = write_report(f"attribution_{stamp}.json", report, echo=False)

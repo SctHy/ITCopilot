@@ -2,6 +2,7 @@
 import asyncio
 import logging
 
+from agents.types import TaskTurnFailed
 from core.concurrency import LeaseLostError, run_leased
 from core.protocols import SERVICE
 from core.tenant_context import tenant_scope
@@ -63,6 +64,8 @@ class TaskWorker:
                 await asyncio.to_thread(self.store.finish, claim, result)
             except LeaseLostError:
                 raise
+            except TaskTurnFailed as exc:
+                await asyncio.to_thread(self.store.fail, claim, str(exc), turn_record=exc.record)
             except Exception as exc:
                 logger.exception("shared task run failed: %s", claim["id"])
                 await asyncio.to_thread(self.store.fail, claim, type(exc).__name__)

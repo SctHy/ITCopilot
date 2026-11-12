@@ -3,11 +3,19 @@ from __future__ import annotations
 
 import json
 import pathlib
+from math import ceil
 from typing import Any, Dict
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPORTS_DIR = ROOT / "evaluation/reports"
 DATASETS_DIR = ROOT / "evaluation/datasets"
+
+
+def percentile(values, q):
+    """Nearest-rank quantile; an empty observation set has no measured percentile."""
+    if not 0 < q <= 1:
+        raise ValueError("q must be in (0, 1]")
+    return sorted(values)[ceil(q * len(values)) - 1] if values else None
 
 
 def write_report(filename: str, report: Dict[str, Any], *, echo: bool = True) -> pathlib.Path:

@@ -30,6 +30,8 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from evaluation.reporting import percentile
 DATA_DIR = ROOT / "data/external/gitlab_handbook"
 COMMIT = "7a669fd029d42a26b473b51d7fdf19af00232817"
 CHUNK_WINDOW = 20
@@ -103,9 +105,6 @@ def prepare(raw_dir: pathlib.Path) -> None:
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
 
 
-def percentile(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, int(q * len(values)))] if values else 0.0
 
 
 def summarize(rows):
@@ -116,7 +115,7 @@ def summarize(rows):
            "hit_at_5": round(sum(0 < r["first_rank"] <= 5 for r in rows) / n, 4),
            "mrr": round(sum(1 / r["first_rank"] for r in rows if r["first_rank"]) / n, 4),
            "latency_p50_ms": round(statistics.median(lat), 1) if lat else 0.0,
-           "latency_p95_ms": round(percentile(lat, 0.95), 1)}
+           "latency_p95_ms": round(percentile(lat, 0.95), 1) if lat else None}
     if rows and "answer_hit_at_5" in rows[0]:
         out["answer_chunk_hit_at_5"] = round(sum(r["answer_hit_at_5"] for r in rows) / n, 4)
     return out

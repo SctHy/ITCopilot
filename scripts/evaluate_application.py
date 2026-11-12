@@ -25,7 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv
 
 from evaluation.application import application, auth
-from evaluation.reporting import DATASETS_DIR, ROOT, billable_tokens, write_report
+from evaluation.reporting import percentile, DATASETS_DIR, ROOT, billable_tokens, write_report
 from workflow.store import SEED_EMPLOYEES
 
 # The logged-in employee is the last 工号 the user states as their own, including corrections
@@ -45,8 +45,6 @@ def upstream_model():
     return {"base_url": os.getenv("OPENAI_BASE_URL"), "model": os.getenv("OPENAI_MODEL")}
 
 
-def percentile(values, q):
-    return sorted(values)[min(len(values) - 1, int((len(values) - 1) * q))] if values else 0
 
 
 def stage_summary(group):
@@ -83,6 +81,8 @@ async def trial(http, state, case, repeat):
             trace = (await http.get("/trace/" + body["request_id"], headers=requester)).json()
             result["turns"].append({"response": body, "trace": trace})
         checks, outcome = result["checks"], case["outcome"]
+        if case.get("intent"):
+            checks["expected_intent"] = body["intent"] == case["intent"]
         from agents.outcome import turn_outcome
         checks["all_turns_completed"] = all(
             turn_outcome({**t["response"], "signals": t["trace"].get("trace", {}).get("observability", {}).get("versions", {}).get("signals", [])}) == "success"

@@ -11,12 +11,12 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from evaluation.reporting import percentile
+
 SUITES = ("strata_v3", "hard_v4", "simulated_v4")
 
 
-def pct(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, round(q * (len(values) - 1)))] if values else 0
 
 
 def row(path: pathlib.Path):
@@ -31,10 +31,10 @@ def row(path: pathlib.Path):
                for t in trials]
     n = len(trials)
     return {"n": n, "passed": sum(t["passed"] for t in trials),
-            "lat_p50": round(pct([t["latency_s"] for t in trials], .5), 2), "lat_p95": round(pct([t["latency_s"] for t in trials], .95), 2),
+            "lat_p50": round(percentile([t["latency_s"] for t in trials], .5), 2), "lat_p95": round(percentile([t["latency_s"] for t in trials], .95), 2),
             "cost_per_trial_usd": round(cost / n, 6), "output_per_trial": round(usage["output"] / n), "reasoning_per_trial": round(usage["reasoning"] / n),
             "prompt_per_trial": round(usage["prompt"] / n), "miss_per_trial": round(usage["miss"] / n), "hit_rate": round(usage["hit"] / usage["prompt"], 3) if usage["prompt"] else 0,
-            "agent_calls_per_trial": round(roles.get("agent", {}).get("calls", 0) / n, 2), "final_reply_chars_p50": pct(replies, .5)}
+            "agent_calls_per_trial": round(roles.get("agent", {}).get("calls", 0) / n, 2), "final_reply_chars_p50": percentile(replies, .5)}
 
 
 def main(argv):

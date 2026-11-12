@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 
 from api import state
 from api.deps import env_flag
-from api.routes import memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
+from api.routes import quality, memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
 from api.routes.chat import _channel_turn
 from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
@@ -201,6 +201,10 @@ async def lifespan(app: FastAPI):
             services.push_async_callback(state.retention.stop)
             if env_flag("IT_COPILOT_RETENTION_ENABLED", "true"):
                 state.retention.start()
+            from workflow.badcase_miner import BadcaseMiner
+            miner = BadcaseMiner(state.workflow.engine, state.memory)
+            services.push_async_callback(miner.stop)
+            miner.start()
             state.task_event_pump = TaskEventPump([ApprovalEventSource(state.workflow, state.tasks), state.task_capabilities.reminders, state.task_capabilities.deadlines, ApprovalDeadlineSource(state.tasks)])
             services.push_async_callback(state.task_event_pump.stop)
             state.task_event_pump.start()
@@ -266,5 +270,5 @@ app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
 _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/mcp", _mcp_mount)
-for module in (memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
+for module in (quality, memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
     app.include_router(module.router)

@@ -329,6 +329,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     if state.memory:
         # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)
+        trace["turn"] = {"user": payload.message, "assistant": response.response, "missing_slots": response.missing_slots}
         with stages("commit"):
             await state.memory.commit_turn(principal.scope_key, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
         flow.send("commit")

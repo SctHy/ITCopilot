@@ -36,7 +36,7 @@
           <button class="quiet-button" @click="markRead">标记当前消息已读</button>
           <TaskDetails ref="details" :key="room.id" :room="room" :identity="identity" :client="client" @changed="refresh" @open="select" />
           <button v-if="room.has_more_events" @click="older">加载更早的讨论</button>
-          <TaskConversation :room="room" :identity="identity" :approval-busy="approvalBusy" :approval-errors="approvalErrors" @approval="handleApproval" />
+          <TaskConversation :settings="settings" :room="room" :identity="identity" :approval-busy="approvalBusy" :approval-errors="approvalErrors" @approval="handleApproval" />
           <p v-if="room.phase === 'working'" role="status">Agent 正在处理，可以继续讨论或离开页面，结果会保留在这里。</p>
           <div v-for="run in failedRuns" :key="run.id" class="task-retry">
             <span>有一个 Agent 回合处理失败。</span>

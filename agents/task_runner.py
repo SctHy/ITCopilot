@@ -93,8 +93,13 @@ class TaskAgentRunner:
 
         req.before_unsafe_tool = before_unsafe_tool
         result = await execute_run(self.orchestrator, req)
+        from core.turn_records import build_record
+        record = build_record(req, result, channel="task", policy_version=load_policy(task["tenant"]).version,
+            kb_version=await asyncio.to_thread(self.orchestrator.knowledge_version, task["tenant"]),
+            task_id=task["id"], created_at=event["created_at"])
         if result.status == "failed":
-            raise RuntimeError("Agent 暂时不可用")
+            from agents.types import TaskTurnFailed
+            raise TaskTurnFailed(record)
         proposal = approval_from_traces(result.tool_traces, event["text"]) if requester_turn else None
         reply = result.response
         if proposal:
@@ -126,7 +131,4 @@ class TaskAgentRunner:
             except Exception:
                 # Failure to draft progress must not discard the main reply or approval.
                 extra = {'progress_advice_unavailable': True}
-        from core.turn_records import build_record
-        record = build_record(req, result, channel="task", policy_version=load_policy(task["tenant"]).version,
-                              kb_version=await asyncio.to_thread(self.orchestrator.knowledge_version, task["tenant"]), task_id=task["id"], created_at=event["created_at"])
         return {**extra, "turn_record": record, "usage_checkpointed": checkpoint is not None, "response": reply, "proposal": proposal, "token_usage": usage, "conversation_state": slots, "tool_traces": result.tool_traces}

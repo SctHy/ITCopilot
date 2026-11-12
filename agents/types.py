@@ -123,3 +123,9 @@ class OrchestratorResult:
     @property
     def trace_id(self) -> str:
         return self.request_id
+
+
+class TaskTurnFailed(RuntimeError):
+    def __init__(self, record):
+        super().__init__("Agent 暂时不可用")
+        self.record = record

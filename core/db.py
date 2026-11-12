@@ -285,6 +285,7 @@ turn_records = Table(
     Column("stage_ms", JSON, nullable=False),
     Column("tools", JSON, nullable=False),
     Column("signals", JSON, nullable=False),
+    Column("quality", JSON, nullable=False, server_default="{}"),
     Column("approval_id", String(200)),
 )
 Index("ix_turn_records_tenant_created", turn_records.c.tenant, turn_records.c.created_at)
@@ -516,3 +517,8 @@ def migrate(url: str) -> None:
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     with system_scope():  # data migrations span every tenant
         command.upgrade(config, "head")
+
+
+from core.quality_schema import define_tables as define_quality_tables
+
+feedback, badcases, badcase_mining_cursors = define_quality_tables(metadata)

@@ -11,7 +11,9 @@
         刷新
       </button>
     </div>
-    <div class="evaluation-content">
+    <nav v-if="identity?.roles.includes('it_admin')" aria-label="运行管理"><button @click="tab = 'monitor'">监控</button><button @click="tab = 'badcases'">Badcase</button></nav>
+    <BadcasePanel v-if="tab === 'badcases'" :settings="settings" />
+    <div v-else class="evaluation-content">
       <div class="evaluation-summary">
         <div class="score-hero">
           <span>SERVICE STATUS · 服务状态</span>
@@ -79,13 +81,15 @@
 
 <script setup lang="ts">
 // Monitor data is owned by App.vue (the chat inspector shows it too); this view refreshes it on entry and every 15s.
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import BadcasePanel from '../components/BadcasePanel.vue'
 import { createPolling } from '../lib/stateMachine.ts'
 import { formatPercent, formatTime } from '../lib/format.ts'
-import type { MonitorData, MonitorSummary } from '../lib/types.ts'
+import type { Identity, Settings, MonitorData, MonitorSummary } from '../lib/types.ts'
 
-const props = defineProps<{ monitorData: MonitorData }>()
+const props = defineProps<{ monitorData: MonitorData; settings: Settings; identity: Identity | null }>()
+const tab = ref("monitor")
 const emit = defineEmits<{ refresh: [] }>()
 
 const sloLabels: Record<string, string> = { chat_availability: '可用性', chat_latency: '延迟达标率' }

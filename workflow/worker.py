@@ -436,11 +436,18 @@ async def _main() -> None:
     registry = build_registry(store)
     store.route = lambda action: registry.for_action(action).name
     worker = ExecutionWorker(store, registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))
+    import redis.asyncio as redis
+    from workflow.badcase_miner import BadcaseMiner, RedisTurnSnapshots
+    snapshots = redis.from_url(os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), decode_responses=True)
+    miner = BadcaseMiner(store.engine, RedisTurnSnapshots(snapshots))
+    miner.start()
     worker.start()
     logger.info("execution worker %s started", worker.worker_id)
     try:
         await asyncio.Event().wait()
     finally:
+        await miner.stop()
+        await snapshots.aclose()
         await worker.stop()
 
 

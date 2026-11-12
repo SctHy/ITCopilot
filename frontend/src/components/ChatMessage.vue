@@ -47,6 +47,7 @@
         </div>
         <p v-if="!item.trace.toolCalls?.length" class="muted">已调用：{{ item.trace.toolsUsed?.join(' · ') }}</p>
       </details>
+      <FeedbackButtons v-if="item.role === 'assistant' && item.requestId && item.approvalSettings" :settings="item.approvalSettings" :path="`/chat/${encodeURIComponent(item.requestId)}/feedback`" />
       <button
         v-if="item.role === 'assistant' && !item.error"
         class="icon-button copy-button"
@@ -62,6 +63,7 @@
 
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
+import FeedbackButtons from './FeedbackButtons.vue'
 import ApprovalCard from './ApprovalCard.vue'
 import { formatBody, formatJson } from '../lib/format.ts'
 import type { ApprovalDecision, ApprovalItem, ChatMessage, Identity } from '../lib/types.ts'

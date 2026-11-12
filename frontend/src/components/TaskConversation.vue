@@ -3,6 +3,7 @@
     <article v-for="event in room.events" :key="event.id" :class="['task-event', event.kind]">
       <div class="event-meta"><strong>{{ event.actor_name }}</strong><span>{{ roles[event.kind] || '系统' }}</span><time>{{ formatTime(event.created_at) }}</time></div>
       <p>{{ event.text }}</p>
+      <FeedbackButtons v-if="event.kind === 'assistant'" :settings="settings" :path="`/tasks/${room.id}/events/${event.id}/feedback`" />
       <ApprovalCard v-if="linked[event.id]" :approval="linked[event.id]" :identity="identity"
         :busy="!!approvalBusy[linked[event.id].approval_id]" :error="approvalErrors[linked[event.id].approval_id] || ''"
         :allow-clarification="room.status === 'open'" @action="$emit('approval', linked[event.id], $event)" />
@@ -18,8 +19,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ApprovalCard from './ApprovalCard.vue'
-import type { Approval, ApprovalDecision, Identity, TaskRoom } from '../lib/types.ts'
-const props = withDefaults(defineProps<{ room: TaskRoom; identity: Identity | null; approvalBusy?: Record<string, boolean>; approvalErrors?: Record<string, string> }>(),
+import FeedbackButtons from './FeedbackButtons.vue'
+import type { Approval, ApprovalDecision, Identity, Settings, TaskRoom } from '../lib/types.ts'
+const props = withDefaults(defineProps<{ settings: Settings; room: TaskRoom; identity: Identity | null; approvalBusy?: Record<string, boolean>; approvalErrors?: Record<string, string> }>(),
   { approvalBusy: () => ({}), approvalErrors: () => ({}) })
 defineEmits<{ approval: [approval: Approval, decision?: ApprovalDecision] }>()
 // Each approval is shown once: under the first Agent message that proposed it, otherwise in the trailing section.
