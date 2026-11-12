@@ -38,6 +38,7 @@ export interface ApprovalStep {
   status: string
   adapter?: string
   preexisting?: boolean
+  covered_by?: string
   reconciled?: boolean
   error?: string
   not_before?: string | null
@@ -63,6 +64,7 @@ export interface Approval {
   results?: ApprovalStep[]
   revocations?: ApprovalStep[]
   room_can_write?: boolean
+  conflicts?: { approval_id: string, status: string, requester: string, conv_channel: string }[]
 }
 
 export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release'

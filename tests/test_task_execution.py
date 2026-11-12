@@ -229,7 +229,7 @@ def test_verifier_checks_current_state_not_historical_operation(env, caps):
     adapter = LocalDirectoryAdapter(workflow.engine)
     args = {'employee_id': ALICE.employee_id, 'system': 'gitlab', 'role': 'readonly'}
     run_in_tenant(adapter.apply('grant', {'tool_name': 'request_access', 'arguments': args}))
-    run_in_tenant(adapter.apply('revoke', {'tool_name': 'revoke_access', 'arguments': args}))
+    run_in_tenant(adapter.apply('revoke', {'tool_name': 'revoke_access', 'arguments': {**args, 'restore_to': None}}))
     assert run_in_tenant(adapter.observe('grant', {}))
     asyncio.run(TaskVerificationWorker(caps.goals).run_once())
     view = caps.goals.read(task['id'], ALICE)

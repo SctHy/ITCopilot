@@ -90,7 +90,7 @@ def test_gitea_grant_observe_and_revoke_against_a_fake_server():
         assert await adapter.current_level("1001", "gitlab") is None
         await adapter.apply("a1", ACTION)
         assert collaborators == {"alice": "write"} and await adapter.observe("a1", ACTION)
-        revoke = {"tool_name": "revoke_access", "arguments": {**ACTION["arguments"], "baseline_level": None}}
+        revoke = {"tool_name": "revoke_access", "arguments": {**ACTION["arguments"], "restore_to": None}}
         await adapter.apply("a2", revoke)
         assert collaborators == {} and await adapter.observe("a2", revoke)
         await adapter.close()

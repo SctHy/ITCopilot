@@ -40,7 +40,8 @@ from core.db import (
     directory_tickets,
 )
 from core.identity import Principal
-from workflow.actions import WRITE_ACTIONS
+from workflow.actions import WRITE_ACTIONS, resource_key
+from workflow.adapters.base import rank
 from workflow.policy import AccessPolicy, PolicyViolation, load_policy
 from workflow.lifecycle import approval_phase, work_phase, WorkPhase
 from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, NOTIFIED, OPEN, SETTLED, ActionStatus, ApprovalStatus, Execution, GrantStatus
@@ -275,7 +276,7 @@ class WorkflowStore:
                 row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
                 decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
                 rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-                body = self._body(row, decisions, rows)
+                body = self._body(row, decisions, rows, db)
         except IntegrityError:
             if connection is not None:
                 raise
@@ -357,9 +358,9 @@ class WorkflowStore:
                 return None
             decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id).order_by(approval_decisions.c.id)).mappings().all()
             rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-        return self._body(row, decisions, rows)
+            return self._body(row, decisions, rows, db)
 
-    def _body(self, row, decisions, rows) -> Dict[str, Any]:
+    def _body(self, row, decisions, rows, db) -> Dict[str, Any]:
         payload = dict(row["payload"])
         now = self.clock()
 
@@ -383,7 +384,27 @@ class WorkflowStore:
             "awaiting_confirmation": row["status"] == ApprovalStatus.DRAFT, "confirmed_at": _iso(row.get("confirmed_at")),
             "results": [view(a) for a in rows if a["kind"] == "apply"],
             "revocations": [view(a) for a in rows if a["kind"] == "revoke"],
+            "conflicts": self._conflicts(db, row),
         }
+
+    def _conflicts(self, db, row):
+        keys = {resource_key(row["tenant"], item["tool_name"], {**item["arguments"], "action_id": f"{row['id']}:{i}"})
+                for i, item in enumerate(row["payload"]["action_requests"])}
+        candidates = db.execute(select(approvals).where(
+            approvals.c.tenant == row["tenant"], approvals.c.id != row["id"],
+            approvals.c.status.in_((ApprovalStatus.DRAFT, ApprovalStatus.PENDING, ApprovalStatus.APPROVED)),
+            approvals.c.execution.not_in((Execution.SUCCEEDED, Execution.FAILED)),
+        ).order_by(approvals.c.created_at, approvals.c.id)).mappings()
+        conflicts = []
+        for other in candidates:
+            other_keys = {resource_key(other["tenant"], item["tool_name"], {**item["arguments"], "action_id": f"{other['id']}:{i}"})
+                          for i, item in enumerate(other["payload"]["action_requests"])}
+            if keys.intersection(other_keys):
+                conv = other["conv_id"]
+                channel = "task" if conv and conv.startswith("task:") else "feishu" if conv and conv.startswith("feishu:") else "web"
+                conflicts.append({"approval_id": other["id"], "status": other["status"],
+                                  "requester": other["requester"], "conv_channel": channel})
+        return conflicts
 
     def list(self, principal: Principal, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         private_scope = or_(approvals.c.requester == principal.subject, principal.can_read_all,
@@ -807,8 +828,10 @@ class WorkflowStore:
         with tenant_scope(row["tenant"]):  # route to the owning tenant's adapters, whoever decided (ADR 0025)
             routes = [self.route(action) for action in row["payload"]["action_requests"]]
         for seq, action in enumerate(row["payload"]["action_requests"]):
+            key = action_id(row["id"], row["payload_hash"], seq)
             rows.append({
-                "id": action_id(row["id"], row["payload_hash"], seq), "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
+                "id": key, "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
+                "resource_key": resource_key(row["tenant"], action["tool_name"], {**action["arguments"], "action_id": key}),
                 "tool_name": action["tool_name"], "arguments": action["arguments"], "adapter": routes[seq],
                 "status": ActionStatus.QUEUED, "attempts": 0, "not_before": now, "version": 0, "created_at": now, "updated_at": now,
             })
@@ -861,9 +884,15 @@ class WorkflowStore:
                         actions.c.seq < row["seq"], actions.c.status != ActionStatus.SUCCEEDED)).first():
                     continue  # apply actions of one approval run strictly in order
                 ACTION.check(row["status"], ActionStatus.EXECUTING)
-                result = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"]).values(
-                    status=ActionStatus.EXECUTING, lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
-                    version=row["version"] + 1, updated_at=now))
+                try:
+                    with db.begin_nested():
+                        result = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"]).values(
+                            status=ActionStatus.EXECUTING, lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
+                            version=row["version"] + 1, updated_at=now))
+                except IntegrityError as exc:
+                    if "uq_actions_resource_executing" not in str(exc.orig) and "actions.resource_key" not in str(exc.orig):
+                        raise
+                    continue
                 if result.rowcount != 1:
                     continue  # another worker won the CAS
                 if row["kind"] == "apply" and row["seq"] == 0 and row["attempts"] == 0:
@@ -905,13 +934,42 @@ class WorkflowStore:
         with schema.read(self.engine) as db:
             return [dict(r) for r in db.execute(select(actions).where(actions.c.approval_id == approval_id, actions.c.kind == "apply").order_by(actions.c.seq)).mappings()]
 
+    @staticmethod
+    def _active_grants(db, tenant, employee_id, system):
+        return db.execute(select(access_grants).join(actions, actions.c.id == access_grants.c.action_id).where(
+            access_grants.c.tenant == tenant, access_grants.c.employee_id == employee_id,
+            access_grants.c.system == system, access_grants.c.status == GrantStatus.ACTIVE,
+        ).order_by(actions.c.created_at, actions.c.id)).mappings().all()
+
+    def desired_level(self, db, tenant, employee_id, system, *, excluding_action_id=None) -> Optional[str]:
+        active = self._active_grants(db, tenant, employee_id, system)
+        if not active:
+            return None
+        levels = [active[0]["baseline_role"]]
+        levels.extend(grant["role"] for grant in active if grant["action_id"] != excluding_action_id)
+        return max(levels, key=rank)
+
+    def grant_context(self, action, current):
+        args = action["arguments"]
+        with schema.read(self.engine) as db:
+            active = self._active_grants(db, action["tenant"], args["employee_id"], args["system"])
+            return {"baseline_level": active[0]["baseline_role"] if active else current,
+                    "covering": [{"action_id": grant["action_id"], "role": grant["role"]} for grant in active]}
+
+    def revocation_context(self, action):
+        args = action["arguments"]
+        with self.engine.begin() as db:
+            scope = (db, action["tenant"], args["employee_id"], args["system"])
+            return {"expected": self.desired_level(*scope),
+                    "restore_to": self.desired_level(*scope, excluding_action_id=action["parent_action_id"])}
+
     def succeed(self, action: Dict[str, Any], result: Dict[str, Any], *, preexisting: bool = False) -> None:
         now = self.clock()
         with self.engine.begin() as db:
             self._action_cas(db, action, status=ActionStatus.SUCCEEDED, result=result, error=None, lease_owner=None, lease_until=None)
             args = action["arguments"]
             if action["kind"] == "apply" and action["tool_name"] == "request_access":
-                baseline = (action.get("result") or {}).get("baseline_level")
+                baseline = result["baseline_level"]
                 expires_at = now + int(args["duration_hours"]) * 3600
                 revoke_id = None
                 if not preexisting:
@@ -919,7 +977,7 @@ class WorkflowStore:
                     db.execute(insert(actions).values(
                         id=revoke_id, tenant=action["tenant"], approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
                         tool_name="revoke_access", arguments={"employee_id": args["employee_id"], "system": args["system"],
-                        "role": args["role"], "baseline_level": baseline}, adapter=action["adapter"], status=ActionStatus.QUEUED, attempts=0,
+                        "role": args["role"]}, resource_key=action["resource_key"], adapter=action["adapter"], status=ActionStatus.QUEUED, attempts=0,
                         not_before=expires_at, version=0, parent_action_id=action["id"], created_at=now, updated_at=now))
                 db.execute(insert(access_grants).values(
                     action_id=action["id"], tenant=action["tenant"], approval_id=action["approval_id"], employee_id=args["employee_id"], system=args["system"],

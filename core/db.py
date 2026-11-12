@@ -145,6 +145,7 @@ actions = Table(
     Column("seq", Integer, nullable=False),
     Column("kind", String(20), nullable=False),                 # apply / revoke / compensate
     Column("tool_name", String(40), nullable=False),
+    Column("resource_key", String(500), nullable=False),
     Column("arguments", JSON, nullable=False),
     Column("adapter", String(40), nullable=False),
     Column("status", String(20), nullable=False),               # queued/executing/unknown/succeeded/failed/cancelled/manual_review
@@ -162,6 +163,8 @@ actions = Table(
 Index("ix_actions_due", actions.c.status, actions.c.not_before)
 Index("ix_actions_approval", actions.c.approval_id, actions.c.seq)
 Index("ix_actions_tenant", actions.c.tenant, actions.c.status, actions.c.not_before)
+Index("uq_actions_resource_executing", actions.c.resource_key, unique=True,
+      sqlite_where=actions.c.status == "executing", postgresql_where=actions.c.status == "executing")
 
 # Ledger of time-bound grants this service created; drives expiry revocation.
 access_grants = Table(

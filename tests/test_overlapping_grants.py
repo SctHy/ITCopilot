@@ -1,0 +1,156 @@
+"""Resource ownership and overlapping grants run against either supported database."""
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+import pytest
+from sqlalchemy import select
+
+from core.db import actions
+from core.db import directory_effects
+from tests.test_workflow import ALICE, BOB, CAROL, Clock, access
+from workflow.adapters import AdapterRegistry
+from workflow.adapters.local import LocalDirectoryAdapter
+from workflow.store import WorkflowStore
+from workflow.worker import ExecutionWorker
+
+
+def approve(store, name, role, hours):
+    body = store.create(name, request_id="r-" + name, conv_id="conv-" + name,
+                        principal=ALICE, action_requests=[access(role=role, duration_hours=hours)])
+    for principal in (BOB, CAROL):
+        store.decide(name, "approved", principal, body["payload_hash"])
+
+
+@pytest.mark.parametrize("first_role", ["developer", "reporter"])
+def test_overlapping_grants_keep_latest_coverage_without_inheriting_temporary_baseline(db_url, first_role):
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    worker = ExecutionWorker(store, AdapterRegistry(LocalDirectoryAdapter(store.engine)))
+    approve(store, "a", first_role, 24)
+    asyncio.run(worker.run_until_idle())
+    approve(store, "b", "developer", 72)
+    asyncio.run(worker.run_until_idle())
+    ledger = store.employee("1001", "default")["access_ledger"]
+    assert [row["status"] for row in ledger] == ["active", "active"]
+    assert all(row["baseline_role"] is None for row in ledger)
+    if first_role == "developer":
+        assert store.get("b")["results"][0]["covered_by"] == store.get("a")["results"][0]["operation_id"]
+        with store.engine.connect() as db:
+            assert db.execute(select(directory_effects.c.operation_id)).scalars().all() == [store.get("a")["results"][0]["operation_id"]]
+    clock.t += 24 * 3600 + 1
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"][0]["role"] == "developer"
+    assert store.get("a")["revocations"][0]["status"] == "succeeded"
+    clock.t += 48 * 3600
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"] == []
+
+
+def test_two_workers_cannot_execute_apply_and_revoke_for_one_resource(db_url):
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    first = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "reporter", 24)
+    asyncio.run(first.run_until_idle())
+    approve(store, "b", "developer", 72)
+    clock.t += 24 * 3600 + 1
+    entered, release = threading.Event(), threading.Event()
+
+    class BlockingAdapter(LocalDirectoryAdapter):
+        async def apply(self, action_id, action):
+            entered.set()
+            await asyncio.to_thread(release.wait, 10)
+            return await super().apply(action_id, action)
+
+    registry = AdapterRegistry(BlockingAdapter(store.engine))
+    workers = [ExecutionWorker(store, registry, worker_id=str(i)) for i in range(2)]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        running = pool.submit(asyncio.run, workers[0].run_once(limit=1))
+        try:
+            assert entered.wait(10)
+            other = pool.submit(asyncio.run, workers[1].run_once(limit=1))
+            assert other.result(timeout=10) == 0
+            with store.engine.connect() as db:
+                executing = db.execute(select(actions).where(actions.c.status == "executing")).mappings().all()
+            assert len(executing) == 1
+        finally:
+            release.set()
+        assert running.result(timeout=10) == 1
+
+
+def test_cross_conversation_conflicts_remain_visible_without_replacement(db_url):
+    store = WorkflowStore(db_url)
+    for name in ("a", "b"):
+        store.create(name, request_id=name, conv_id=name, principal=ALICE, action_requests=[access()])
+    body = store.get("a")
+    assert body["status"] == "pending"
+    assert body["conflicts"] == [{"approval_id": "b", "status": "pending", "requester": ALICE.subject,
+                                  "conv_channel": "web"}]
+
+
+def test_overlaps_preserve_permanent_baseline_when_shorter_upgrade_expires_first(db_url):
+    from tests.conftest import run_in_tenant
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    local = LocalDirectoryAdapter(store.engine)
+    run_in_tenant(local.apply("seed", access(role="readonly", system="gitlab")))
+    worker = ExecutionWorker(store, AdapterRegistry(local))
+    approve(store, "a", "reporter", 72)
+    asyncio.run(worker.run_until_idle())
+    approve(store, "b", "developer", 24)
+    asyncio.run(worker.run_until_idle())
+    clock.t += 24 * 3600 + 1
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"][0]["role"] == "reporter"
+    clock.t += 48 * 3600
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "default")["grants"][0]["role"] == "readonly"
+
+
+def test_claim_collision_does_not_block_a_different_resource_and_expired_lease_can_be_reclaimed(db_url):
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    approve(store, "a", "reporter", 24)
+    approve(store, "b", "developer", 72)
+    other = store.create("c", request_id="c", conv_id="c", principal=ALICE,
+                         action_requests=[access(role="reporter", system="jira")])
+    store.decide("c", "approved", BOB, other["payload_hash"])
+    first = store.claim("one", 60, 1)[0]
+    second = store.claim("two", 60, 3)
+    assert len(second) == 1 and second[0]["resource_key"] != first["resource_key"]
+    clock.t += 61
+    reclaimed = store.claim("three", 60, 3)
+    assert {row["id"] for row in reclaimed} == {first["id"], second[0]["id"]}
+
+
+def test_migration_backfills_resource_keys_and_removes_frozen_revoke_baseline(db_url):
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import MetaData, Table, insert
+
+    from core.db import make_engine, migrate
+    from core.tenant_context import system_scope
+
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+    config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
+    with system_scope():
+        command.upgrade(config, "0005")
+        engine = make_engine(db_url)
+        table = Table("actions", MetaData(), autoload_with=engine)
+        with engine.begin() as db:
+            db.execute(insert(table).values(
+                id="old-revoke", tenant="default", approval_id="old", seq=1000, kind="revoke",
+                tool_name="revoke_access", arguments={"employee_id": "1001", "system": "gitlab", "role": "developer", "baseline_level": None},
+                adapter="local", status="queued", attempts=0, not_before=1, version=0, created_at=1, updated_at=1))
+        migrate(db_url)
+        with engine.connect() as db:
+            migrated = db.execute(select(actions)).mappings().one()
+        engine.dispose()
+    assert migrated["resource_key"] == "default:access:1001:gitlab"
+    assert "baseline_level" not in migrated["arguments"]

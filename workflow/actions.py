@@ -39,3 +39,15 @@ WRITE_TOOLS: FrozenSet[str] = frozenset(WRITE_ACTIONS)
 
 def risk_of(names) -> str:
     return "high" if any(WRITE_ACTIONS[n].risk == "high" for n in names if n in WRITE_ACTIONS) else "medium"
+
+
+def resource_key(tenant: str, tool_name: str, arguments: dict) -> str:
+    if tool_name in {"request_access", "revoke_access"}:
+        return f"{tenant}:access:{arguments['employee_id']}:{arguments['system']}"
+    if tool_name in {"reset_password", "unlock_account"}:
+        return f"{tenant}:account:{arguments['employee_id']}"
+    if tool_name == "lock_device":
+        return f"{tenant}:device:{arguments['device_id']}"
+    if tool_name == "create_ticket":
+        return f"{tenant}:ticket:{arguments['action_id']}"
+    raise ValueError(f"Unknown write action: {tool_name}")

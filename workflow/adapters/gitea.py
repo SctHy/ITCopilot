@@ -91,7 +91,7 @@ class GiteaAdapter:
         args = action["arguments"]
         if action["tool_name"] == "request_access":
             return self.level(args["role"])
-        return args.get("baseline_level")
+        return args["restore_to"]
 
     async def apply(self, action_id: str, action: Dict[str, Any]) -> Dict[str, Any]:
         args = action["arguments"]

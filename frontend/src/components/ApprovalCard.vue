@@ -8,6 +8,7 @@
         <template v-if="approval.expires_at && approval.status === 'pending'"> · {{ formatTime(approval.expires_at) }} 前有效</template>
         <template v-if="approval.expires_at && approval.status === 'draft'"> · 请在 {{ formatTime(approval.expires_at) }} 前确认</template>
       </p>
+      <p v-if="approval.conflicts?.length" class="approval-meta">同一资源还有 {{ approval.conflicts.length }} 个在途申请</p>
       <div v-for="(action, index) in approval.action_requests" :key="index" class="approval-action">
         <b>{{ actionLabels[action.tool_name] || action.tool_name }}</b>
         <dl>
@@ -28,6 +29,7 @@
           {{ actionLabels[step.action ?? ''] || step.action }} · {{ actionStatus[step.status] || step.status }}
           <template v-if="step.adapter !== 'local'"> · {{ step.adapter }}</template>
           <template v-if="step.preexisting"> · 已有同等权限，未变更</template>
+          <template v-if="step.covered_by"> · 由其他有效授权覆盖，已独立安排回收</template>
           <template v-if="step.reconciled"> · 经回查确认</template>
           <template v-if="step.error"> · {{ step.error }}</template>
         </li>

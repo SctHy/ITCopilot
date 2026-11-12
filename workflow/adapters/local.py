@@ -87,9 +87,9 @@ class LocalDirectoryAdapter:
                 result.update(system=args["system"], role=args["role"])
             elif name == "revoke_access":
                 db.execute(delete(directory_grants).where(grant_key))
-                if args.get("baseline_level"):
-                    db.execute(insert(directory_grants).values(tenant=tenant, employee_id=employee, system=args["system"], role=args["baseline_level"], operation_id=action_id))
-                result.update(system=args["system"], restored=args.get("baseline_level"))
+                if args["restore_to"] is not None:
+                    db.execute(insert(directory_grants).values(tenant=tenant, employee_id=employee, system=args["system"], role=args["restore_to"], operation_id=action_id))
+                result.update(system=args["system"], restored=args["restore_to"])
             elif name == "reset_password":
                 db.execute(update(D).where(D.c.tenant == tenant, D.c.id == employee).values(password_version=D.c.password_version + 1))
             elif name == "unlock_account":

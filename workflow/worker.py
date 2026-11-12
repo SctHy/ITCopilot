@@ -232,6 +232,15 @@ class ExecutionWorker:
         spec = {"tool_name": action["tool_name"], "arguments": action["arguments"]}
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
+            revocation = None
+            if action["tool_name"] == "revoke_access":
+                revocation = await asyncio.to_thread(self.store.revocation_context, action)
+                saved = action["result"]
+                if saved is None:
+                    restore = revocation["restore_to"]
+                    saved = {"restore_to": adapter.level(restore) if restore is not None else None}
+                    await asyncio.to_thread(self.store.save_result, action, saved)
+                spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": saved["restore_to"]}}
             if action["kind"] == "apply" and action["prev_status"] == ActionStatus.QUEUED:
                 flow.send("preflight")
                 # The policy may have changed since approval. QUEUED means this action has made no
@@ -246,21 +255,25 @@ class ExecutionWorker:
                     for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
                         await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
             observed = False
-            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING}:
+            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} and (
+                    action["tool_name"] != "request_access" or action["result"] is not None):
                 flow.send("observe")
                 observed = await adapter.observe(action["id"], spec)
             if observed:
                 flow.send("reconciled")
                 result = {**(action.get("result") or {}), "reconciled": True}
-                await asyncio.to_thread(self.store.succeed, action, result)
+                preexisting = action["tool_name"] == "request_access" and rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"]))
+                await asyncio.to_thread(self.store.succeed, action, result, preexisting=preexisting)
                 flow.send("commit")
                 await self._emit(action, "action_reconciled")
                 return
             result = dict(action.get("result") or {})
             if action["tool_name"] == "request_access":
                 flow.send("baseline")
+                current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
+                grant_context = await asyncio.to_thread(self.store.grant_context, action, current)
                 if "baseline_level" not in result:
-                    result["baseline_level"] = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
+                    result["baseline_level"] = grant_context["baseline_level"]
                     await asyncio.to_thread(self.store.save_result, action, result)
                 if rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"])):
                     flow.send("preexisting")
@@ -268,10 +281,19 @@ class ExecutionWorker:
                     flow.send("commit")
                     await self._emit(action, "action_succeeded", preexisting=True)
                     return
+                covered = next((grant["action_id"] for grant in grant_context["covering"]
+                                if rank(adapter.level(grant["role"])) >= rank(adapter.level(spec["arguments"]["role"]))), None)
+                if covered is not None:
+                    flow.send("preexisting")
+                    await asyncio.to_thread(self.store.succeed, action, {**result, "covered_by": covered})
+                    flow.send("commit")
+                    await self._emit(action, "action_succeeded", covered_by=covered)
+                    return
             elif action["tool_name"] == "revoke_access":
                 flow.send("baseline")
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
-                if current != adapter.level(spec["arguments"]["role"]):
+                expected = revocation["expected"]
+                if current != (adapter.level(expected) if expected is not None else None):
                     await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
                     flow.send("drift")
                     await self._emit(action, "action_drifted", current=current)
