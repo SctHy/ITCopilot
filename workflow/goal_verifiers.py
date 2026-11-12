@@ -68,74 +68,58 @@ class AccessGoalVerifier:
         return observations
 
 
-class DeviceLockedVerifier:
-    def __init__(self, engine):
-        self.engine = engine
+class DirectoryRecordVerifier:
+    """Observe one of the requester's own directory records; ``judge`` maps the column value to an observation."""
+    def __init__(self, engine, kind, key, column, judge, label):
+        self.engine, self.kind, self.key, self.column, self.judge, self.label = engine, kind, key, column, judge, label
 
     def catalog(self):
         return []
 
     def normalize(self, checks):
         for check in checks:
-            if set(check) != {"kind", "device_id"} or check["kind"] != "device_locked" or not isinstance(check["device_id"], str) or not check["device_id"]:
-                raise TaskConflict("设备核验需要 device_locked 和有效 device_id")
+            if set(check) != {"kind", self.key} or check["kind"] != self.kind or not isinstance(check[self.key], str) or not check[self.key]:
+                raise TaskConflict(f"{self.label}核验需要 {self.kind} 和有效 {self.key}")
         return checks
 
     async def verify(self, task, checks):
         return await asyncio.to_thread(self._verify, task, checks)
 
     def _verify(self, task, checks):
+        table = self.column.table
         observations = []
         with tenant_scope(task["tenant"]):
             for check in checks:
                 try:
                     with read(self.engine) as db:
-                        device = db.execute(select(directory_devices.c.locked).where(directory_devices.c.tenant == task["tenant"],
-                            directory_devices.c.employee_id == task["principal"]["employee_id"], directory_devices.c.id == check["device_id"])).scalar()
+                        value = db.execute(select(self.column).where(table.c.tenant == task["tenant"],
+                            table.c.employee_id == task["principal"]["employee_id"], table.c.id == check[self.key])).scalar()
                 except OperationalError:
-                    observations.append({**check, "status": "unknown", "actual": None, "reason": "设备台账暂时不可用"})
+                    observations.append({**check, "status": "unknown", "actual": None, "reason": f"{self.label}台账暂时不可用"})
                     continue
-                observations.append({**check, "status": "unknown" if device is None else "passed" if device else "failed",
-                                     "actual": None if device is None else bool(device), "expected": True})
+                observations.append({**check, **self.judge(value)})
         return observations
 
 
-class TicketOpenVerifier:
-    def __init__(self, engine):
-        self.engine = engine
+def _device_locked(locked):
+    # A device missing from the ledger is unknown, not unlocked.
+    if locked is None:
+        return {"status": "unknown", "actual": None, "expected": True}
+    return {"status": "passed" if locked else "failed", "actual": bool(locked), "expected": True}
 
-    def catalog(self):
-        return []
 
-    def normalize(self, checks):
-        for check in checks:
-            if set(check) != {"kind", "ticket_id"} or check["kind"] != "ticket_open" or not isinstance(check["ticket_id"], str) or not check["ticket_id"]:
-                raise TaskConflict("工单核验需要 ticket_open 和有效 ticket_id")
-        return checks
-
-    async def verify(self, task, checks):
-        return await asyncio.to_thread(self._verify, task, checks)
-
-    def _verify(self, task, checks):
-        observations = []
-        with tenant_scope(task["tenant"]):
-            for check in checks:
-                try:
-                    with read(self.engine) as db:
-                        status = db.execute(select(directory_tickets.c.status).where(directory_tickets.c.tenant == task["tenant"],
-                            directory_tickets.c.employee_id == task["principal"]["employee_id"], directory_tickets.c.id == check["ticket_id"])).scalar()
-                except OperationalError:
-                    observations.append({**check, "status": "unknown", "actual": None, "reason": "工单台账暂时不可用"})
-                    continue
-                observations.append({**check, "status": "failed" if status is None or status == "closed" else "passed",
-                                     "actual": status, "expected": "open"})
-        return observations
+def _ticket_open(status):
+    return {"status": "failed" if status is None or status == "closed" else "passed", "actual": status, "expected": "open"}
 
 
 class GoalVerifiers:
     def __init__(self, registry, engine):
         self.access = AccessGoalVerifier(registry)
-        self.verifiers = {"access_level": self.access, "device_locked": DeviceLockedVerifier(engine), "ticket_open": TicketOpenVerifier(engine)}
+        self.verifiers = {
+            "access_level": self.access,
+            "device_locked": DirectoryRecordVerifier(engine, "device_locked", "device_id", directory_devices.c.locked, _device_locked, "设备"),
+            "ticket_open": DirectoryRecordVerifier(engine, "ticket_open", "ticket_id", directory_tickets.c.status, _ticket_open, "工单"),
+        }
 
     def catalog(self):
         return self.access.catalog()

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
 from agents.states import TURN
+from agents.types import OrchestratorResult, Request
 from api import state
 from core import tenant_context
 from api.deps import current_principal, enforce_rate_limit, forbid, rate_limit_decision, request_id, spawn
@@ -110,7 +111,6 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
     """一次对话回合：读取记忆 → 意图识别 → 组装请求 → 编排执行。用户与部门取自已验证身份。"""
     from agents.conversation_state import known_entities, merge_state, with_login_employee
     from agents.tools import slim_hit
-    from agents.types import Request
 
     user_id = principal.subject
     with stages("memory_context"):
@@ -234,31 +234,35 @@ async def _complete_turn(payload, principal: Principal, rid, conv_id, request_st
         raise
 
 
+async def _record_turn(req, result, principal, channel, *, approval_id, stage_ms=None):
+    from core.turn_records import build_record, record_turn
+    from monitor.telemetry import turn_attributes
+    record = build_record(req, result, channel=channel,
+        policy_version=state.workflow.policy_for(principal.tenant).version,
+        kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
+        approval_id=approval_id, stage_ms=stage_ms)
+
+    def persist():
+        with state.workflow.engine.begin() as db:
+            record_turn(db, record)
+    await asyncio.to_thread(persist)
+    turn_attributes(record)
+
+
 async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow, channel):
     stages = _Stages()
     verb = _confirmation_verb(payload.message) if state.workflow else None
     if verb:
         answered = await _answer_drafts(payload, principal, rid, conv_id, verb, emit)
         if answered is not None:
-            if state.workflow:
-                from agents.types import OrchestratorResult, Request
-                from core.turn_records import build_record, record_turn
-                from monitor.telemetry import turn_attributes
-                req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation",
-                    route_metadata={"model": "none", "route": "confirmation", "route_reason": "deterministic", "cost_usd": 0.0})
-                if state.memory:
-                    req.conversation_state = await state.memory.get_state(principal.scope_key, conv_id)
-                result = OrchestratorResult(rid, answered.response, None,
-                    latency_ms=answered.latency_ms, observability=state.orchestrator.agent_for(req)._observability(req))
-                record = build_record(req, result, channel=channel,
-                    policy_version=state.workflow.policy_for(principal.tenant).version,
-                    kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
-                    approval_id=answered.approval_id)
-                def persist_confirmation():
-                    with state.workflow.engine.begin() as db:
-                        record_turn(db, record)
-                await asyncio.to_thread(persist_confirmation)
-                turn_attributes(record)
+            # Confirmation turns never reach the model; record them so every settled turn has a row.
+            req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation",
+                route_metadata={"model": "none", "route": "confirmation", "route_reason": "deterministic", "cost_usd": 0.0})
+            if state.memory:
+                req.conversation_state = await state.memory.get_state(principal.scope_key, conv_id)
+            result = OrchestratorResult(rid, answered.response, None,
+                latency_ms=answered.latency_ms, observability=state.orchestrator.agent_for(req)._observability(req))
+            await _record_turn(req, result, principal, channel, approval_id=answered.approval_id)
             flow.send("respond")
             flow.send("commit")
             flow.send("finish")
@@ -318,17 +322,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
         token_usage=result.token_usage, stage_ms=stages.ms,
     )
     if state.workflow:
-        from core.turn_records import build_record, record_turn
-        from monitor.telemetry import turn_attributes
-        record = build_record(req, result, channel=channel,
-            policy_version=state.workflow.policy_for(principal.tenant).version,
-            kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
-            approval_id=approval_id, stage_ms=stages.ms)
-        def persist():
-            with state.workflow.engine.begin() as db:
-                record_turn(db, record)
-        await asyncio.to_thread(persist)
-        turn_attributes(record)
+        await _record_turn(req, result, principal, channel, approval_id=approval_id, stage_ms=stages.ms)
     if state.memory:
         # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)

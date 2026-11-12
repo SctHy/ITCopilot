@@ -2,10 +2,10 @@
 import os
 import time
 
-from sqlalchemy.dialects import postgresql, sqlite
 
 from agents.outcome import turn_outcome
-from core.db import turn_records
+from core.db import turn_records, upsert
+from workflow.actions import WRITE_TOOLS
 
 
 def build_sha():
@@ -20,7 +20,7 @@ def build_record(req, result, *, channel, policy_version, kb_version, approval_i
     obs = result.observability
     usage = result.token_usage
     signals = list(obs["signals"])
-    if result.error_code and result.error_code in {"round_limit", "bad_output", "model_unavailable", "deadline"}:
+    if result.error_code in {"round_limit", "bad_output", "model_unavailable", "deadline"}:
         signals.append(result.error_code)
     if result.error_code == "empty_output":
         signals.append("bad_output")
@@ -44,7 +44,7 @@ def build_record(req, result, *, channel, policy_version, kb_version, approval_i
         cost_usd=obs.get("cost_usd"), latency_ms=result.latency_ms, first_token_ms=obs["first_token_ms"],
         stage_ms={**({} if stage_ms is None else stage_ms), **req.stage_ms}, tools=tools, signals=sorted(set(signals)), approval_id=approval_id)
     record["quality"] = {
-        "write_turn": bool(req.allowed_writes) or (req.intent is not None and req.intent.value in {"password_reset", "account_unlock", "permission_request", "ticket_create"}) or any(t["name"] in {"request_access", "reset_password", "unlock_account", "lock_device", "create_ticket"} for t in tools),
+        "write_turn": bool(req.allowed_writes) or (req.intent is not None and req.intent.value in {"password_reset", "account_unlock", "permission_request", "ticket_create"}) or any(t["name"] in WRITE_TOOLS for t in tools),
         "clarification_needed": bool(req.conversation_state is not None and req.conversation_state.get("missing_fields")),
         "knowledge_used": bool(req.knowledge) or "search_knowledge_base" in result.tools_used,
         "claim_corrected": "claim_corrected" in signals,
@@ -54,7 +54,7 @@ def build_record(req, result, *, channel, policy_version, kb_version, approval_i
 
 
 def record_turn(db, record):
-    insert = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(turn_records)
+    insert = upsert(db, turn_records)
     db.execute(insert.values(**record).on_conflict_do_update(index_elements=[turn_records.c.request_id],
         set_={key: value for key, value in record.items() if key not in {"request_id", "created_at"}},
         where=(turn_records.c.status == "failed") & (turn_records.c.tenant == record["tenant"])

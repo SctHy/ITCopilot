@@ -32,8 +32,9 @@ def world(db_url):
                          action_requests=[access()])
             tasks.create(principal, f"{principal.tenant} 事项", "需要处理", "k")
             admin_audit.record(store.engine, replace(ERIN, tenant=principal.tenant), "knowledge_added", principal.tenant)
-    with system_scope():
-        admin_audit.record_system(store.engine, "policy_loaded", "v1")
+    with system_scope(), store.engine.begin() as db:
+        admin_audit.append(db, tenant=admin_audit.GLOBAL_TENANT, actor=admin_audit.SYSTEM_ACTOR,
+                           event="policy_loaded", subject="v1", detail=None)
     with store.engine.begin() as db:
         schema = db.execute(text("SELECT current_schema()")).scalar()
         if not db.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": PROBE}).first():

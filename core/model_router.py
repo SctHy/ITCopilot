@@ -1,12 +1,15 @@
 """确定性模型路由：合规和健康是硬约束，偏好顺序由离线评测门禁约束。"""
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
 import pathlib
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 
 import yaml
@@ -16,8 +19,10 @@ from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import func, select
 
+from core.change_log import record_change
 from core.db import read, tenants, turn_records
 from core.llm import build_model, is_model_unavailable
+from core.tenant_context import current_tenant
 from evaluation.reporting import percentile
 
 ROUTES = ("intent_fallback", "agent_read", "agent_write", "summary", "profile", "rewrite_rerank", "judge")
@@ -138,7 +143,6 @@ class ModelRouter:
         self._mtime = self.path.stat().st_mtime_ns
         self.fingerprint = hashlib.sha256(self.path.read_bytes()).hexdigest()
         if self.engine is not None:
-            from core.change_log import record_change
             record_change(self.engine, "model_route", self.fingerprint, {"routes": list(candidate.routes)})
 
     def force(self, route: str, name: str):
@@ -156,7 +160,12 @@ class ModelRouter:
         return breaker.state == CircuitState.CLOSED or (
             breaker.state == CircuitState.OPEN and time.monotonic() - breaker.opened_at >= breaker.recovery_s)
 
-    def pick(self, route: str, tenant: str, *, excluding: frozenset[str] = frozenset(), reason: str | None = None) -> Routed:
+    def pick(self, route: str, tenant: str | None = None, *, excluding: frozenset[str] = frozenset(),
+             reason: str | None = None) -> Routed:
+        """tenant 缺省取当前请求的租户；无租户或系统范围按 default 计。"""
+        tenant = current_tenant() if tenant is None else tenant
+        if tenant in {None, "*"}:
+            tenant = "default"
         self.reload()
         config = self.config.routes[route]
         # An unlisted tenant explicitly inherits the declared default policy.
@@ -192,7 +201,6 @@ class ModelRouter:
         return Routed(self.models[name], name, route, reason or selected_reason, settings, config.max_rounds, self.breakers[name].generation)
 
     async def run(self, routed: Routed, operation):
-        import asyncio
         started = time.monotonic()
         try:
             result = await operation
@@ -219,7 +227,6 @@ class ModelRouter:
         else:
             breaker.record_failure(routed.generation)
             if self.engine is not None and before != "open" and breaker.state == "open":
-                from core.change_log import record_change
                 record_change(self.engine, "model_circuit", routed.name, {"state": "open"})
 
     def over_budget(self, tenant: str) -> bool:
@@ -234,7 +241,6 @@ class ModelRouter:
             if quotas is None or "daily_cost_usd" not in quotas:
                 result = False
             else:
-                from datetime import datetime, timezone
                 today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
                 cost = db.scalar(select(func.coalesce(func.sum(turn_records.c.cost_usd), 0))
                     .where(turn_records.c.tenant == tenant, turn_records.c.created_at >= today))
@@ -243,7 +249,6 @@ class ModelRouter:
         return result
 
     def model_fingerprint(self, name: str) -> str:
-        import json
         value = self.config.models[name].model_dump()
         return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 

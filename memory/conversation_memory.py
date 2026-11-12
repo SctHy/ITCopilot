@@ -33,7 +33,6 @@ from core.concurrency import KeyedLocks, redis_lease
 from memory.states import profile_phase, COMPRESSION, MAINTENANCE
 from core.llm import close_model, complete_text
 from core.model_router import ModelRouter
-from core.tenant_context import current_tenant
 from core.vector_store import VectorStore
 from core.redaction import redact, redact_text
 
@@ -81,6 +80,14 @@ def profile_text(profile: Optional[Dict[str, Any]]) -> str:
     return "\n".join(f"{label}：{profile[key]}" for key, label in PROFILE_LABELS
                      if key in profile and now - profile["field_meta"][key]["updated_at"]
                      <= PROFILE_MAX_AGE_DAYS * 86400)
+
+
+def trace_snapshot(trace: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The turn body ``commit_turn`` copies into the trace; empty when the trace expired or predates the copy."""
+    if trace is None or "turn" not in trace:
+        return {"trace": trace, "turns": [], "response": "", "missing_slots": []}
+    turn = trace["turn"]
+    return {"trace": trace, "turns": [turn["user"]], "response": turn["assistant"], "missing_slots": turn["missing_slots"]}
 
 
 @dataclass
@@ -197,10 +204,6 @@ class MemoryManager:
     def _llm(self, model):
         self.router.replace_models(model)
 
-    def _route(self, role):
-        tenant = current_tenant()
-        return self.router.pick(role, "default" if tenant in {None, "*"} else tenant)
-
     @asynccontextmanager
     async def conversation(self, user_id: str, conv_id: str):
         # 哈希避免 user_id/conv_id 中的分隔符引起锁键碰撞。
@@ -249,8 +252,7 @@ class MemoryManager:
     async def turn_snapshot(self, owner, conv_id, request_id):
         trace = await self.get_trace(request_id)
         if trace is not None and "turn" in trace:
-            turn = trace["turn"]
-            return {"trace": trace, "turns": [turn["user"]], "response": turn["assistant"], "missing_slots": turn["missing_slots"]}
+            return trace_snapshot(trace)
         messages = await self._get_working_memory(owner, conv_id)
         current = [m for m in messages if m.metadata.get("request_id") == request_id]
         return {"trace": trace, "turns": [m.content for m in current if m.role == MsgRole.USER],
@@ -328,7 +330,7 @@ class MemoryManager:
         prompt = self._safe_text(prompt)
 
         try:
-            routed = self._route("profile")
+            routed = self.router.pick("profile")
             result = await self.router.run(routed, asyncio.wait_for(_PROFILE_AGENT.run(
                 prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 400, "temperature": 0.0},
             ), timeout=15))
@@ -469,7 +471,7 @@ class MemoryManager:
         text = redact_text(self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress)))
         prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
         try:
-            routed = self._route("summary")
+            routed = self.router.pick("summary")
             resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=1024, temperature=0.0,
                                        request_timeout=routed.settings["timeout"]))
             summary = redact_text(self._safe_text(resp.text)).strip()
@@ -822,7 +824,7 @@ class MemoryManager:
 """
         )
         try:
-            routed = self._route("summary")
+            routed = self.router.pick("summary")
             resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=256, temperature=0.0,
                                        request_timeout=routed.settings["timeout"]))
             merged = redact_text(self._safe_text(resp.text)).strip()

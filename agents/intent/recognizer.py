@@ -38,7 +38,6 @@ from core.env import env_float
 from core.protocols import CacheState, cache_state
 from core.jev import JevClient, top_choice
 from core.model_router import ModelRouter
-from core.tenant_context import current_tenant
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -286,8 +285,7 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
 历史：{json.dumps(history[-4:] if history else [], ensure_ascii=False)}"""
         self._metrics["llm_calls"] += 1
         try:
-            tenant = current_tenant()
-            routed = self.router.pick("intent_fallback", "default" if tenant in {None, "*"} else tenant)
+            routed = self.router.pick("intent_fallback")
             settings = {**routed.settings, "max_tokens": max(1024, int(os.getenv("IT_INTENT_MAX_TOKENS", "1024"))), "temperature": 0.}
             run = self._classifier.run(prompt, model=routed.model, model_settings=settings)
             data: IntentClassification = (await self.router.run(routed, asyncio.wait_for(

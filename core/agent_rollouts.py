@@ -7,10 +7,11 @@ from pathlib import Path
 import time
 from enum import StrEnum
 
-from sqlalchemy import insert, select, update
-from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy import select, update
 
-from core.db import admin_audit, agent_rollouts, change_events, feedback, read, turn_records
+from core import admin_audit
+from core.change_log import append_change
+from core.db import agent_rollouts, feedback, read, turn_records, upsert
 from core.states import Machine
 from core.tenant_context import system_scope
 from evaluation.attribution import wilson
@@ -43,7 +44,7 @@ class AgentRollouts:
         self.cache_ttl_s, self.reports = cache_ttl_s, Path(reports)
         self._cache = {}
         with system_scope(), engine.begin() as db:
-            statement = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(agent_rollouts)
+            statement = upsert(db, agent_rollouts)
             for name in registry.names:
                 db.execute(statement.values(spec_name=name, stable_version=registry.initial_version(name),
                     canary_version=None, canary_percent=0, canary_tenants=None, status="stable",
@@ -105,10 +106,9 @@ class AgentRollouts:
             values.update(updated_at=self.clock(), updated_by=actor)
             db.execute(update(agent_rollouts).where(agent_rollouts.c.spec_name == name).values(**values))
             detail = {"operation": operation, "before": old, "after": {**old, **values}, "actor_tenant": tenant}
-            db.execute(insert(change_events).values(at=self.clock(), tenant=None, kind="agent_rollout",
-                       ref=name, detail=detail, actor=actor))
-            db.execute(insert(admin_audit).values(tenant="*", actor=actor,
-                event="agent_rollout", subject=name, detail=detail, at=self.clock(), outcome="succeeded"))
+            append_change(db, "agent_rollout", name, detail, actor=actor, at=self.clock())
+            admin_audit.append(db, tenant=admin_audit.GLOBAL_TENANT, actor=actor, event="agent_rollout",
+                               subject=name, detail=detail, at=self.clock())
         self._cache.pop(name, None)
         return self.get(name)
 

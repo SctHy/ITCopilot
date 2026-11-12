@@ -32,10 +32,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
-from sqlalchemy import insert, select
-
 from workflow.adapters import AdapterRegistry
-from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
+from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank, target_level
+from core import admin_audit
+from core.change_log import append_change
 from core.protocols import SERVICE
 from core.concurrency import LeaseLostError, run_leased
 from core.tenant_context import system_scope, tenant_scope
@@ -157,48 +157,30 @@ class ExecutionWorker:
         logger.info("access policy %s: revalidated open work %s", version, changed or "(no changes)")
 
     def _record_policy_loaded(self, version: str, changed: Dict[str, int]) -> None:
-        """A version marker and its attribution event must survive or roll back together."""
-        from core import admin_audit
-        from core.db import admin_audit as administrative_audit
-        from core.change_log import append_change
-
-        with system_scope(), self.store.engine.begin() as db:
-            last = db.execute(select(administrative_audit).where(
-                administrative_audit.c.tenant == admin_audit.GLOBAL_TENANT,
-                administrative_audit.c.event == "policy_loaded")
-                .order_by(administrative_audit.c.id.desc()).limit(1)).mappings().first()
-            if last is not None and last["subject"] == version:
-                return
-            policy, now = self.store.policy, time.time()
-            detail = {"declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
-                      "previous": last["subject"] if last is not None else None,
-                      "revalidated": changed, "worker": self.worker_id}
-            db.execute(insert(administrative_audit).values(tenant=admin_audit.GLOBAL_TENANT,
-                actor=admin_audit.SYSTEM_ACTOR, event="policy_loaded", subject=version,
-                detail=detail, at=now, outcome="succeeded"))
-            append_change(db, "policy", version, detail, at=now)
+        policy = self.store.policy
+        self._record_policy(admin_audit.GLOBAL_TENANT, version, lambda last: {
+            "declared_version": policy.declared_version, "fingerprint": policy.fingerprint,
+            "previous": last["subject"] if last is not None else None, "revalidated": changed, "worker": self.worker_id})
 
     def _record_overlays_loaded(self) -> None:
-        """Each tenant's effective version shares the audit/event transaction."""
-        from core import admin_audit
-        from core.db import admin_audit as administrative_audit
-        from core.change_log import append_change
-
         if self.store._policy:
             return
         for tenant in overlay_tenants():
             policy = load_policy(tenant)
-            with tenant_scope(tenant), self.store.engine.begin() as db:
-                last = db.execute(select(administrative_audit).where(
-                    administrative_audit.c.tenant == tenant, administrative_audit.c.event == "policy_loaded")
-                    .order_by(administrative_audit.c.id.desc()).limit(1)).mappings().first()
-                if last is not None and last["subject"] == policy.version:
-                    continue
-                now = time.time()
-                detail = {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id}
-                db.execute(insert(administrative_audit).values(tenant=tenant, actor=admin_audit.SYSTEM_ACTOR,
-                    event="policy_loaded", subject=policy.version, detail=detail, at=now, outcome="succeeded"))
-                append_change(db, "policy", policy.version, detail, tenant=tenant, at=now)
+            self._record_policy(tenant, policy.version, lambda last: {
+                "base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id})
+
+    def _record_policy(self, tenant: str, version: str, detail: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]]) -> None:
+        """The audit marker and its change event commit together; only the first sighting of a version is recorded."""
+        is_global = tenant == admin_audit.GLOBAL_TENANT
+        with (system_scope() if is_global else tenant_scope(tenant)), self.store.engine.begin() as db:
+            last = admin_audit.last_event(db, tenant, "policy_loaded")
+            if last is not None and last["subject"] == version:
+                return
+            now, body = time.time(), detail(last)
+            admin_audit.append(db, tenant=tenant, actor=admin_audit.SYSTEM_ACTOR, event="policy_loaded",
+                               subject=version, detail=body, at=now)
+            append_change(db, "policy", version, body, tenant=None if is_global else tenant, at=now)
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):
@@ -259,13 +241,11 @@ class ExecutionWorker:
         spec = {"tool_name": action["tool_name"], "arguments": action["arguments"]}
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
-            revocation = None
             if action["tool_name"] == "revoke_access":
-                revocation = await asyncio.to_thread(self.store.revocation_context, action)
                 saved = action["result"]
                 if saved is None:
-                    restore = revocation["restore_to"]
-                    saved = {"restore_to": adapter.level(restore) if restore is not None else None}
+                    revocation = await asyncio.to_thread(self.store.revocation_context, action)
+                    saved = {"restore_to": target_level(adapter, revocation["restore_to"])}
                     await asyncio.to_thread(self.store.save_result, action, saved)
                 spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": saved["restore_to"]}}
             if action["kind"] == "apply" and (action["prev_status"] == ActionStatus.QUEUED or (
@@ -290,8 +270,7 @@ class ExecutionWorker:
             if observed:
                 if action["tool_name"] == "revoke_access":
                     latest = await asyncio.to_thread(self.store.revocation_context, action)
-                    restore = latest["restore_to"]
-                    restore = adapter.level(restore) if restore is not None else None
+                    restore = target_level(adapter, latest["restore_to"])
                     current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                     if current != restore:
                         flow.send("baseline")
@@ -314,8 +293,7 @@ class ExecutionWorker:
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 grant_context = await asyncio.to_thread(self.store.grant_context, action, current)
                 if grant_context["covering"]:
-                    expected = grant_context["expected_level"]
-                    expected = adapter.level(expected) if expected is not None else None
+                    expected = target_level(adapter, grant_context["expected_level"])
                     if current != expected:
                         await asyncio.to_thread(self.store.fail, action,
                             "当前权限与有效授权台账不一致，停止新授权并转人工核查", status=ActionStatus.MANUAL_REVIEW,
@@ -346,14 +324,12 @@ class ExecutionWorker:
                 flow.send("baseline")
                 revocation = await asyncio.to_thread(self.store.revocation_context, action)
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
-                expected = revocation["expected"]
-                if current != (adapter.level(expected) if expected is not None else None):
+                if current != target_level(adapter, revocation["expected"]):
                     await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
                     flow.send("drift")
                     await self._emit(action, "action_drifted", current=current)
                     return
-                restore = revocation["restore_to"]
-                restore = adapter.level(restore) if restore is not None else None
+                restore = target_level(adapter, revocation["restore_to"])
                 if result["restore_to"] != restore:
                     result["restore_to"] = restore
                     await asyncio.to_thread(self.store.save_result, action, result)

@@ -168,7 +168,6 @@ async def lifespan(app: FastAPI):
             from core.agent_rollouts import AgentRollouts
             state.agent_registry = AgentRegistry(tools=set(state.orchestrator.agent.get_tools()), routes=set(model_router.config.routes))
             state.agent_rollouts = AgentRollouts(state.workflow.engine, state.agent_registry)
-            state.orchestrator.agent_registry = state.agent_registry
             state.orchestrator.rollouts = state.agent_rollouts
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)

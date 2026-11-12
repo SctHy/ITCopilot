@@ -4,9 +4,8 @@ import time
 from enum import StrEnum
 
 from sqlalchemy import select, update
-from sqlalchemy.dialects import postgresql, sqlite
 
-from core.db import badcases, feedback, read, turn_records
+from core.db import badcases, feedback, read, turn_records, upsert
 from core.redaction import redact, redact_text
 from core.states import Machine
 
@@ -48,7 +47,7 @@ class BadcaseStore:
                                                           turn_records.c.tenant == principal.tenant)).mappings().first()
             if turn is None or (not shared and turn["owner"] != principal.scope_key):
                 raise BadcaseNotFound("回合不存在或不属于当前用户")
-            statement = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(feedback)
+            statement = upsert(db, feedback)
             values = dict(request_id=request_id, tenant=principal.tenant, actor=principal.scope_key,
                           rating=rating, reason=reason, comment=redact_text(comment)[:500], created_at=self.clock())
             db.execute(statement.values(**values).on_conflict_do_update(

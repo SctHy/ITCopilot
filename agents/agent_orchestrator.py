@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict
 
 from agents.base_agent import BaseAgent
+from agents.registry import ROOT
 from agents.checkpointing import execute_step
 from agents.intent.recognizer import IntentRecognizer
 from agents.intent.taxonomy import IntentCategory
@@ -12,6 +13,7 @@ from agents.tools import agent_tools, build_shared_rag_tools
 from agents.types import OrchestratorResult, Request
 from core.env import env_float
 from core.model_router import ModelRouter
+from core.skill_loader import SkillManager
 from tooling.executor import ToolExecutor
 
 
@@ -30,7 +32,6 @@ class AgentOrchestrator:
         self._local_tools = agent_tools(lambda: self.directory)
         self.agent = BaseAgent(None, model, skill_manager, router=self.router)
         self.agent.executor = self.tool_executor
-        self.agent_registry = None
         self.rollouts = None
         self.forced_spec = None
         self._agents = {}
@@ -85,8 +86,6 @@ class AgentOrchestrator:
             return self.agent
         fingerprint = spec.fingerprint
         if fingerprint not in self._agents:
-            from core.skill_loader import SkillManager
-            from agents.registry import ROOT
             expected_root = (ROOT / spec.skills.root).resolve()
             if self.agent._skill_manager is not None and self.agent._skill_manager.root_dir == expected_root:
                 skills = self.agent._skill_manager

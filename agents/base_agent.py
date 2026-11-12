@@ -47,7 +47,6 @@ from core.protocols import CacheState, cache_state
 from core.deadline_model import DeadlineModel, TurnDeadlineExceeded
 from core.llm import is_model_unavailable
 from core.model_router import MODEL_ERRORS, ModelRouter
-from core.tenant_context import current_tenant
 from core.redaction import redact
 from monitor import metrics
 from tooling.executor import ToolExecutor, ToolInputInvalid, WriteGuardBlocked, error_class
@@ -155,10 +154,10 @@ class BaseAgent:
                 response = AgentResponse("模型服务暂时不可用，请检查模型配置或稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="model_unavailable")
             else:
                 response = AgentResponse("抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
-            if isinstance(ex, AgentCallError) and ex.reason in {"round_limit", "bad_output", "empty_output"}:
-                response.error_code = ex.reason
             if isinstance(ex, AgentCallError):
                 response.token_usage = ex.token_usage
+                if ex.reason in {"round_limit", "bad_output", "empty_output"}:
+                    response.error_code = ex.reason
             response.observability = self._observability(req)
             return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
@@ -194,9 +193,7 @@ class BaseAgent:
         deps = AgentRunDeps(req)
         if self._skill_manager and self.spec.skills.disclosure == "progressive":
             req.skill_text = self._skill_manager.selected_prompt(req.message, req.intent_group, req.allowed_writes or ())
-        tenant = req.principal.tenant if req.principal is not None else current_tenant()
-        if tenant is None or tenant == "*":
-            tenant = "default"
+        tenant = req.principal.tenant if req.principal is not None else None
         route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
         self.router.reload()
         route_config = self.router.config.routes[route]
@@ -204,9 +201,12 @@ class BaseAgent:
         deadline = asyncio.timeout_at(deadline_at)
         measured = RunUsage()
         failed_over = False
-        req.route_metadata = {"model": self.router.config.routes[route].candidates[0],
+        req.route_metadata = {"model": route_config.candidates[0],
                               "route": route, "route_reason": "primary", "cost_usd": 0.0}
         kwargs = dict(deps=deps, message_history=history_messages(req.history), usage=measured)
+
+        def known_usage():
+            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
 
         async def run(prompt, **overrides):
             nonlocal failed_over
@@ -220,7 +220,7 @@ class BaseAgent:
                 options = {**kwargs, **overrides, "model": model, "model_settings": selection.settings,
                            "usage_limits": UsageLimits(request_limit=selection.max_rounds)}
                 started = time.monotonic()
-                before_usage = {key: int(getattr(measured, key)) for key in ("input_tokens", "output_tokens", "cache_read_tokens")}
+                before_usage = known_usage()
                 try:
                     response = (await self._run_streaming(prompt, req, options)
                                 if req.stream_answer and req.emit is not None else
@@ -235,7 +235,7 @@ class BaseAgent:
                     self.router.record(selection, time.monotonic() - started, success=not is_model_unavailable(exc))
                     raise
                 finally:
-                    delta_usage = {key: int(getattr(measured, key)) - before_usage[key] for key in before_usage}
+                    delta_usage = {key: value - before_usage[key] for key, value in known_usage().items()}
                     req.route_metadata["cost_usd"] += self.router.cost(selection.name, delta_usage)
                 self.router.record(selection, time.monotonic() - started, success=True)
                 return response
@@ -266,9 +266,6 @@ class BaseAgent:
                     req.stage_ms["claim_correction"] = (time.monotonic() - correcting_at) * 1000
             return result
 
-        def known_usage():
-            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
-
         try:
             async with deadline:
                 result = await generate()
@@ -285,8 +282,7 @@ class BaseAgent:
                 else "待审批申请，审批通过后执行。")) for name, output in sorted(writes.items())])
                        if writes else "处理超时，请重试")
             await req.publish("answer_reset", {})
-            return AgentCallResult(content, deps.used, deps.traces, "partial", {
-                key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}, error_code="deadline")
+            return AgentCallResult(content, deps.used, deps.traces, "partial", known_usage(), error_code="deadline")
         except asyncio.CancelledError:
             flow.send("cancel")
             raise
@@ -316,7 +312,7 @@ class BaseAgent:
         content = redact_user_secrets(content, req.message)
         status = "partial" if result.response.finish_reason == "length" else "success"
         flow.send("truncate" if status == "partial" else "complete")
-        return AgentCallResult(content, deps.used, deps.traces, status, {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")})
+        return AgentCallResult(content, deps.used, deps.traces, status, known_usage())
 
 
     async def _run_streaming(self, prompt: str, req: Request, kwargs: Dict[str, Any]):

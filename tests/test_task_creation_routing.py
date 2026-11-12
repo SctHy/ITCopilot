@@ -44,7 +44,7 @@ def test_http_creation_routes_actual_intent_reuses_cache_and_preserves_pinned_ve
             reg = registry(tmp_path, set(state.orchestrator.agent.get_tools()), set(state.orchestrator.router.config.routes))
             rolls = AgentRollouts(state.workflow.engine, reg, reports=tmp_path)
             state.agent_rollouts = state.orchestrator.rollouts = rolls
-            state.agent_registry = state.orchestrator.agent_registry = reg
+            state.agent_registry = reg
             release_gate(tmp_path, reg.get("network_support", "1.1.0"))
             rolls.change("network_support", "canary", "test", tenant="default", version="1.1.0", percent=100)
             payload = {"title": "VPN排障", "message": "VPN客户端报错VPN-691", "client_request_id": "first"}

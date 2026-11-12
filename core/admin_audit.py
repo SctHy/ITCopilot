@@ -36,13 +36,24 @@ INTERRUPTED_AFTER_S = 300.0
 OUTCOMES = ("succeeded", "failed", "interrupted")
 
 
-def _insert(engine, *, tenant: str, actor: str, event: str, subject: Optional[str], detail: Optional[Dict[str, Any]],
-            outcome: str, ref: Optional[int] = None, at: Optional[float] = None) -> int:
+def append(db, *, tenant: str, actor: str, event: str, subject: Optional[str], detail: Optional[Dict[str, Any]],
+           outcome: str = "succeeded", ref: Optional[int] = None, at: Optional[float] = None) -> int:
+    """Append inside the caller's transaction, so an entry can commit atomically with the change it records."""
+    result = db.execute(insert(admin_audit).values(
+        tenant=tenant, actor=actor[:200], event=event[:60], subject=(subject or None) and subject[:200],
+        detail=detail, at=at or time.time(), outcome=outcome, ref=ref))
+    return int(result.inserted_primary_key[0])
+
+
+def last_event(db, tenant: str, event: str) -> Optional[Dict[str, Any]]:
+    row = db.execute(select(admin_audit).where(admin_audit.c.tenant == tenant, admin_audit.c.event == event)
+                     .order_by(admin_audit.c.id.desc()).limit(1)).mappings().first()
+    return dict(row) if row else None
+
+
+def _insert(engine, **values) -> int:
     with engine.begin() as db:
-        result = db.execute(insert(admin_audit).values(
-            tenant=tenant, actor=actor[:200], event=event[:60], subject=(subject or None) and subject[:200],
-            detail=detail, at=at or time.time(), outcome=outcome, ref=ref))
-        return int(result.inserted_primary_key[0])
+        return append(db, **values)
 
 
 def begin(engine, principal: Principal, event: str, subject: Optional[str] = None,
@@ -63,33 +74,6 @@ def record(engine, principal: Principal, event: str, subject: Optional[str] = No
     """One-step entry for something that already happened atomically (or is an observation)."""
     return _insert(engine, tenant=principal.tenant, actor=principal.subject, event=event, subject=subject,
                    detail=detail, outcome="succeeded", at=at)
-
-
-def record_system(engine, event: str, subject: Optional[str] = None, detail: Optional[Dict[str, Any]] = None,
-                  *, at: Optional[float] = None) -> int:
-    """Global, non-human entry (e.g. the access policy that took effect)."""
-    return _insert(engine, tenant=GLOBAL_TENANT, actor=SYSTEM_ACTOR, event=event, subject=subject, detail=detail,
-                   outcome="succeeded", at=at)
-
-
-def record_as(engine, tenant: str, actor: str, event: str, subject: Optional[str] = None,
-              detail: Optional[Dict[str, Any]] = None, *, at: Optional[float] = None) -> int:
-    """A non-human entry under one tenant (e.g. that tenant's policy overlay took effect)."""
-    return _insert(engine, tenant=tenant, actor=actor, event=event, subject=subject, detail=detail, outcome="succeeded", at=at)
-
-
-def last_tenant_event(engine, tenant: str, event: str) -> Optional[Dict[str, Any]]:
-    with schema.read(engine) as db:
-        row = db.execute(select(admin_audit).where(admin_audit.c.tenant == tenant, admin_audit.c.event == event)
-                         .order_by(admin_audit.c.id.desc()).limit(1)).mappings().first()
-    return dict(row) if row else None
-
-
-def last_system(engine, event: str) -> Optional[Dict[str, Any]]:
-    with schema.read(engine) as db:
-        row = db.execute(select(admin_audit).where(admin_audit.c.tenant == GLOBAL_TENANT, admin_audit.c.event == event)
-                         .order_by(admin_audit.c.id.desc()).limit(1)).mappings().first()
-    return dict(row) if row else None
 
 
 def recent(engine, tenant: str, *, limit: int = 100, before: Optional[int] = None, event: Optional[str] = None,

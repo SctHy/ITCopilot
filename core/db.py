@@ -33,6 +33,7 @@ from sqlalchemy import (
     create_engine,
     event,
 )
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import TypeDecorator
 
@@ -501,6 +502,11 @@ def make_engine(url: str) -> Engine:
 def read(engine: Engine) -> Connection:
     """只读查询用的连接；不要在上面写入。"""
     return engine.connect().execution_options(read_only=True)
+
+
+def upsert(db: Connection, table: Table):
+    """INSERT 支持 on_conflict_do_*；两种支持的方言语法相同，构造器不同。"""
+    return (postgresql if db.dialect.name == "postgresql" else sqlite).insert(table)
 
 
 # 同一进程内同一数据库共用一个连接池、只迁移一次（API 里知识库、记忆、工作流共用）。弱引用：使用方都释放后引擎随之回收，

@@ -21,6 +21,11 @@ from typing import Any, Dict, Optional, Protocol
 LEVEL_RANK = {"readonly": 1, "reporter": 2, "developer": 3, "admin": 4, "owner": 5}
 
 
+def target_level(adapter: "Adapter", role: Optional[str]) -> Optional[str]:
+    """Ledger roles in the target's levels; ``None`` (no active grant: the system decides) passes through."""
+    return None if role is None else adapter.level(role)
+
+
 class AdapterError(Exception):
     pass
 

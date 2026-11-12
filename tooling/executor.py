@@ -21,6 +21,9 @@ import json
 import random
 from typing import Any, Dict
 
+import httpx
+import httpx2
+
 from monitor import metrics
 from tooling.tool_manager import CircuitBreaker
 
@@ -44,8 +47,6 @@ class PolicyDenied(ValueError):
 
 
 def error_class(exc):
-    import httpx
-    import httpx2
     if isinstance(exc, ToolRemoteFailure):
         return exc.category
     if isinstance(exc, ToolInputInvalid):

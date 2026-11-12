@@ -1,6 +1,7 @@
 """Agent 运行时共用的数据类型：请求、响应与错误。"""
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -54,7 +55,6 @@ class Request:
         if event == "answer_reset":
             self.signals.append("answer_reset")
         elif event == "answer_delta" and self.first_token_ms is None:
-            import time
             self.first_token_ms = (time.monotonic() - self.started_at) * 1000
         if self.emit is not None:
             await self.emit(event, data)

@@ -8,7 +8,7 @@ from core.db import access_grants, actions, approvals, audit
 from core.tenant_context import system_scope, tenant_scope
 from monitor import metrics
 from workflow.actions import resource_key
-from workflow.adapters.base import AmbiguousError, TransientError
+from workflow.adapters.base import AmbiguousError, TransientError, target_level
 from workflow.states import ActionStatus, GrantStatus
 
 
@@ -38,8 +38,7 @@ class GrantReconciler:
                         except (TransientError, AmbiguousError):
                             metrics.RECONCILE_SKIPPED.inc()
                             continue
-                        expected = snapshot["expected"]
-                        expected = adapter.level(expected) if expected is not None else None
+                        expected = target_level(adapter, snapshot["expected"])
                         if current != expected:
                             changed = await asyncio.to_thread(self._mark, grant, snapshot, current, expected)
                             drifted += len(changed)

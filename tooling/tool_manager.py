@@ -349,8 +349,7 @@ class MCPToolManager:
 通过 return_sub_queries 返回子查询列表，例如: ["子查询1", "子查询2", "子查询3"]"""
         prompt = self._clean_text(prompt)
         try:
-            tenant = current_tenant()
-            routed = self.router.pick("rewrite_rerank", "default" if tenant in {None, "*"} else tenant)
+            routed = self.router.pick("rewrite_rerank")
             result = await self.router.run(routed, asyncio.wait_for(_REWRITE_AGENT.run(
                 prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 512, "temperature": 0.3},
             ), timeout=10))
@@ -474,8 +473,7 @@ class MCPToolManager:
         prompt = self._clean_text(prompt)
 
         try:
-            tenant = current_tenant()
-            routed = self.router.pick("rewrite_rerank", "default" if tenant in {None, "*"} else tenant)
+            routed = self.router.pick("rewrite_rerank")
             result = await self.router.run(routed, asyncio.wait_for(_RERANK_AGENT.run(
                 prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 2048, "temperature": 0.0},
             ), timeout=30))

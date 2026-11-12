@@ -1,18 +1,19 @@
 """Freeze short-lived traces before expiry; mine metadata and business outcomes incrementally."""
 import asyncio
 import hashlib
+import json
 import time
 
 import numpy as np
 from sqlalchemy import or_, select, update
-from sqlalchemy.dialects import postgresql, sqlite
 
 from agents.outcome import turn_outcome
 from core.db import (approvals, badcase_mining_cursors, badcases, feedback, read,
-                     service_tasks, task_events, task_verifications, turn_records)
+                     service_tasks, task_events, task_verifications, turn_records, upsert)
 from core.embedding import Embedder
 from core.redaction import redact
 from core.tenant_context import system_scope
+from memory.conversation_memory import trace_snapshot
 
 
 class BadcaseMiner:
@@ -24,7 +25,7 @@ class BadcaseMiner:
 
     def _candidates(self, now):
         with system_scope(), self.engine.begin() as db:
-            statement = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(badcase_mining_cursors)
+            statement = upsert(db, badcase_mining_cursors)
             db.execute(statement.values(name="main", at=0).on_conflict_do_nothing(index_elements=[badcase_mining_cursors.c.name]))
             since = db.scalar(select(badcase_mining_cursors.c.at).where(badcase_mining_cursors.c.name == "main"))
             recent_feedback = select(feedback.c.request_id).where(feedback.c.created_at >= since)
@@ -78,7 +79,7 @@ class BadcaseMiner:
         with self.engine.begin() as db:
             db.execute(update(turn_records).where(turn_records.c.request_id == row["request_id"],
                 turn_records.c.tenant == row["tenant"]).values(signals=sorted(signals)))
-            statement = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(badcases)
+            statement = upsert(db, badcases)
             case_id = hashlib.sha256(row["request_id"].encode()).hexdigest()
             db.execute(statement.values(id=case_id, request_id=row["request_id"], tenant=row["tenant"], source=source,
                 signals=sorted(signals), status="new", snapshot=snapshot, label={}).on_conflict_do_nothing(index_elements=[badcases.c.request_id]))
@@ -152,12 +153,5 @@ class RedisTurnSnapshots:
         self.redis = redis_client
 
     async def turn_snapshot(self, owner, conv_id, request_id):
-        import json
         raw = await self.redis.get("trace:" + request_id)
-        if raw is None:
-            return {"trace": None, "turns": [], "response": "", "missing_slots": []}
-        trace = json.loads(raw)
-        if "turn" not in trace:
-            return {"trace": trace, "turns": [], "response": "", "missing_slots": []}
-        turn = trace["turn"]
-        return {"trace": trace, "turns": [turn["user"]], "response": turn["assistant"], "missing_slots": turn["missing_slots"]}
+        return trace_snapshot(None if raw is None else json.loads(raw))
