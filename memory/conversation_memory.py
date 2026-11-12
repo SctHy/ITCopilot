@@ -434,7 +434,8 @@ class MemoryManager:
             relevant_history=history,
             user_profile=profile,
             summary=summary,
-            state=conversation_state if self.context_mode != "working" else {},
+            state=conversation_state if self.context_mode != "working" else {
+                key: conversation_state[key] for key in ("agent_spec", "agent_version") if key in conversation_state},
         )
 
     async def get_state(self, user_id, conv_id):

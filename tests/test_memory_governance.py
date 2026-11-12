@@ -131,3 +131,16 @@ def test_personal_memory_api_uses_subject_scope_and_audits():
                 row = db.execute(select(admin_audit).where(admin_audit.c.event == "memory_deleted")).mappings().one()
             assert row["actor"] == alice.subject and row["tenant"] == alice.tenant
     asyncio.run(run())
+
+
+def test_working_ablation_keeps_only_platform_version_state(db_url):
+    async def run():
+        manager = memory(db_url)
+        manager.context_mode = "working"
+        await manager.commit_turn("u", "c", "pinned", "VPN", {
+            "request_id": "pinned", "response": "请检查", "status": "success"},
+            state={"agent_spec": "it_copilot", "agent_version": "1.1.0", "entities": {"system": ["VPN"]}})
+        context = await manager.get_context("u", "c", "VPN")
+        assert context.state == {"agent_spec": "it_copilot", "agent_version": "1.1.0"}
+        await manager.close()
+    asyncio.run(run())
