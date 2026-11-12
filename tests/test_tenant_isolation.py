@@ -65,6 +65,7 @@ PROBES: Dict[Tuple[str, str], Tuple[Request, str]] = {
     ("POST", "/approvals/{approval_id}/withdraw"): (post("/approvals/{private}/withdraw", {}), "deny"),
     ("POST", "/approvals/{approval_id}/release"): (post("/approvals/{private}/release"), "deny"),
     ("POST", "/approvals/{approval_id}/reconcile"): (post("/approvals/{private}/reconcile"), "deny"),
+    ("POST", "/approvals/{approval_id}/resolve"): (post("/approvals/{private}/resolve", {"note": "已人工处理"}), "deny"),
     ("GET", "/approvals/{approval_id}/audit"): (get("/approvals/{private}/audit"), "deny"),
     ("GET", "/business/employees/{employee_id}"): (get("/business/employees/1001"), "deny"),  # same id, own (empty) directory
     ("GET", "/knowledge/documents"): (get("/knowledge/documents"), "list"),

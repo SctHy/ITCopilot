@@ -1,10 +1,10 @@
 // Apply an approval-card action. The card stays bound to the connection that produced it.
 import { backendMeta } from '../api/http.ts'
-import { confirmApproval, reconcileApproval, releaseApproval, requestApproval, withdrawApproval } from '../api/approvals.ts'
+import { confirmApproval, reconcileApproval, releaseApproval, requestApproval, resolveApproval, withdrawApproval } from '../api/approvals.ts'
 import type { ApprovalDecision, ApprovalItem, Settings } from './types.ts'
 
 /** Loads (no decision) or acts on `item`, mutating its approval/busy/error fields in place. */
-export async function applyApprovalAction(item: ApprovalItem, current: Settings, decision?: ApprovalDecision): Promise<void> {
+export async function applyApprovalAction(item: ApprovalItem, current: Settings, decision?: ApprovalDecision, note = ''): Promise<void> {
   if (item.approvalBusy) return
   item.approvalBusy = true
   item.approvalError = ''
@@ -20,6 +20,7 @@ export async function applyApprovalAction(item: ApprovalItem, current: Settings,
       confirm: () => confirmApproval(item.approvalBackend, target, item.approvalId, item.approval?.payload_hash),
       withdraw: () => withdrawApproval(item.approvalBackend, target, item.approvalId),
       release: () => releaseApproval(item.approvalBackend, target, item.approvalId),
+      resolve: () => resolveApproval(item.approvalBackend, target, item.approvalId, note),
     }
     const action = decision ? actions[decision] : undefined
     item.approval = action

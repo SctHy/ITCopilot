@@ -54,14 +54,14 @@ EXECUTION = Machine(Execution, """
     not_executed  -> queued
     queued        -> executing | failed           # failed: the policy cancelled every action before it started
     executing     -> succeeded | failed | manual_review
-    manual_review -> executing                    # operator requeue
+    manual_review -> executing | failed           # operator requeue | operator closed it by hand
 """)
 
 ACTION = Machine(ActionStatus, """
     queued        -> executing | cancelled        # cancelled: policy change or saga compensation
     unknown       -> executing | cancelled        # cancelled: periodic reconciliation found external drift
     executing     -> succeeded | queued | unknown | failed | manual_review
-    manual_review -> unknown                      # operator requeue: observe before applying again
+    manual_review -> unknown | cancelled          # operator requeue: observe before applying again | closed by hand
 """)
 
 GRANT = Machine(GrantStatus, """

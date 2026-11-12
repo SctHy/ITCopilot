@@ -88,6 +88,10 @@ def test_cross_conversation_conflicts_remain_visible_without_replacement(db_url)
     assert body["status"] == "pending"
     assert body["conflicts"] == [{"approval_id": "b", "status": "pending", "requester": ALICE.subject,
                                   "conv_channel": "web"}]
+    store.create("c", request_id="c", conv_id="c", principal=ALICE, action_requests=[access(system="Jira")])
+    listed = {item["approval_id"]: item for item in store.list(ALICE)}
+    assert {name: [c["approval_id"] for c in item["conflicts"]] for name, item in listed.items()} == {"a": ["b"], "b": ["a"], "c": []}
+    assert all(listed[name] == store.get(name) for name in listed)
 
 
 def test_overlaps_preserve_permanent_baseline_when_shorter_upgrade_expires_first(db_url):
@@ -293,3 +297,65 @@ def test_migration_backfills_resource_keys_and_removes_frozen_revoke_baseline(db
         engine.dispose()
     assert migrated["resource_key"] == "default:access:1001:gitlab"
     assert "baseline_level" not in migrated["arguments"]
+
+
+def test_operator_closes_a_deliberate_drift_and_releases_the_resource(db_url):
+    from sqlalchemy import update
+    from core.db import directory_grants
+    from core.tenant_context import tenant_scope
+    from tests.test_workflow import ERIN
+    from workflow.store import ApprovalStateConflict
+
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock)
+    worker = ExecutionWorker(store, AdapterRegistry(LocalDirectoryAdapter(store.engine)))
+    approve(store, "a", "reporter", 24)
+    asyncio.run(worker.run_until_idle())
+    # Someone deliberately raised the permission outside the service: observing again never passes.
+    with tenant_scope("default"), store.engine.begin() as db:
+        db.execute(update(directory_grants).where(directory_grants.c.employee_id == "1001").values(role="admin"))
+    clock.t += 24 * 3600 + 1
+    asyncio.run(worker.run_until_idle())
+    store.requeue("a", ERIN)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("a")["revocations"][0]["status"] == "manual_review"
+    approve(store, "b", "developer", 8)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("b")["results"][0]["status"] == "queued"
+
+    body = store.resolve_manual("a", ERIN, "管理员权限由平台负责人保留")
+    assert body["revocations"][0]["status"] == "cancelled"
+    assert [e["event"] for e in store.audit("a")][-1] == "manual_resolved"
+    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "drifted"
+    with pytest.raises(ApprovalStateConflict):
+        store.resolve_manual("a", ERIN, "again")
+    asyncio.run(worker.run_until_idle())
+    assert store.get("b")["results"][0]["status"] == "succeeded"
+
+
+def test_closing_after_a_non_reversible_effect_settles_the_execution(db_url):
+    from tests.test_workflow import ERIN
+
+    store = WorkflowStore(db_url, clock=Clock())
+    body = store.create("t", request_id="r-t", conv_id="conv-t", principal=ALICE, action_requests=[
+        {"tool_name": "create_ticket", "arguments": {"employee_id": "1001", "title": "VPN", "description": "691"}},
+        access(role="developer", duration_hours=8)])
+    for principal in (BOB, CAROL):
+        store.decide("t", "approved", principal, body["payload_hash"])
+
+    class Ambiguous(LocalDirectoryAdapter):
+        async def apply(self, action_id, action):
+            if action["tool_name"] == "request_access":
+                from workflow.adapters.base import AmbiguousError
+                raise AmbiguousError("timeout")
+            return await super().apply(action_id, action)
+
+        async def observe(self, action_id, action):
+            return False if action["tool_name"] == "request_access" else await super().observe(action_id, action)
+
+    worker = ExecutionWorker(store, AdapterRegistry(Ambiguous(store.engine)), max_attempts=1)
+    asyncio.run(worker.run_until_idle())
+    assert store.get("t")["execution"] == "manual_review"
+    assert store.resolve_manual("t", ERIN, "权限已在目标系统人工开通")["execution"] == "failed"
+    asyncio.run(worker.run_until_idle())
+    assert store.get("t")["execution"] == "failed"

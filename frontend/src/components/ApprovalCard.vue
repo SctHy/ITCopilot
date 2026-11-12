@@ -41,7 +41,7 @@
           <template v-if="step.error"> · {{ step.error }}</template>
         </li>
       </ul>
-      <ApprovalActions :approval="approval" :identity="identity" :busy="busy" :allow-clarification="allowClarification" @action="$emit('action', $event)" />
+      <ApprovalActions :approval="approval" :identity="identity" :busy="busy" :allow-clarification="allowClarification" @action="(decision, note) => $emit('action', decision, note)" />
       <details v-if="approval.results?.length">
         <summary>查看执行凭据</summary>
         <pre>{{ JSON.stringify(approval.results, null, 2) }}</pre>
@@ -65,7 +65,7 @@ const props = withDefaults(defineProps<{
   allowClarification?: boolean
 }>(), { approval: null, busy: false, error: '', identity: null, allowClarification: false })
 // No decision means "load the approval" (the card starts empty).
-defineEmits<{ action: [decision?: ApprovalDecision] }>()
+defineEmits<{ action: [decision?: ApprovalDecision, note?: string] }>()
 
 const viewState = computed(() => resourceState({ pending: props.busy, error: props.error, loaded: !!props.approval }))
 

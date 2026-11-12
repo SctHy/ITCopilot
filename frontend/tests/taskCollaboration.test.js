@@ -73,6 +73,15 @@ test('withdraw and release go through the transport and refresh the room', async
   c.dispose()
 })
 
+test('manual close carries the operator note to the transport', async () => {
+  const calls = []
+  const c = createTaskController(client({ resolve: async (a, note) => { calls.push(['resolve', a.approval_id, note]) } }))
+  await c.select('room/A')
+  await c.decide(approval, 'resolve', '权限已人工保留')
+  assert.deepEqual(calls, [['resolve', 'approval-A', '权限已人工保留']])
+  c.dispose()
+})
+
 test('history refresh preserves loaded overlapping pages but exposes gaps after long absence', async () => {
   let latest = { ...room('room'), events: [{ id: 'a', seq: 1 }, { id: 'b', seq: 2 }], has_more_events: false }
   const c = createTaskController(client({ get: async () => structuredClone(latest),

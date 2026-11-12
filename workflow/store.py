@@ -276,7 +276,7 @@ class WorkflowStore:
                 row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
                 decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
                 rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-                body = self._body(row, decisions, rows, db)
+                body = self._body(row, decisions, rows, self._open_resources(db, row["tenant"]))
         except IntegrityError:
             if connection is not None:
                 raise
@@ -358,9 +358,9 @@ class WorkflowStore:
                 return None
             decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id).order_by(approval_decisions.c.id)).mappings().all()
             rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-            return self._body(row, decisions, rows, db)
+            return self._body(row, decisions, rows, self._open_resources(db, row["tenant"]))
 
-    def _body(self, row, decisions, rows, db) -> Dict[str, Any]:
+    def _body(self, row, decisions, rows, open_resources) -> Dict[str, Any]:
         payload = dict(row["payload"])
         now = self.clock()
 
@@ -384,27 +384,36 @@ class WorkflowStore:
             "awaiting_confirmation": row["status"] == ApprovalStatus.DRAFT, "confirmed_at": _iso(row.get("confirmed_at")),
             "results": [view(a) for a in rows if a["kind"] == "apply"],
             "revocations": [view(a) for a in rows if a["kind"] == "revoke"],
-            "conflicts": self._conflicts(db, row),
+            "conflicts": self._conflicts(row, open_resources),
         }
 
-    def _conflicts(self, db, row):
-        keys = {resource_key(row["tenant"], item["tool_name"], {**item["arguments"], "action_id": f"{row['id']}:{i}"})
+    @staticmethod
+    def _resource_keys(row) -> set:
+        return {resource_key(row["tenant"], item["tool_name"], {**item["arguments"], "action_id": f"{row['id']}:{i}"})
                 for i, item in enumerate(row["payload"]["action_requests"])}
-        candidates = db.execute(select(approvals).where(
-            approvals.c.tenant == row["tenant"], approvals.c.id != row["id"],
+
+    def _open_resources(self, db, tenant) -> Dict[str, List[Dict[str, Any]]]:
+        """resource_key -> in-flight approvals touching it, oldest first; one query per read, not one per approval."""
+        index: Dict[str, List[Dict[str, Any]]] = {}
+        rows = db.execute(select(approvals.c.id, approvals.c.tenant, approvals.c.status, approvals.c.requester,
+                                 approvals.c.conv_id, approvals.c.payload).where(
+            approvals.c.tenant == tenant,
             approvals.c.status.in_((ApprovalStatus.DRAFT, ApprovalStatus.PENDING, ApprovalStatus.APPROVED)),
             approvals.c.execution.not_in((Execution.SUCCEEDED, Execution.FAILED)),
         ).order_by(approvals.c.created_at, approvals.c.id)).mappings()
-        conflicts = []
-        for other in candidates:
-            other_keys = {resource_key(other["tenant"], item["tool_name"], {**item["arguments"], "action_id": f"{other['id']}:{i}"})
-                          for i, item in enumerate(other["payload"]["action_requests"])}
-            if keys.intersection(other_keys):
-                conv = other["conv_id"]
-                channel = "task" if conv and conv.startswith("task:") else "feishu" if conv and conv.startswith("feishu:") else "web"
-                conflicts.append({"approval_id": other["id"], "status": other["status"],
-                                  "requester": other["requester"], "conv_channel": channel})
-        return conflicts
+        for order, other in enumerate(rows):
+            conv = other["conv_id"]
+            channel = "task" if conv and conv.startswith("task:") else "feishu" if conv and conv.startswith("feishu:") else "web"
+            summary = {"approval_id": other["id"], "status": other["status"], "requester": other["requester"],
+                       "conv_channel": channel, "_order": order}
+            for key in self._resource_keys(other):
+                index.setdefault(key, []).append(summary)
+        return index
+
+    def _conflicts(self, row, open_resources):
+        found = {other["approval_id"]: other for key in self._resource_keys(row)
+                 for other in open_resources.get(key, ()) if other["approval_id"] != row["id"]}
+        return [{k: v for k, v in other.items() if k != "_order"} for other in sorted(found.values(), key=lambda o: o["_order"])]
 
     def list(self, principal: Principal, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         private_scope = or_(approvals.c.requester == principal.subject, principal.can_read_all,
@@ -424,7 +433,16 @@ class WorkflowStore:
         query = query.order_by(approvals.c.created_at.desc()).limit(limit)
         with schema.read(self.engine) as db:
             ids = db.execute(query).scalars().all()
-        return [self.get(i) for i in ids]
+            heads = {row["id"]: row for row in db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings()}
+            decisions: Dict[str, list] = {i: [] for i in ids}
+            for d in db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
+                                .order_by(approval_decisions.c.id)).mappings():
+                decisions[d["approval_id"]].append(d)
+            steps: Dict[str, list] = {i: [] for i in ids}
+            for a in db.execute(select(actions).where(actions.c.approval_id.in_(ids)).order_by(actions.c.seq)).mappings():
+                steps[a["approval_id"]].append(a)
+            open_resources = self._open_resources(db, principal.tenant)
+            return [self._body(heads[i], decisions[i], steps[i], open_resources) for i in ids]
 
     def can_read(self, body: Dict[str, Any], principal: Principal) -> bool:
         if self.shared_access and (body.get('conv_id') or '').startswith('task:'):
@@ -854,6 +872,39 @@ class WorkflowStore:
             self._refresh_execution(db, approval_id)
         return self.get(approval_id)
 
+    def resolve_manual(self, approval_id: str, principal: Principal, note: str) -> Optional[Dict[str, Any]]:
+        """Operator closes manual-review actions after handling the target by hand.
+
+        ``requeue`` cannot end a review the target will never pass (someone deliberately changed the
+        permission): the observation fails again and the resource stays reserved, so every later
+        request for that person and system would wait forever. Closing cancels the actions and keeps
+        drifted grants out of the ledger; an apply closed mid-batch runs the usual saga for the rest."""
+        now = self.clock()
+        with self.engine.begin() as db:
+            approval = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
+            if not approval:
+                return None
+            if not self._shared_scope(approval, principal):
+                raise ApprovalForbidden("无权处理该审批")
+            rows = db.execute(select(actions).where(actions.c.approval_id == approval_id,
+                                                    actions.c.status == ActionStatus.MANUAL_REVIEW)
+                              .order_by(actions.c.seq)).mappings().all()
+            if not rows:
+                raise ApprovalStateConflict("没有需要人工结案的动作")
+            for row in rows:
+                ACTION.check(row["status"], ActionStatus.CANCELLED)
+                done = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"])
+                                  .values(status=ActionStatus.CANCELLED, error=("人工结案：" + note)[:500],
+                                          version=row["version"] + 1, updated_at=now)).rowcount
+                if done != 1:
+                    raise ApprovalStateConflict("动作状态已变化，请刷新后重试")
+                if row["kind"] == "apply":
+                    self._compensate(db, dict(row), now)
+            self._audit(db, approval_id, "manual_resolved", principal.subject,
+                        detail={"actions": [row["id"] for row in rows], "note": note})
+            self._refresh_execution(db, approval_id)
+        return self.get(approval_id)
+
     # ── Worker side ─────────────────────────────────────────────────────────
 
     def claim(self, worker_id: str, lease_s: float, limit: int = 10, *, exclude_ids=()) -> List[Dict[str, Any]]:
@@ -1081,6 +1132,11 @@ class WorkflowStore:
             event = "compensation_scheduled" if revoke.rowcount else "compensation_unavailable"
             self._audit(db, failed["approval_id"], event, "system", action_id=row["id"], detail={"tool": row["tool_name"]})
 
+    @staticmethod
+    def _manually_resolved(db, approval_id: str) -> bool:
+        return db.execute(select(audit.c.id).where(audit.c.approval_id == approval_id,
+                                                   audit.c.event == "manual_resolved").limit(1)).first() is not None
+
     def _refresh_execution(self, db, approval_id: str) -> None:
         previous = db.execute(select(approvals.c.execution).where(approvals.c.id == approval_id)).scalar()
         rows = db.execute(select(actions.c.status, actions.c.tool_name).where(actions.c.approval_id == approval_id, actions.c.kind == "apply")).all()
@@ -1091,7 +1147,8 @@ class WorkflowStore:
             state = Execution.SUCCEEDED
         elif any(s not in SETTLED for s in statuses):
             state = Execution.QUEUED if all(s == ActionStatus.QUEUED for s in statuses) else Execution.EXECUTING
-        elif ActionStatus.MANUAL_REVIEW in statuses or any(r.status == ActionStatus.SUCCEEDED and not _reversible(r.tool_name) for r in rows):
+        elif ActionStatus.MANUAL_REVIEW in statuses or (any(r.status == ActionStatus.SUCCEEDED and not _reversible(r.tool_name) for r in rows)
+                                                        and not self._manually_resolved(db, approval_id)):
             # A failure after a non-reversible effect (password reset, ticket) needs a human.
             state = Execution.MANUAL_REVIEW
         else:

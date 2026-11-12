@@ -85,3 +85,19 @@ async def release_grants(approval_id, principal):
         if state.worker:
             body = {**(await state.worker.wait_revoked(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body), "released": released}
     return body
+
+
+async def resolve_manual(approval_id, note, principal):
+    """人工结案需复核的动作；取消的回收不再计入台账，后续同资源动作可以继续执行。"""
+    store = require_workflow()
+    try:
+        body = await asyncio.to_thread(store.resolve_manual, approval_id, principal, note)
+    except ApprovalForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ApprovalStateConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not body:
+        raise HTTPException(404, "approval not found")
+    if state.worker:
+        state.worker.kick()
+    return body

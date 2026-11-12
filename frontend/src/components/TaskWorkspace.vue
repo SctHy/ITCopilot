@@ -79,9 +79,9 @@ const failedRuns = computed(() => (room.value?.runs || []).filter(run => run.sta
 const canStop = computed(() => room.value?.requester === props.identity?.subject || !!props.identity?.roles?.includes('it_admin'))
 const polling = createPolling(refresh, 2000)
 const message_ = (e: unknown) => e instanceof Error ? e.message : String(e)
-async function handleApproval(approval: Approval, decision?: ApprovalDecision) {
+async function handleApproval(approval: Approval, decision?: ApprovalDecision, note?: string) {
   if (decision === 'clarify') { details.value?.clarify(approval); return }
-  await controller.decide(approval, decision)
+  await controller.decide(approval, decision, note)
 }
 async function archive() { try { await client.capability(selected.value, 'archive', { archived: !query.value.archived }); await refresh() } catch (e) { error.value = message_(e) } }
 async function markRead() {

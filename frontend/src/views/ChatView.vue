@@ -30,7 +30,7 @@
               :item="item"
               :identity="identity"
               :backend-label="backendLabel"
-              @approval="(target, decision) => applyApprovalAction(target, settings, decision)"
+              @approval="(target, decision, note) => applyApprovalAction(target, settings, decision, note)"
               @copy="copyMessage"
               @open-task="emit('open-task', $event)"
             />

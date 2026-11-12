@@ -15,6 +15,7 @@
     </template>
     <button v-if="permissions.canRelease" type="button" class="quiet-button" :disabled="busy" @click="confirmThen('release', '确认现在归还这项限时权限？归还后如需使用要重新申请。')">提前归还权限</button>
     <button v-if="permissions.canReconcile && needsReview" type="button" :disabled="busy" @click="$emit('action', 'reconcile')">回查目标系统并对账</button>
+    <button v-if="permissions.canReconcile && manualReview" type="button" class="quiet-button" :disabled="busy" @click="resolve">已人工处理，结案</button>
     <button type="button" class="text-button" :disabled="busy" @click="$emit('action')">刷新状态</button>
   </div>
 </template>
@@ -26,10 +27,17 @@ import type { Approval, ApprovalDecision, Identity } from '../lib/types.ts'
 
 const props = defineProps<{ approval: Approval | null; identity: Identity | null; busy?: boolean; allowClarification?: boolean }>()
 // No decision means "reload this approval".
-const emit = defineEmits<{ action: [decision?: ApprovalDecision] }>()
+const emit = defineEmits<{ action: [decision?: ApprovalDecision, note?: string] }>()
 const permissions = computed(() => approvalPermissions(props.approval, props.identity))
 function confirmThen(action: ApprovalDecision, message: string) {
   if (typeof window === 'undefined' || window.confirm(message)) emit('action', action)
+}
+const steps = computed(() => [...(props.approval?.results || []), ...(props.approval?.revocations || [])])
+const manualReview = computed(() => steps.value.some(step => step.status === 'manual_review'))
+// 回查无法结束的复核（有人有意改了权限）只能人工结案；说明进入审批审计。
+function resolve() {
+  const note = typeof window === 'undefined' ? '' : (window.prompt('说明在目标系统中的处理结果（必填，进入审计）') || '').trim()
+  if (note) emit('action', 'resolve', note)
 }
 const needsReview = computed(() => [...(props.approval?.results || []), ...(props.approval?.revocations || [])].some(step => ['manual_review', 'unknown'].includes(step.status)))
 </script>

@@ -6,12 +6,12 @@
       <FeedbackButtons v-if="event.kind === 'assistant'" :settings="settings" :path="`/tasks/${room.id}/events/${event.id}/feedback`" />
       <ApprovalCard v-if="linked[event.id]" :approval="linked[event.id]" :identity="identity"
         :busy="!!approvalBusy[linked[event.id].approval_id]" :error="approvalErrors[linked[event.id].approval_id] || ''"
-        :allow-clarification="room.status === 'open'" @action="$emit('approval', linked[event.id], $event)" />
+        :allow-clarification="room.status === 'open'" @action="(decision, note) => $emit('approval', linked[event.id], decision, note)" />
     </article>
     <section v-if="unlinked.length" aria-label="其他事项审批">
       <ApprovalCard v-for="approval in unlinked" :key="approval.approval_id" :approval="approval" :identity="identity"
         :busy="!!approvalBusy[approval.approval_id]" :error="approvalErrors[approval.approval_id] || ''"
-        :allow-clarification="room.status === 'open'" @action="$emit('approval', approval, $event)" />
+        :allow-clarification="room.status === 'open'" @action="(decision, note) => $emit('approval', approval, decision, note)" />
     </section>
   </div>
 </template>
@@ -23,7 +23,7 @@ import FeedbackButtons from './FeedbackButtons.vue'
 import type { Approval, ApprovalDecision, Identity, Settings, TaskRoom } from '../lib/types.ts'
 const props = withDefaults(defineProps<{ settings: Settings; room: TaskRoom; identity: Identity | null; approvalBusy?: Record<string, boolean>; approvalErrors?: Record<string, string> }>(),
   { approvalBusy: () => ({}), approvalErrors: () => ({}) })
-defineEmits<{ approval: [approval: Approval, decision?: ApprovalDecision] }>()
+defineEmits<{ approval: [approval: Approval, decision?: ApprovalDecision, note?: string] }>()
 // Each approval is shown once: under the first Agent message that proposed it, otherwise in the trailing section.
 const linked = computed(() => {
   const used = new Set<string>(), out: Record<string, Approval> = {}

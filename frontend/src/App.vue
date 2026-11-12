@@ -71,7 +71,7 @@
       <TaskWorkspace v-else-if="activeView === 'tasks'" :key="viewKey" :settings="settings" :identity="identity" />
       <KnowledgeView v-else-if="activeView === 'knowledge'" :key="viewKey" :request-state="requestState" :identity="identity" @toast="showToast" @status="health.detail = $event" />
       <ApprovalsView v-else-if="activeView === 'approvals'" :key="viewKey" :settings="settings" :request-state="requestState" :identity="identity"
-        @approval="(target, decision) => applyApprovalAction(target, settings, decision)" @toast="showToast" />
+        @approval="(target, decision, note) => applyApprovalAction(target, settings, decision, note)" @toast="showToast" />
       <OperationsView v-else :key="viewKey" :settings="settings" :identity="identity" :monitor-data="monitorData" @refresh="loadMonitor" />
     </main>
     <ConnectionDialog ref="connectionDialog" :backend-label="currentBackend.label" :auth="auth" :health="health"

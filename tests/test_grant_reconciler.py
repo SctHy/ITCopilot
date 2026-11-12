@@ -52,9 +52,13 @@ def test_reconciler_observes_drift_cancels_revoke_and_replays_task_notice_after_
     assert [row["event"] for row in store.audit("a")].count("grant_drift_detected") == 1
     reconciler = GrantReconciler(store, registry, tasks)
     asyncio.run(reconciler.run_once())
+    delivered, original = [], tasks.ingest
+    tasks.ingest = lambda *args, **kwargs: delivered.append(kwargs["object_id"]) or original(*args, **kwargs)
     asyncio.run(reconciler.run_once())
+    assert delivered == []  # already handed over: later sweeps do not re-read old notices
+    asyncio.run(GrantReconciler(store, registry, tasks).run_once())  # a restarted process replays once, deduplicated
     notices = [event for event in tasks.get(task["id"], ALICE)["events"] if event["kind"] == "grant_drift"]
-    assert len(notices) == 1
+    assert len(notices) == 1 and len(delivered) == 1
 
 
 @pytest.mark.parametrize("error", [TransientError, AmbiguousError])

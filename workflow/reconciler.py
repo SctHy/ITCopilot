@@ -15,6 +15,9 @@ from workflow.states import ActionStatus, GrantStatus
 class GrantReconciler:
     def __init__(self, store, registry, tasks=None):
         self.store, self.registry, self.tasks = store, registry, tasks
+        # Highest drift audit already handed to tasks by this process. Delivery stays exactly-once through
+        # ingest's event-id dedupe, so a restart may replay from 0 once; the cursor only bounds the work.
+        self._delivered_through = 0
 
     async def run_once(self):
         with system_scope():
@@ -44,15 +47,14 @@ class GrantReconciler:
                             drifted += len(changed)
                             if changed:
                                 metrics.GRANT_DRIFT.labels(system=grant["system"]).inc()
-                if self.tasks is not None:
-                    await asyncio.to_thread(self._deliver, tenant)
+        if self.tasks is not None:
+            await asyncio.to_thread(self._deliver)
         return drifted
 
     def _tenants(self):
         with schema.read(self.store.engine) as db:
             return list(db.execute(select(access_grants.c.tenant).distinct().where(
-                access_grants.c.status == GrantStatus.ACTIVE).union(
-                    select(audit.c.tenant).distinct().where(audit.c.event == "grant_drift_detected"))).scalars())
+                access_grants.c.status == GrantStatus.ACTIVE)).scalars())
 
     def _batch(self, tenant, cursor):
         with schema.read(self.store.engine) as db:
@@ -91,13 +93,15 @@ class GrantReconciler:
                 return []
             return self.store._drift_grants(db, active, current, expected, reason="巡检发现漂移")
 
-    def _deliver(self, tenant):
+    def _deliver(self):
         # Audit is the durable source; ingest's source cursor deduplicates delivery after a crash.
-        with schema.read(self.store.engine) as db:
+        with system_scope(), schema.read(self.store.engine) as db:
             notices = db.execute(select(audit, approvals.c.conv_id).join(approvals, approvals.c.id == audit.c.approval_id)
-                .where(audit.c.tenant == tenant, audit.c.event == "grant_drift_detected",
+                .where(audit.c.id > self._delivered_through, audit.c.event == "grant_drift_detected",
                        approvals.c.conv_id.startswith("task:")).order_by(audit.c.id)).mappings().all()
         for notice in notices:
-            self.tasks.ingest(notice["conv_id"][5:], source="grant_reconciler", object_id=notice["action_id"],
-                version=notice["id"], kind="grant_drift", text="巡检发现权限与授权台账不一致，已停止自动回收，请人工核查。",
-                data={"approval_id": notice["approval_id"], **notice["detail"]})
+            with tenant_scope(notice["tenant"]):
+                self.tasks.ingest(notice["conv_id"][5:], source="grant_reconciler", object_id=notice["action_id"],
+                    version=notice["id"], kind="grant_drift", text="巡检发现权限与授权台账不一致，已停止自动回收，请人工核查。",
+                    data={"approval_id": notice["approval_id"], **notice["detail"]})
+            self._delivered_through = notice["id"]

@@ -19,7 +19,7 @@
         :busy="item.approvalBusy"
         :error="item.approvalError"
         :identity="identity"
-        @action="emit('approval', item as ApprovalItem, $event)"
+        @action="(decision, note) => emit('approval', item as ApprovalItem, decision, note)"
       />
       <div v-for="related in item.relatedApprovals || []" :key="related.approvalId" class="related-approval">
         <p class="muted">{{ related.kind === 'confirm' ? '待你确认提交的申请' : related.kind === 'withdraw' ? '可撤回的申请' : '可提前归还的权限' }}：{{ related.summary }}</p>
@@ -28,7 +28,7 @@
           :busy="related.approvalBusy"
           :error="related.approvalError"
           :identity="identity"
-          @action="emit('approval', related, $event)"
+          @action="(decision, note) => emit('approval', related, decision, note)"
         />
       </div>
       <details v-if="item.trace?.toolCalls?.length || item.trace?.toolsUsed?.length" class="message-trace">
@@ -70,7 +70,7 @@ import type { ApprovalDecision, ApprovalItem, ChatMessage, Identity } from '../l
 
 defineProps<{ item: ChatMessage; identity: Identity | null; backendLabel: string }>()
 const emit = defineEmits<{
-  approval: [target: ApprovalItem, decision?: ApprovalDecision]
+  approval: [target: ApprovalItem, decision?: ApprovalDecision, note?: string]
   copy: [content: string]
   'open-task': [id: string]
 }>()

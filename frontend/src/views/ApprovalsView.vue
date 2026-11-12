@@ -22,7 +22,7 @@
       :busy="item.approvalBusy"
       :error="item.approvalError"
       :identity="identity"
-      @action="emit('approval', item, $event)"
+      @action="(decision, note) => emit('approval', item, decision, note)"
     />
   </section>
 </template>
@@ -37,7 +37,7 @@ import { loadCurrent, type RequestState } from '../lib/requestState.ts'
 import type { Approval, ApprovalDecision, ApprovalItem, Identity, Settings } from '../lib/types.ts'
 
 const props = defineProps<{ settings: Settings; requestState: RequestState; identity: Identity | null }>()
-const emit = defineEmits<{ approval: [target: ApprovalItem, decision?: ApprovalDecision]; toast: [message: string] }>()
+const emit = defineEmits<{ approval: [target: ApprovalItem, decision?: ApprovalDecision, note?: string]; toast: [message: string] }>()
 
 const approvalFilters = [{ id: 'draft', label: '待我确认' }, { id: 'pending', label: '待审批' }, { id: 'approved', label: '已批准' }, { id: 'rejected', label: '已拒绝' }, { id: 'withdrawn', label: '已撤回' }]
 const approvalFilter = ref('pending')

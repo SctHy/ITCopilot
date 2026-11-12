@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api import state
-from api.approval_actions import confirm_approval, release_grants, submit_decision, withdraw_approval
+from api.approval_actions import confirm_approval, release_grants, resolve_manual, submit_decision, withdraw_approval
 from api.deps import current_principal, forbid, admin_change, is_platform_admin, require_admin, require_roles, require_workflow
-from api.schemas import ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal
+from api.schemas import ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal, ManualResolution
 from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
@@ -69,6 +69,13 @@ async def reconcile_approval(approval_id: str, principal: Principal = Depends(re
     if state.worker:
         body = await state.worker.wait_settled(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
     return body
+
+
+@router.post("/approvals/{approval_id}/resolve")
+async def resolve_approval(approval_id: str, payload: ManualResolution, principal: Principal = Depends(require_admin)):
+    """人工结案：目标系统已人工处理时结束需复核的动作，释放该资源上排队的后续申请。"""
+    await _readable_approval(approval_id, principal)
+    return await resolve_manual(approval_id, payload.note, principal)
 
 
 @router.get("/policy")

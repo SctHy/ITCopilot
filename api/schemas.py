@@ -74,6 +74,11 @@ class ApprovalWithdrawal(BaseModel):
     reason: str = Field("", max_length=500)
 
 
+class ManualResolution(BaseModel):
+    """IT 管理员在目标系统人工处理后结案：写明处理结果，进入审批审计。"""
+    note: str = Field(..., min_length=1, max_length=500)
+
+
 class SessionRevocationRequest(BaseModel):
     """按 subject 或用户名（本租户最近登录过的身份）指定；两者给一个。"""
     subject: Optional[str] = Field(None, min_length=1, max_length=200)

@@ -67,7 +67,7 @@ export interface Approval {
   conflicts?: { approval_id: string, status: string, requester: string, conv_channel: string }[]
 }
 
-export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release'
+export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release' | 'resolve'
 
 /** An approval card bound to the connection that produced it. */
 export interface ApprovalItem {
@@ -92,7 +92,7 @@ export interface MessageTrace {
 }
 
 export interface RelatedApproval extends ApprovalItem {
-  kind: 'confirm' | 'withdraw' | 'release' | (string & {})
+  kind: 'confirm' | 'withdraw' | 'release' | 'resolve' | (string & {})
   summary: string
 }
 

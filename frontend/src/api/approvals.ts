@@ -13,6 +13,10 @@ export function requestApproval(type: string, settings: Settings, id: string, de
 export const reconcileApproval = (type: string, settings: Settings, id: string) =>
   requestFor<Approval>(type, settings, path(id, '/reconcile'), { method: 'POST' })
 
+// 人工结案（IT 管理员）：目标系统已人工处理后结束需复核的动作，释放该资源上的后续申请。
+export const resolveApproval = (type: string, settings: Settings, id: string, note: string) =>
+  requestFor<Approval>(type, settings, path(id, '/resolve'), jsonBody({ note }))
+
 // 申请人确认 Agent 起草的申请（ADR 0020）；哈希绑定卡片上展示的冻结内容，确认后才进入审批人队列。
 export const confirmApproval = (type: string, settings: Settings, id: string, hash?: string) =>
   requestFor<Approval>(type, settings, path(id, '/confirm'), jsonBody({ payload_hash: hash }))
