@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布 — 验收复查修复
+
+- 人工结案 `POST /approvals/{id}/resolve`（IT 管理员，必填说明）：有意保留的外部权限修改会让回收永远停在人工复核，此前同一人同一系统之后的已批准申请会永久排队。结案后动作 cancelled、授权保持 drifted 且不计入台账期望，资源释放；审批卡片增加“已人工处理，结案”。
+- 脱敏不再误伤正常英文：密码类关键词后只隔空格或 is 时，值须至少 4 个字符且含数字或符号才视为秘密（“Change your password at …” 不再显示为 `password [REDACTED]`）；显式赋值仍一律脱敏。
+- 灰度回滚或推广后，粘在已撤下版本上的会话和共享事项下一轮重新分桶；灰度缩量时已粘住的会话保持原版本（修订 ADR 0033）。
+- 模型路由热加载改错时保留上一份已校验配置，记 `it_copilot_config_reloads_total{outcome=rejected}` 与 `model_route_rejected` 变更事件；启动时仍直接失败。
+- 思考参数改由模型的 `thinking_api`（deepseek / none）声明，不再对所有模型发送 DeepSeek 专有参数；移除 `OPENAI_THINKING_TYPE`。
+- 审批列表批量读取并只构建一次资源索引，不再对每条审批扫描全部在途审批；漂移通知增量投递，不再每轮重放全部历史。`BaseAgent._call_llm` 拆分为方法，模型健康记录统一走 `ModelRouter.run`。
+
 ## 未发布 — 完整验收与交付
 
 - 最终 SQLite 728、PostgreSQL 733、真实 Keycloak/Gitea 集成3、前端60项通过；安全与24次跨天故障评测通过。修正真实适配器测试租户上下文，并将新增存储契约加入 PostgreSQL CI。
