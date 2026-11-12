@@ -186,16 +186,19 @@ class ExecutionWorker:
         spec = {"tool_name": action["tool_name"], "arguments": action["arguments"]}
         try:
             await self._emit(action, "action_started", attempt=action["attempts"])
-            if action["kind"] == "apply" and action["seq"] == 0 and action["prev_status"] == ActionStatus.QUEUED and action["attempts"] == 1:
+            if action["kind"] == "apply" and action["prev_status"] == ActionStatus.QUEUED:
                 flow.send("preflight")
-                # The policy may have changed since approval; nothing has been applied yet.
+                # The policy may have changed since approval. QUEUED means this action has made no
+                # change yet, including a retry after a definite (transient) failure: the policy sweep
+                # runs once per version and skips attempted actions, so every such attempt re-checks.
                 reason = await asyncio.to_thread(self.store.policy_block, action["approval_id"])
                 if reason:
                     raise PermanentError(reason)
-                # Validate the whole batch before the first effect: most partial failures
-                # (unknown user, missing repo) are caught with zero changes applied.
-                for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
-                    await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
+                if action["seq"] == 0 and action["attempts"] == 1:
+                    # Validate the whole batch before the first effect: most partial failures
+                    # (unknown user, missing repo) are caught with zero changes applied.
+                    for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
+                        await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
             observed = False
             if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING}:
                 flow.send("observe")

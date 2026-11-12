@@ -217,3 +217,35 @@ def test_policy_endpoints(env, monkeypatch):
     store.policy = changed("v2", without_gitlab_readonly)
     assert http.post("/policy/revalidate", headers=auth("erin")).json()["invalidated"] == ["a"]
     assert [a["approval_id"] for a in http.get("/approvals?status=invalidated", headers=auth("alice")).json()["items"]] == ["a"]
+
+
+class _FlakyOnce(LocalDirectoryAdapter):
+    """Fails the first apply with a definite, retryable error: nothing was changed."""
+    def __init__(self, engine):
+        super().__init__(engine)
+        self.failed = False
+
+    async def apply(self, action_id, action):
+        if not self.failed:
+            self.failed = True
+            from workflow.adapters.base import TransientError
+            raise TransientError("gitea 503")
+        return await super().apply(action_id, action)
+
+
+def test_a_retry_after_a_transient_failure_rechecks_the_policy(db_url):
+    # Attempt 1 passes the policy check but fails before any effect; the role is then withdrawn.
+    # The sweep skips the action (it was attempted), so the retry itself must refuse it.
+    clock = Clock()
+    store = WorkflowStore(db_url, clock=clock, policy=load_policy())
+    worker = ExecutionWorker(store, AdapterRegistry(_FlakyOnce(store.engine)), worker_id="w1", base_delay_s=0)
+    pending = create(store)
+    store.decide("a", "approved", BOB, pending["payload_hash"])
+    asyncio.run(worker.run_once())
+    assert store.get("a")["results"][0]["status"] == "queued"  # retry scheduled, nothing applied
+    store.policy = changed("v2", without_gitlab_readonly)
+    clock.t += 60
+    run(worker)
+    body = store.get("a")
+    assert store.employee("1001")["grants"] == []
+    assert body["execution"] == "failed" and "v2" in body["results"][0]["error"]

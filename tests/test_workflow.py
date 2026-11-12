@@ -279,3 +279,14 @@ def test_amended_request_supersedes_the_pending_duplicate_in_the_same_conversati
     run(worker)
     assert len(store.employee("1001")["tickets"]) == 3  # b1, t4, t3 — t1/t2 never executed
     assert [e["event"] for e in store.audit("t1")][-1] == "superseded"
+
+
+def test_an_approver_without_an_employee_id_cannot_approve(env):
+    # Without an employee id the approver could be the target of an on-behalf request filed by an admin.
+    store, _, _ = env
+    nameless = Principal("oidc:bob", "bob", "engineering", frozenset({"employee", "approver"}), None)
+    body = store.create("anon", request_id="r", conv_id="c", principal=ERIN,
+                        action_requests=[{"tool_name": "reset_password", "arguments": {"employee_id": "2001"}}])
+    with pytest.raises(ApprovalForbidden, match="缺少工号"):
+        store.decide("anon", "approved", nameless, body["payload_hash"])
+    assert store.get("anon")["status"] == "pending"

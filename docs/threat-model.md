@@ -32,7 +32,7 @@
 | 抵赖 | 管理员否认删除知识库文档、触发策略复核或数据清理 | 成功的管理操作写入只追加的 `admin_audit`（操作人、对象、明细），审计员与管理员按租户查看 | `test_knowledge_changes_are_attributed_and_failed_changes_leave_nothing`、`test_only_admins_and_auditors_read_their_own_tenant` |
 | 权限提升 | 借远程锁定申请锁住他人的设备 | 员工只能为本人账号申请；适配器执行前核对设备属于申请中的员工，不符在任何副作用之前失败 | `test_a_device_held_by_someone_else_is_never_locked`、`test_tool_only_proposes_and_only_for_the_callers_own_account` |
 | 拒绝服务 | 外部系统持续超时拖垮 Agent | 统一工具执行层：超时、熔断、只读重试 | `test_timeout_and_circuit_breaker` |
-| 权限提升 | 审批人批准自己的申请或针对自己账号的申请 | 职责分离（按 subject 与 employee_id），API 与审批库双重检查 | `sod_*` 5 项、`test_separation_of_duties_and_authority` |
+| 权限提升 | 审批人批准自己的申请或针对自己账号的申请 | 职责分离（按 subject 与 employee_id），API 与审批库双重检查；审批人令牌缺少 employee_id 时拒绝（无法证明不是本人账号） | `sod_*` 5 项、`test_separation_of_duties_and_authority`、`test_an_approver_without_an_employee_id_cannot_approve` |
 | 权限提升 | 单人批准需要双人审批的高权限 | 策略声明审批人数；同一审批人重复投票只算一票；版本号 CAS 防并发漏计 | `sod_two_person_rule_single_approver`、`test_developer_access_needs_two_distinct_approvers_even_concurrently`（含 PostgreSQL） |
 | 权限提升 | 权限到期未回收，或回收误删原有/他人修改的权限 | 授权成功同事务登记回收；baseline 先持久化；回收前漂移检查 | `test_grant_expires_and_is_revoked`、`test_revocation_never_removes_preexisting_or_drifted_access`、`test_real_gitea_grant_expiry_and_drift` |
 | 权限提升 | 策略收紧后，按旧规则提交的申请仍被批准或执行，已开通的权限照旧有效 | 按版本号复核：待审批失效或提高审批人数，未执行的动作取消，授权提前回收；只收紧不放宽（ADR 0008） | `tests/test_policy_revalidation.py` 9 项 |

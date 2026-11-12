@@ -366,7 +366,11 @@ class WorkflowStore:
             if principal.subject == row["requester"]:
                 raise ApprovalForbidden("职责分离：不能审批自己发起的申请")
             targets = {a["arguments"]["employee_id"] for a in row["payload"]["action_requests"]}
-            if principal.employee_id and principal.employee_id in targets:
+            # Fail closed: without an employee id the approver cannot be shown not to be the target
+            # (an on-behalf request filed by an admin for the approver's own account).
+            if not principal.employee_id:
+                raise ApprovalForbidden("职责分离：当前身份缺少工号，无法确认申请不涉及本人账号")
+            if principal.employee_id in targets:
                 raise ApprovalForbidden("职责分离：不能审批变更自己账号的申请")
             if db.execute(select(approval_decisions.c.id).where(approval_decisions.c.approval_id == approval_id,
                                                                  approval_decisions.c.actor == principal.subject)).first():
