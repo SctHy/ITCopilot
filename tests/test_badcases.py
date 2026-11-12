@@ -230,3 +230,34 @@ def test_final_task_failure_record_can_be_replaced_by_authoritative_recovery(sto
     with store.engine.connect() as db:
         saved = db.execute(select(turn_records).where(turn_records.c.request_id == row["request_id"])).mappings().one()
     assert saved["outcome"] == "success" and saved["signals"] == []
+
+
+def test_miner_shutdown_drains_its_database_thread(store):
+    from threading import Event
+    from sqlalchemy import event
+    entered, release = Event(), Event()
+    def hold_query(connection, cursor, statement, parameters, context, executemany):
+        if "FROM turn_records" in statement:
+            entered.set()
+            assert release.wait(5), "test did not release the database query"
+    event.listen(store.engine, "before_cursor_execute", hold_query)
+    async def run():
+        miner = BadcaseMiner(store.engine)
+        miner.start()
+        stopping = None
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            stopping = asyncio.create_task(miner.stop())
+            await asyncio.sleep(0)
+            assert not stopping.done()
+        finally:
+            release.set()
+            if stopping is None:
+                await miner.stop()
+            else:
+                await asyncio.wait_for(stopping, 3)
+        assert miner._task is None
+    try:
+        asyncio.run(run())
+    finally:
+        event.remove(store.engine, "before_cursor_execute", hold_query)

@@ -20,6 +20,7 @@ class BadcaseMiner:
         self.engine, self.memory, self.clock, self.interval_s = engine, memory, clock, interval_s
         self.embedder = Embedder() if embedder is None else embedder
         self._task = None
+        self._wake = asyncio.Event()
 
     def _candidates(self, now):
         with system_scope(), self.engine.begin() as db:
@@ -126,18 +127,23 @@ class BadcaseMiner:
 
     def start(self):
         if self._task is None:
+            self._wake.clear()
             self._task = asyncio.create_task(self._loop(), name="badcase-miner")
 
     async def stop(self):
         if self._task is not None:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
+            # Cancelling to_thread abandons the await while its database work keeps running.
+            self._wake.set()
+            await self._task
             self._task = None
 
     async def _loop(self):
-        while True:
+        while not self._wake.is_set():
             await self.run_once()
-            await asyncio.sleep(self.interval_s)
+            try:
+                await asyncio.wait_for(self._wake.wait(), self.interval_s)
+            except TimeoutError:
+                continue
 
 
 class RedisTurnSnapshots:
