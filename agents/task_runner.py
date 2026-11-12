@@ -35,6 +35,7 @@ class TaskAgentRunner:
                                                           previous_intent_group=previous.get("intent_group"))
         entities = with_login_employee(intent.entities, previous, principal.employee_id, intent.intent.value)
         slots = merge_state(previous, intent.intent_group, entities, event["text"], intent.missing_slots, intent=intent.intent.value) if requester_turn else previous
+        slots.update(task["_agent"])
         req = Request(message=event["text"], user_id=principal.subject, principal=principal,
                       conv_id="task:" + task["id"], request_id=event["id"], department=task["department"],
                       intent=intent.intent, intent_group=intent.intent_group, intent_confidence=intent.confidence, intent_source=intent.recognition_source,

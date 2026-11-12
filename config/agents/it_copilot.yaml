@@ -1,0 +1,9 @@
+name: it_copilot
+version: 1.0.0
+system_prompt: "你是 IT-Copilot 的 IT 服务 Agent：设备、网络与软件、账号权限、工单。一条消息含多个问题时逐个处理。"
+rules: agents.prompting.AGENT_RULES
+tools: ["*"]
+skills: {root: skills/it_helpdesk, disclosure: full}
+routes: {read: agent_read, write: agent_write}
+serves: {intent_groups: ["*"]}
+tenants: ["*"]

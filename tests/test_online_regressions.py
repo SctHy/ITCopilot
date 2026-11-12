@@ -18,7 +18,7 @@ from scripts.evaluate_application import trial
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_promoted_export_is_readable_and_executable_in_the_application():
+def test_promoted_export_is_readable_and_executable_in_the_application(release_agent_spec):
     row = {"id": "fixture", "dataset_case_id": "online-fixture", "status": "promoted",
         "snapshot": {"snapshot_partial": False, "turn_record": {"owner": "scope:alice"},
                      "turns": ["工号9999，请说明账号仍在审批"], "response": "等待审批"},
@@ -29,9 +29,10 @@ def test_promoted_export_is_readable_and_executable_in_the_application():
         return ModelResponse(parts=[TextPart("申请仍在等待审批，请查看审批卡片。")])
 
     async def run():
-        async with application(model=scripted_model(reply)) as (http, state):
+        async with application(model=scripted_model(reply), agent_spec=release_agent_spec) as (http, state):
             result = await trial(http, state, case, 0)
         assert result["passed"], result
+        assert_target(result, release_agent_spec)
     asyncio.run(run())
 
 
@@ -40,11 +41,19 @@ CASES = [case for case in ONLINE if case.get("offline_fixture") == "plain_answer
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
-def test_reviewed_plain_answer_regression(case):
+def test_reviewed_plain_answer_regression(case, release_agent_spec):
     async def reply(messages, info):
         return ModelResponse(parts=[TextPart(case["offline_answer"])])
     async def run():
-        async with application(model=scripted_model(reply)) as (http, state):
+        async with application(model=scripted_model(reply), agent_spec=release_agent_spec) as (http, state):
             result = await trial(http, state, case, 0)
         assert result["passed"], result
+        assert_target(result, release_agent_spec)
     asyncio.run(run())
+
+
+def assert_target(result, target):
+    if target is not None:
+        for turn in result["turns"]:
+            version = turn["trace"]["trace"]["observability"]["versions"]
+            assert (version["agent_spec"], version["agent_version"]) == target

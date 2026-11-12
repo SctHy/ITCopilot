@@ -24,7 +24,7 @@ def auth(username: str = "alice", **overrides) -> dict:
 
 
 @asynccontextmanager
-async def application(*, model=None, redis_url=None, documents=(), maintenance=False):
+async def application(*, model=None, redis_url=None, documents=(), maintenance=False, agent_spec=None):
     import api.main as api
     from api import state
 
@@ -62,6 +62,8 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                         **{
                             name: getattr(state, name)
                             for name in (
+                                "agent_registry",
+                                "agent_rollouts",
                                 "orchestrator",
                                 "memory",
                                 "tool_manager",
@@ -99,6 +101,8 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                         patch("memory.conversation_memory.redis.from_url", return_value=fake)
                     )
                 async with api.lifespan(api.app):
+                    if agent_spec is not None:
+                        state.orchestrator.forced_spec = state.agent_registry.get(*agent_spec)
                     # Async summarization introduces unrelated model calls into measured trials;
                     # long-dialogue suites keep it (maintenance=True) because compression is what they measure.
                     if not maintenance:

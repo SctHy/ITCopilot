@@ -11,6 +11,23 @@ os.environ.setdefault("IT_COPILOT_ENV", "development")
 os.environ["IT_INTENT_BACKEND"] = "llm"
 
 
+def pytest_addoption(parser):
+    group = parser.getgroup("Agent release target")
+    group.addoption("--agent-spec", help="Run online regressions against this Agent specification")
+    group.addoption("--agent-version", help="Version of the requested Agent specification")
+
+
+def pytest_configure(config):
+    if bool(config.getoption("--agent-spec")) != bool(config.getoption("--agent-version")):
+        raise pytest.UsageError("--agent-spec and --agent-version must be supplied together")
+
+
+@pytest.fixture
+def release_agent_spec(request):
+    name, version = request.config.getoption("--agent-spec"), request.config.getoption("--agent-version")
+    return (name, version) if name is not None else None
+
+
 def auth(username: str = "alice", **overrides) -> dict:
     from core.identity import issue_dev_token
 

@@ -117,7 +117,6 @@ free_port "$IT_COPILOT_FRONTEND_PORT"
 export PYTHONPATH="$HERE"
 export REDIS_URL="${REDIS_URL:-redis://:it-copilot123@127.0.0.1:6379/0}"
 export IT_COPILOT_DATA_DIR="${IT_COPILOT_DATA_DIR:-$HERE/data}"
-export IT_COPILOT_SKILLS_DIR="${IT_COPILOT_SKILLS_DIR:-$HERE/skills}"
 mkdir -p "$HERE/logs" "$IT_COPILOT_DATA_DIR"
 
 API_PID=""; FRONTEND_PID=""

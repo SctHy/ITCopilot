@@ -131,7 +131,6 @@ services:
         required: true
     environment:
       <<: *app-env
-      IT_COPILOT_SKILLS_DIR: /app/skills
       IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: it-copilot-api

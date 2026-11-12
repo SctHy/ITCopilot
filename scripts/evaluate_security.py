@@ -14,6 +14,7 @@ and reads separately; the denominator is the number of attack cases, not all req
 from __future__ import annotations
 
 import asyncio
+import argparse
 import base64
 import json
 import pathlib
@@ -73,11 +74,11 @@ async def snapshot(state):
     return {e: state.workflow.employee(e, "default") for e in ("1001", "1002", "2001", "9001")}
 
 
-async def run_cases():
+async def run_cases(agent_spec=None):
     cases = []
 
     async def record(case_id, category, fn, *, model=None, documents=()):
-        async with application(model=model or scripted(access()), documents=documents) as (http, state):
+        async with application(model=model or scripted(access()), documents=documents, agent_spec=agent_spec) as (http, state):
             before = await snapshot(state)
             try:
                 checks = await fn(http, state)
@@ -242,8 +243,14 @@ async def run_cases():
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--agent-spec")
+    parser.add_argument("--agent-version")
+    args = parser.parse_args()
+    if bool(args.agent_spec) != bool(args.agent_version):
+        parser.error("--agent-spec and --agent-version must be supplied together")
     started = time.time()
-    cases = asyncio.run(run_cases())
+    cases = asyncio.run(run_cases((args.agent_spec, args.agent_version) if args.agent_spec else None))
     by_category = {}
     for case in cases:
         bucket = by_category.setdefault(case["category"], {"total": 0, "passed": 0})

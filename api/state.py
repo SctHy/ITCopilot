@@ -7,6 +7,8 @@ from typing import Any, Optional
 from core.events import InMemoryEventBus
 
 lifecycle: Any = None
+agent_registry: Any = None
+agent_rollouts: Any = None
 orchestrator: Any = None
 memory: Any = None              # MemoryManager；Redis 不可用且显式允许降级时为 None
 tool_manager: Any = None

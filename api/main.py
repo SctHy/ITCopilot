@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 
 from api import state
 from api.deps import env_flag
-from api.routes import quality, memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
+from api.routes import quality, agents, memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
 from api.routes.chat import _channel_turn
 from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
@@ -121,7 +121,8 @@ async def lifespan(app: FastAPI):
             state.tracing = setup_tracing()
             resources.callback(shutdown_tracing, state.tracing)
             llm = {"api_key": os.getenv("OPENAI_API_KEY", "sk-local"), "base_url": os.getenv("OPENAI_BASE_URL") or None, "model": os.getenv("OPENAI_MODEL", "deepseek-flash")}
-            state.skills = SkillManager(os.getenv("IT_COPILOT_SKILLS_DIR", str(pathlib.Path(_ROOT) / "skills")))
+            from agents.registry import default_spec
+            state.skills = SkillManager(str(pathlib.Path(_ROOT) / default_spec().skills.root))
             state.skills.load()
             from core.model_router import ModelRouter
             model_router = ModelRouter()
@@ -163,6 +164,12 @@ async def lifespan(app: FastAPI):
             model_router.engine = state.workflow.engine
             state.orchestrator.knowledge_version = state.kb.collection_version
             state.orchestrator.directory = state.workflow
+            from agents.registry import AgentRegistry
+            from core.agent_rollouts import AgentRollouts
+            state.agent_registry = AgentRegistry(tools=set(state.orchestrator.agent.get_tools()), routes=set(model_router.config.routes))
+            state.agent_rollouts = AgentRollouts(state.workflow.engine, state.agent_registry)
+            state.orchestrator.agent_registry = state.agent_registry
+            state.orchestrator.rollouts = state.agent_rollouts
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)
             for adapter in state.registry.all():
@@ -178,6 +185,15 @@ async def lifespan(app: FastAPI):
             state.rate_limiter = (RedisRateLimiter(state.memory._redis, rules) if state.memory else MemoryRateLimiter(rules)) if rules else None
             resources.callback(lambda: setattr(state, "rate_limiter", None))
             state.tasks = TaskStore(state.workflow.engine, effects=TaskApprovalEffects(state.workflow))
+            async def task_intent_group(message):
+                return (await state.orchestrator.recognize_intent(message)).intent_group
+
+            state.tasks.recognize_intent_group = task_intent_group
+            def task_agent_version(principal, intent_group):
+                chosen = {}
+                state.agent_rollouts.choose(principal.tenant, intent_group, principal.scope_key, chosen)
+                return chosen
+            state.tasks.choose_agent_version = task_agent_version
             state.task_capabilities = TaskCapabilities(state.tasks, state.tasks.effects.view, AccessGoalVerifier(state.registry))
             state.tasks.governance = state.task_capabilities.governance
             state.task_recall = TaskRecall(state.task_capabilities.history.recall_owned)
@@ -235,7 +251,7 @@ async def lifespan(app: FastAPI):
             state.mcp_client = await _start_mcp_client()
             if state.mcp_client:
                 resources.push_async_callback(state.mcp_client.close)
-            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client)
+            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, agent_rollouts=state.agent_rollouts)
             services.push_async_callback(state.monitor.stop)
             await state.monitor.start()
             state.lifecycle.send("ready" if state.memory else "degrade")
@@ -273,5 +289,5 @@ app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
 _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/mcp", _mcp_mount)
-for module in (quality, memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
+for module in (quality, agents, memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
     app.include_router(module.router)

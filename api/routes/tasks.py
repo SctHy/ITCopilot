@@ -56,7 +56,10 @@ async def list_tasks(principal: Principal = Depends(current_principal)):
 
 @router.post("", status_code=201)
 async def create_task(payload: NewTask, principal: Principal = Depends(current_principal)):
-    body = await call(store().create, principal, payload.title, payload.message, payload.client_request_id)
+    await enforce_rate_limit(principal, AGENT_TURN)
+    tasks = store()
+    intent_group = await tasks.recognize_intent_group(payload.message)
+    body = await call(tasks.create, principal, payload.title, payload.message, payload.client_request_id, intent_group)
     wake()
     return body
 

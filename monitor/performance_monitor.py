@@ -211,10 +211,13 @@ class Thresholds:
 class PerformanceMonitor:
     def __init__(self, orchestrator, tool_manager, mcp_client=None, *, interval_s: Optional[float] = None, webhook_url: Optional[str] = None,
                  availability_target: Optional[float] = None, latency_target: Optional[float] = None, latency_threshold_s: Optional[float] = None,
-                 thresholds: Optional[Thresholds] = None):
+                 thresholds: Optional[Thresholds] = None, agent_rollouts=None):
         self._orchestrator = orchestrator
         self._tool_manager = tool_manager
         self._mcp_client = mcp_client
+        self._agent_rollouts = agent_rollouts
+        self._rollout_checked_at = -float("inf")
+        self._rollout_conditions = {}
         self._interval = interval_s if interval_s is not None else env_float("IT_COPILOT_MONITOR_INTERVAL_S", 10)
         self._webhook = webhook_url if webhook_url is not None else os.getenv("IT_COPILOT_ALERT_WEBHOOK") or None
         self._latency_threshold_s = latency_threshold_s if latency_threshold_s is not None else env_float("IT_COPILOT_SLO_LATENCY_S", 10)
@@ -271,6 +274,16 @@ class PerformanceMonitor:
         active.update(self._agent_conditions())
         active.update(self._tool_conditions(now))
         active.update(self._mcp_conditions())
+        if self._agent_rollouts is not None and now - self._rollout_checked_at >= 60:
+            self._rollout_checked_at = now
+            for key in list(self._rollout_conditions):
+                if self._agent_rollouts.get(key.split(":", 1)[1])["status"] != "rolled_back":
+                    del self._rollout_conditions[key]
+            for record in self._agent_rollouts.auto_rollback():
+                self._rollout_conditions["agent_rollback:" + record["name"]] = Condition(
+                    "agent_auto_rollback", "critical", "Agent 灰度已自动回滚：" + ", ".join(record["reasons"]),
+                    1, 0, "检查版本回归报告与 badcase，确认原因后重新发起灰度。")
+        active.update(self._rollout_conditions)
         self.alerts.evaluate(active)
         self.last_tick = _now_iso()
         return active

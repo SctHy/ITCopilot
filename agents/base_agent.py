@@ -56,15 +56,15 @@ ESCALATION_MARKERS = ("转人工", "人工客服", "人工坐席", "无法处理
 
 
 class BaseAgent:
-    system_prompt = "你是 IT-Copilot 的 IT 服务 Agent：设备、网络与软件、账号权限、工单。一条消息含多个问题时逐个处理。"
-    name = "it_copilot"
-
     def __init__(self, llm, model, skill_manager=None, profile=None, *, router=None,
-                 read_route="agent_read", write_route="agent_write"):
+                 spec=None):
+        from agents.registry import default_spec
+        self.spec = default_spec() if spec is None else spec
+        self.name, self.system_prompt = self.spec.name, self.spec.system_prompt
         self.router = ModelRouter(model=model) if router is None else router
         if llm is not None:
             self.router.replace_models(llm)
-        self.read_route, self.write_route = read_route, write_route
+        self.read_route, self.write_route = self.spec.routes.read, self.spec.routes.write
         self.profile = profile or AgentProfile()
         self._model = model
         self._skill_manager = skill_manager
@@ -83,7 +83,17 @@ class BaseAgent:
         self.router.replace_models(model)
 
     def get_tools(self):
-        return dict(self._shared_tools)
+        if "*" in self.spec.tools:
+            return dict(self._shared_tools)
+        from tooling.mcp_client import tool_alias
+        allowed = set()
+        for name in self.spec.tools:
+            if name.startswith("mcp:"):
+                server, tool = name[4:].split("/", 1)
+                allowed.add(tool_alias(server, tool))
+            else:
+                allowed.add(name)
+        return {name: tool for name, tool in self._shared_tools.items() if name in allowed}
 
     def set_shared_tools(self, tools):
         self._shared_tools = dict(tools or {})
@@ -109,7 +119,7 @@ class BaseAgent:
     def _observability(self, req):
         from core.turn_records import build_sha
         sha = build_sha()
-        return {**self.fingerprints(), "agent_spec": self.name, "agent_version": "build:" + sha,
+        return {**self.fingerprints(), "agent_spec": self.name, "agent_version": self.spec.version,
                 "build_sha": sha, **req.route_metadata,
                 "signals": list(req.signals), "first_token_ms": req.first_token_ms}
 
@@ -179,7 +189,7 @@ class BaseAgent:
         flow = MODEL_RUN.start()
         flow.send("run")
         deps = AgentRunDeps(req)
-        if self._skill_manager and self._skill_manager.disclosure() == "progressive":
+        if self._skill_manager and self.spec.skills.disclosure == "progressive":
             req.skill_text = self._skill_manager.selected_prompt(req.message, req.intent_group, req.allowed_writes or ())
         tenant = req.principal.tenant if req.principal is not None else current_tenant()
         if tenant is None or tenant == "*":
@@ -368,7 +378,7 @@ class BaseAgent:
             return prompt
         # skill 放在 system 里：可信、且对每个请求固定。渐进式披露时 system 只放目录（同样固定），
         # 正文按本轮相关性放进本轮消息（见 _call_llm 与 turn_prompt）。
-        if self._skill_manager.disclosure() == "progressive":
+        if self.spec.skills.disclosure == "progressive":
             index = self._skill_manager.index()
             return prompt + ("\n\n业务规范目录（本轮相关的条目随本轮消息附上；与上面的规则冲突时以规则为准）：\n" + index if index else "")
         skills = self._skill_manager.prompt()

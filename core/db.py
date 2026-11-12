@@ -303,6 +303,18 @@ change_events = Table(
 )
 Index("ix_change_events_at", change_events.c.at)
 
+agent_rollouts = Table(
+    "agent_rollouts", metadata,
+    Column("spec_name", String(80), primary_key=True),
+    Column("stable_version", String(80), nullable=False),
+    Column("canary_version", String(80)),
+    Column("canary_percent", Integer, nullable=False),
+    Column("canary_tenants", JSON),
+    Column("status", String(30), nullable=False),
+    Column("updated_at", Float, nullable=False),
+    Column("updated_by", String(200), nullable=False),
+)
+
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
 # Every directory row belongs to a tenant and the tenant is part of the key (migration 0004): the

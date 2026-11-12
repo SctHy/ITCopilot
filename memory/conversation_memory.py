@@ -427,15 +427,19 @@ class MemoryManager:
 
         # 4. 会话摘要（如果已压缩过）
         summary = await self._redis.get(self._summary_key(user_id, conv_id)) or ""
-        state_raw = await self._redis.get(self._state_key(user_id, conv_id))
+        conversation_state = await self.get_state(user_id, conv_id)
 
         return MemoryContext(
             recent_messages=recent,
             relevant_history=history,
             user_profile=profile,
             summary=summary,
-            state=json.loads(state_raw) if state_raw and self.context_mode != "working" else {},
+            state=conversation_state if self.context_mode != "working" else {},
         )
+
+    async def get_state(self, user_id, conv_id):
+        raw = await self._redis.get(self._state_key(user_id, conv_id))
+        return json.loads(raw) if raw is not None else {}
 
     # ── 压缩（防止 context 爆炸）─────────────────────────────────────────────
 

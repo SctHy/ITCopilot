@@ -39,6 +39,13 @@ class TaskStore:
         self.governance = None
         self.on_status = None
         self.access = None
+        from agents.registry import default_spec
+        spec = default_spec()
+        self.choose_agent_version = lambda principal, intent_group: {"agent_spec": spec.name, "agent_version": spec.version}
+
+    async def recognize_intent_group(self, message):
+        """Standalone stores have no model; the composition root supplies the recognizer."""
+        return "other"
 
     @contextmanager
     def transaction(self, task_id, principal=None, *, lock=True, write=True):
@@ -125,7 +132,7 @@ class TaskStore:
                                           attempts=0, version=0, not_before=now))
         return record
 
-    def create(self, principal, title, message, client_id):
+    def create(self, principal, title, message, client_id, intent_group="other"):
         task_id = key("task", principal.tenant, principal.subject, client_id)
         try:
             with self.engine.begin() as db:
@@ -137,7 +144,7 @@ class TaskStore:
                                   version=0, created_at=now, updated_at=now)
                     db.execute(insert(tasks).values(**record))
                     self._append(db, record, key(task_id, "initial"), "requester", principal.subject, principal.username,
-                                 message, {"principal": principal.public()}, wake=True)
+                                 message, {"principal": principal.public(), **self.choose_agent_version(principal, intent_group)}, wake=True)
         except IntegrityError:
             # Concurrent replay of the same create; validate its payload below.
             pass
@@ -292,6 +299,8 @@ class TaskStore:
         with schema.read(self.engine) as db:
             task = self._require(db, claim["task_id"])
             event = dict(db.execute(select(events).where(events.c.id == claim["id"])).mappings().one())
+            initial = db.execute(select(events.c.data).where(events.c.id == key(task["id"], "initial"))).scalar_one()
+            task["_agent"] = {"agent_spec": initial["agent_spec"], "agent_version": initial["agent_version"]}
             task["goal"] = db.execute(select(events.c.text).where(events.c.id == key(task["id"], "initial"))).scalar() or task["title"]
             # No future messages and no private chat/profile/episodic memory.
             history = db.execute(select(events).where(events.c.task_id == task["id"], events.c.seq < event["seq"])

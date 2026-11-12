@@ -246,8 +246,10 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
                 from monitor.telemetry import turn_attributes
                 req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation",
                     route_metadata={"model": "none", "route": "confirmation", "route_reason": "deterministic", "cost_usd": 0.0})
+                if state.memory:
+                    req.conversation_state = await state.memory.get_state(principal.scope_key, conv_id)
                 result = OrchestratorResult(rid, answered.response, None,
-                    latency_ms=answered.latency_ms, observability=state.orchestrator.agent._observability(req))
+                    latency_ms=answered.latency_ms, observability=state.orchestrator.agent_for(req)._observability(req))
                 record = build_record(req, result, channel=channel,
                     policy_version=state.workflow.policy_for(principal.tenant).version,
                     kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,

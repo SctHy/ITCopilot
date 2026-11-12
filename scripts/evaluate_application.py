@@ -208,6 +208,31 @@ async def trial(http, state, case, repeat):
     return result
 
 
+async def isolated_trial(case, repeat, *, redis_url=None, documents=(), model=None,
+                         model_name=None, model_route=None, agent_spec=None, agent_version=None):
+    from sqlalchemy import select
+    from core.db import read, turn_records
+    from core.tenant_context import system_scope
+
+    # A directory reset cannot erase the workflow ledger that owns overlapping grants.
+    async with application(redis_url=redis_url, documents=documents, model=model) as (http, state):
+        if model_name:
+            router = state.orchestrator.router
+            for route in ([model_route] if model_route else router.config.routes):
+                router.force(route, model_name)
+        if agent_spec:
+            state.orchestrator.forced_spec = state.agent_registry.get(agent_spec, agent_version)
+        row = await trial(http, state, case, repeat)
+        request_ids = [turn["response"]["request_id"] for turn in row["turns"]]
+        with system_scope(), read(state.workflow.engine) as db:
+            costs = db.execute(select(turn_records.c.cost_usd).where(turn_records.c.request_id.in_(request_ids))).scalars().all()
+        row["cost_usd"] = sum(cost for cost in costs if cost is not None)
+        sources = state.orchestrator._intent_recognizer.metrics()
+        calls = dict(state.orchestrator.router.calls)
+        settings = state.orchestrator.router.config.model_dump()
+    return row, sources, calls, settings
+
+
 async def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--redis-url", default="redis://127.0.0.1:16379/0")
@@ -218,12 +243,16 @@ async def main():
     p.add_argument("--cases", default="", help="comma-separated case ids to run (debugging subset)")
     p.add_argument("--model-route", choices=("intent_fallback", "agent_read", "agent_write", "summary", "profile", "rewrite_rerank", "judge"))
     p.add_argument("--model", help="configured candidate name; with no --model-route force it on every role")
+    p.add_argument("--agent-spec")
+    p.add_argument("--agent-version")
     args = p.parse_args()
     load_dotenv(ROOT / ".env")
     source = pathlib.Path(args.dataset)
     if not source.exists():
         source = DATASETS_DIR / (args.dataset if args.dataset.endswith(".json") else args.dataset + ".json")
     cases = json.loads(source.read_text())[: args.limit]
+    if bool(args.agent_spec) != bool(args.agent_version):
+        p.error("--agent-spec and --agent-version must be used together")
     if args.model_route and not args.model:
         p.error("--model-route requires --model")
     if args.cases:
@@ -245,27 +274,13 @@ async def main():
     for repeat in range(args.repeats):
         for case in cases:
             before = len(audit.records)
-            # Each oracle starts with its own business ledger as well as its own directory.
-            async with application(redis_url=args.redis_url, documents=documents) as (http, state):
-                if args.model:
-                    router = state.orchestrator.router
-                    for route in ([args.model_route] if args.model_route else router.config.routes):
-                        router.force(route, args.model)
-                if args.agent_spec:
-                    state.orchestrator.forced_spec = state.agent_registry.get(args.agent_spec, args.agent_version)
-                route_settings = state.orchestrator.router.config.model_dump()
-                row = await trial(http, state, case, repeat)
-                row["model_usage"] = summarize(audit.records[before:])
-                from sqlalchemy import select
-                from core.db import read, turn_records
-                from core.tenant_context import system_scope
-                request_ids = [turn["response"]["request_id"] for turn in row["turns"]]
-                with system_scope(), read(state.workflow.engine) as db:
-                    costs = db.execute(select(turn_records.c.cost_usd).where(turn_records.c.request_id.in_(request_ids))).scalars().all()
-                row["cost_usd"] = sum(cost for cost in costs if cost is not None)
-                source_calls.append({"case_id": case["id"], "repeat": repeat, **state.orchestrator._intent_recognizer.metrics()})
-                for route, count in state.orchestrator.router.calls.items():
-                    route_calls[route] = route_calls.get(route, 0) + count
+            row, sources, calls, route_settings = await isolated_trial(case, repeat,
+                redis_url=args.redis_url, documents=documents, model_name=args.model, model_route=args.model_route,
+                agent_spec=args.agent_spec, agent_version=args.agent_version)
+            row["model_usage"] = summarize(audit.records[before:])
+            source_calls.append({"case_id": case["id"], "repeat": repeat, **sources})
+            for route, count in calls.items():
+                route_calls[route] = route_calls.get(route, 0) + count
             rows.append(row)
             print(f"{case['id']}: {row['passed']}", flush=True)
             write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
@@ -297,6 +312,8 @@ async def main():
         "route_calls": route_calls,
         "forced_route": args.model_route,
         "forced_candidate": args.model,
+        "forced_spec": args.agent_spec,
+        "forced_version": args.agent_version,
         "token_audit": audit.summary(),
         "trials": rows,
         "limitations": "Authored local sandbox tasks; real model/Redis/SQLite and ASGI HTTP handlers; no enterprise identity integration. Token totals cover agent runs only, excluding intent/rewrite/rerank. Not a user study.",

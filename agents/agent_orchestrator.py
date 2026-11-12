@@ -30,6 +30,10 @@ class AgentOrchestrator:
         self._local_tools = agent_tools(lambda: self.directory)
         self.agent = BaseAgent(None, model, skill_manager, router=self.router)
         self.agent.executor = self.tool_executor
+        self.agent_registry = None
+        self.rollouts = None
+        self.forced_spec = None
+        self._agents = {}
         self._rebuild_tools()
 
     @property
@@ -50,7 +54,8 @@ class AgentOrchestrator:
 
     def _rebuild_tools(self) -> None:
         # 本地工具优先于同名的共享/外部工具。
-        self.agent.set_shared_tools({**self._shared_tools, **self._external_tools, **self._local_tools})
+        for agent in [self.agent, *self._agents.values()]:
+            agent.set_shared_tools({**self._shared_tools, **self._external_tools, **self._local_tools})
 
     def set_shared_tools(self, tools):
         self._shared_tools = dict(tools or {})
@@ -69,8 +74,34 @@ class AgentOrchestrator:
     async def recognize_intent(self, message, history=None, previous_intent_group=None):
         return await self._intent_recognizer.recognize(message, history=history, previous_intent_group=previous_intent_group)
 
+    def agent_for(self, req: Request):
+        if self.forced_spec is not None:
+            spec = self.forced_spec
+        elif self.rollouts is not None:
+            if req.conversation_state is None:
+                req.conversation_state = {}
+            spec = self.rollouts.choose(req.principal.tenant, req.intent_group, req.principal.scope_key, req.conversation_state)
+        else:
+            return self.agent
+        fingerprint = spec.fingerprint
+        if fingerprint not in self._agents:
+            from core.skill_loader import SkillManager
+            from agents.registry import ROOT
+            expected_root = (ROOT / spec.skills.root).resolve()
+            if self.agent._skill_manager is not None and self.agent._skill_manager.root_dir == expected_root:
+                skills = self.agent._skill_manager
+            else:
+                skills = SkillManager(str(expected_root))
+                skills.load()
+            skills.change_engine = self.change_engine
+            agent = BaseAgent(None, self._model, skills, router=self.router, spec=spec)
+            agent.executor = self.tool_executor
+            agent.set_shared_tools({**self._shared_tools, **self._external_tools, **self._local_tools})
+            self._agents[fingerprint] = agent
+        return self._agents[fingerprint]
+
     async def _execute(self, req: Request):
-        return await self.agent.handle(req)
+        return await self.agent_for(req).handle(req)
 
     async def run(self, req: Request) -> OrchestratorResult:
         started = time.monotonic()
@@ -88,10 +119,15 @@ class AgentOrchestrator:
         )
 
     def get_stats(self) -> Dict[str, Any]:
-        stats = self.agent.stats
-        recent_total, recent_success, recent_ms = stats.recent()
+        stats = [agent.stats for agent in [self.agent, *self._agents.values()]]
+        total = sum(item.total for item in stats)
+        recent = [item.recent() for item in stats]
+        recent_total = sum(item[0] for item in recent)
+        recent_success = sum(n * success for n, success, _ in recent) / recent_total if recent_total else 1.
+        recent_ms = sum(n * ms for n, _, ms in recent) / recent_total if recent_total else 0.
         return {
-            "total": stats.total, "success_rate": round(stats.success_rate, 3), "avg_ms": round(stats.avg_ms, 1),
+            "total": total, "success_rate": round(sum(item.success for item in stats) / total, 3) if total else 1.,
+            "avg_ms": round(sum(item.total_ms for item in stats) / total, 1) if total else 0.,
             "recent_total": recent_total, "recent_success_rate": round(recent_success, 3), "recent_avg_ms": round(recent_ms, 1),
             "model": self._model, "tool_scope": list(self.agent.get_tools()),
         }
