@@ -19,7 +19,7 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
@@ -32,36 +32,24 @@ from redis.exceptions import WatchError
 from core.concurrency import KeyedLocks, redis_lease
 from memory.states import profile_phase, COMPRESSION, MAINTENANCE
 from core.llm import build_model, close_model, complete_text
-from core.states import Machine
 from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
-class ProfileExtraction(BaseModel):
-    """画像提炼的结构化输出；写入前仍经 _normalize_profile 脱敏和限长。"""
+class ProfileDoc(BaseModel):
+    """员工画像：一份简短的员工说明，像 AGENTS.md 一样整份修订，不逐条追加。写入前仍经 _normalize_profile 脱敏和限长。"""
     model_config = ConfigDict(extra="ignore", coerce_numbers_to_str=True)
-    preferences:      List[str] = []
-    department:       str = ""
-    systems:          List[str] = []
-    devices:          List[str] = []
-    recurring_issues: List[str] = []
-    entities:         Dict[str, List[str]] = {}
+    background:    str = ""   # 部门/团队、岗位、资历
+    work:          str = ""   # 负责的项目、常用系统及用途
+    environment:   str = ""   # 公司设备、操作系统、手机
+    communication: str = ""   # 语言、希望的回答风格
 
 
-class FactStatus(StrEnum):
-    ACTIVE = "active"
-    SUPERSEDED = "superseded"   # replaced by a newer value of a single-valued key
+PROFILE_SCHEMA_VERSION = 4
+PROFILE_FIELD_MAX_CHARS = 80
 
-
-FACT = Machine(FactStatus, """
-    active     -> superseded
-    superseded -> active       # the value was extracted again
-""")
-SINGLE_VALUED_FACTS = frozenset({"department"})
-MAX_ACTIVE_FACTS, MAX_SUPERSEDED_FACTS = 50, 20
-
-_PROFILE_AGENT = Agent(output_type=ToolOutput(ProfileExtraction, name="save_profile", description="保存提炼后的员工 IT 画像"), retries=0, name="profile_extractor")
+_PROFILE_AGENT = Agent(output_type=ToolOutput(ProfileDoc, name="save_profile", description="保存修订后的员工画像"), retries=0, name="profile_extractor")
 
 
 class MsgRole(Enum):
@@ -76,6 +64,15 @@ class Message:
     content:    str
     timestamp:  datetime = field(default_factory=datetime.now)
     metadata:   Dict[str, Any] = field(default_factory=dict)
+
+
+PROFILE_LABELS = (("background", "背景"), ("work", "工作内容"), ("environment", "设备与环境"), ("communication", "沟通偏好"))
+
+
+def profile_text(profile: Optional[Dict[str, Any]]) -> str:
+    """画像进提示词的样子：每个字段一行，整份通常一两百字。"""
+    profile = profile or {}
+    return "\n".join(f"{label}：{profile[key]}" for key, label in PROFILE_LABELS if profile.get(key))
 
 
 @dataclass
@@ -102,7 +99,14 @@ class MemoryContext:
         相邻两轮请求的历史前缀保持一致，模型服务的前缀缓存才能命中。
         """
         turns = []
-        for m in self.recent_messages[-limit:]:
+        messages = self.recent_messages
+        if len(messages) > limit:
+            # 只在压缩失败（摘要超时/出错会推迟压缩）时走到这里。按 10 条一块截断而不是逐轮滑动：
+            # 逐轮滑动让历史的第一条每轮都变，前缀缓存只能命中系统提示和工具定义（实测命中率 0.7→0.3）。
+            step = 10
+            drop = -(-(len(messages) - limit) // step) * step  # 超出部分向上取整到整块
+            messages = messages[drop:]
+        for m in messages:
             if m.role not in (MsgRole.USER, MsgRole.ASSISTANT):
                 continue
             content = self._clean(m.content)
@@ -123,11 +127,9 @@ class MemoryContext:
             parts.append(f"[会话摘要]\n{self._clean(self.summary)}")
         if self.relevant_history:
             parts.append("[相关历史]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
-        if self.user_profile:
-            # 被取代的旧事实只留作历史，不给模型看。
-            profile = {**self.user_profile, "facts": [f for f in self.user_profile.get("facts") or []
-                                                      if not isinstance(f, dict) or f.get("status") != FactStatus.SUPERSEDED]}
-            parts.append(f"[用户画像]\n{json.dumps(profile, ensure_ascii=False)}")
+        profile = profile_text(self.user_profile)
+        if profile:
+            parts.append(f"[用户画像]\n{self._clean(profile)}")
         if include_recent and self.recent_messages:
             parts.append("[最近对话]")
             for m in self.recent_messages[-8:]:
@@ -267,22 +269,32 @@ class MemoryManager:
 
         current_profile = await self._get_profile(user_id)
 
-        text = self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in messages[-10:]))
-        profile_ctx = json.dumps(current_profile, ensure_ascii=False) if current_profile else "{}"
-        prompt = f"""你是企业 IT 服务台的长期记忆提炼器。只保留非敏感、长期有用的信息，禁止保存密码、OTP、恢复码、私钥、完整 token 或秘密。
-从以下对话和已有用户画像中提炼或更新员工的 IT 画像，通过 save_profile 返回。
-对话:
-{text}
+        # 只给员工自己说的话：助手回答的风格来自系统规则，给了模型会被当成员工的偏好写进画像。
+        said = [m.content for m in messages[-10:] if m.role == MsgRole.USER]
+        if not said:
+            return False
+        text = self._safe_text("\n".join(f"- {c}" for c in said))
+        prompt = f"""你在维护一份员工画像，供 IT 服务台下次接待这位员工时参考。像维护 AGENTS.md 一样：简明扼要，只写长期稳定的信息；在旧版本上整份修订，不是追加。
+通过 save_profile 返回修订后的完整画像，四个字段：
+- background 背景：部门/团队、岗位、资历（如"platform 组后端工程师，新入职"）
+- work 工作内容：负责的项目、常用系统及用途
+- environment 设备与环境：公司设备、操作系统、手机
+- communication 沟通偏好：员工明确提出的要求（如"用中文""简短点"），或从员工自己的写法能明确看出的（如一直用英文写）
+规则：
+- 每个字段一句话，不超过 60 字；只写员工说过的，不推测；没有依据的字段留空，不写"未知""未提及"。
+- 与旧版本冲突时以员工最新的说法为准，过时的内容删掉；旧版本仍然成立的照抄。
+- 不写故障、报错、工单、审批这类一次性事务，它们由会话记录负责；不写密码、OTP、恢复码、私钥、token 或任何秘密。
 
-已有画像:
-{profile_ctx}
+旧版本:
+{profile_text(current_profile) or "（空）"}
 
-返回格式: {{"preferences": [], "department": "", "systems": [], "devices": [], "recurring_issues": [], "entities": {{"employee_id": [], "device_id": [], "ticket_id": [], "system": [], "role": [], "error_code": []}}}}"""
+员工最近说的话:
+{text}"""
         prompt = self._safe_text(prompt)
 
         try:
             result = await asyncio.wait_for(_PROFILE_AGENT.run(
-                prompt, model=self._llm, model_settings=ModelSettings(max_tokens=512, temperature=0.0),
+                prompt, model=self._llm, model_settings=ModelSettings(max_tokens=400, temperature=0.0),
             ), timeout=15)
             profile_data = self._merge_profile(current_profile, self._normalize_profile(result.output.model_dump()))
 
@@ -307,71 +319,39 @@ class MemoryManager:
 
     @staticmethod
     def _normalize_profile(value: Any) -> Dict[str, Any]:
-        """限制画像字段和长度，防止把敏感内容或任意模型输出写入长期记忆。"""
+        """只留四个字段，限长、脱敏，防止任意模型输出或秘密写入长期记忆。"""
         if not isinstance(value, dict):
             return {}
         blocked = ("password", "passwd", "otp", "token", "secret", "private_key", "恢复码")
-        def clean(item):
-            text = str(item)[:120]
-            return "[REDACTED]" if any(word in text.lower() for word in blocked) else text
-        output = {"schema_version": 3, "stable_attributes": {}, "facts": []}
-        for key in ("preferences", "systems", "devices", "recurring_issues"):
-            values = value.get(key, [])
-            output[key] = list(dict.fromkeys(clean(item) for item in values if isinstance(values, list)))[:20]
-        output["department"] = clean(value.get("department", "")) if value.get("department") else ""
-        output["stable_attributes"]["department"] = output["department"]
-        output["stable_attributes"]["systems"] = list(output.get("systems", []))
-        output["stable_attributes"]["devices"] = list(output.get("devices", []))
-        entities = value.get("entities", {}) if isinstance(value.get("entities", {}), dict) else {}
-        output["entities"] = {str(key): list(dict.fromkeys(clean(item) for item in values if isinstance(values, list)))[:8] for key, values in entities.items() if isinstance(values, list)}
-        output["stable_attributes"]["entities"] = output["entities"]
-        now = datetime.now().isoformat()
-        for key, values in output["stable_attributes"].items():
-            values = values if isinstance(values, list) else ([values] if values else [])
-            for item in values:
-                output["facts"].append({"key": key, "value": item, "status": FactStatus.ACTIVE, "updated_at": now, "importance": 0.7, "source": "profile_extraction"})
+        output: Dict[str, Any] = {"schema_version": PROFILE_SCHEMA_VERSION}
+        for key, _ in PROFILE_LABELS:
+            text = " ".join(str(value.get(key) or "").split())[:PROFILE_FIELD_MAX_CHARS]
+            if text:
+                output[key] = "[REDACTED]" if any(word in text.lower() for word in blocked) else text
         return output
 
     @staticmethod
     def _merge_profile(previous: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge facts instead of replacing the entire long-term profile."""
-        if not previous:
-            return incoming
-        merged = dict(incoming)
-        for key in ("preferences", "systems", "devices", "recurring_issues"):
-            merged[key] = list(dict.fromkeys((previous.get(key) or []) + (incoming.get(key) or [])))[:20]
-        merged["department"] = incoming.get("department") or previous.get("department", "")
-        merged["entities"] = dict(previous.get("entities") or {})
-        for key, values in (incoming.get("entities") or {}).items():
-            merged["entities"][key] = list(dict.fromkeys((merged["entities"].get(key) or []) + values))[:8]
-        merged["stable_attributes"] = {"department": merged["department"], "systems": merged["systems"], "devices": merged["devices"], "entities": merged["entities"]}
-        merged["facts"] = MemoryManager._merge_facts(previous.get("facts") or [], incoming.get("facts") or [])
-        merged["schema_version"] = 3
+        """修订版逐字段替换旧版本。修订版里空着的字段沿用旧值：模型漏写不等于信息作废，
+        要改掉过时内容就写新句子（例如换了部门就写新部门）。"""
+        merged = {"schema_version": PROFILE_SCHEMA_VERSION}
+        for key, _ in PROFILE_LABELS:
+            value = incoming.get(key) or (previous or {}).get(key)
+            if value:
+                merged[key] = value
         return merged
 
-    @staticmethod
-    def _merge_facts(previous: List[Any], incoming: List[Any]) -> List[Dict[str, Any]]:
-        """One record per (key, value). Fact lifecycle: active -> superseded, and only for
-        single-valued keys (a new department replaces the old one); list attributes such as
-        systems accumulate, so a value missing from this extraction stays active. A value that
-        comes back is active again. Bounded: MAX_ACTIVE_FACTS active, MAX_SUPERSEDED_FACTS history."""
-        def ident(fact):  # values can be dicts (entities)
-            return fact.get("key"), json.dumps(fact.get("value"), ensure_ascii=False, sort_keys=True, default=str)
-
-        facts: Dict[tuple, Dict[str, Any]] = {}
-        for fact in [*previous, *incoming]:
-            if isinstance(fact, dict):
-                facts.pop(ident(fact), None)  # re-insert: newest last
-                facts[ident(fact)] = {**fact, "status": fact.get("status") or FactStatus.ACTIVE}
-        for new in incoming:
-            if isinstance(new, dict) and new.get("key") in SINGLE_VALUED_FACTS:
-                for (key, value), old in facts.items():
-                    if key == new["key"] and (key, value) != ident(new) and old["status"] == FactStatus.ACTIVE:
-                        old["status"] = FACT.check(old["status"], FactStatus.SUPERSEDED)
-                facts[ident(new)]["status"] = FactStatus.ACTIVE
-        active = [f for f in facts.values() if f["status"] == FactStatus.ACTIVE][-MAX_ACTIVE_FACTS:]
-        history = [f for f in facts.values() if f["status"] != FactStatus.ACTIVE][-MAX_SUPERSEDED_FACTS:]
-        return history + active
+    @classmethod
+    def _upgrade_profile(cls, stored: Any) -> Dict[str, Any]:
+        """schema 3 的列表式画像（department/systems/devices/preferences…）就地转成四个字段，下次提炼时再由模型修订。"""
+        if not isinstance(stored, dict) or not stored:
+            return {}
+        if stored.get("schema_version") == PROFILE_SCHEMA_VERSION:
+            return stored
+        def join(*keys):
+            return "、".join(str(v) for k in keys for v in (stored.get(k) if isinstance(stored.get(k), list) else [stored.get(k)]) if v)
+        return cls._normalize_profile({"background": join("department"), "work": join("systems"),
+                                       "environment": join("devices", "recurring_issues"), "communication": join("preferences")})
 
     # ── 读取 ──────────────────────────────────────────────────────────────────
 
@@ -438,7 +418,7 @@ class MemoryManager:
         messages = self._messages_from_raw(snapshot)
         to_compress = messages[:-5]
         text = self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress))
-        prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息：\n{text}")
+        prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
         try:
             resp = await complete_text(self._llm, prompt, max_tokens=1024, temperature=0.0)
             summary = self._safe_text(resp.text).strip()
@@ -611,10 +591,10 @@ class MemoryManager:
             doc_id = self._profile_doc_id(user_id)
             direct = await asyncio.to_thread(self._profile.get, ids=[doc_id])
             if direct.get("documents"):
-                return json.loads(direct["documents"][0])
+                return self._upgrade_profile(json.loads(direct["documents"][0]))
 
             results = await asyncio.to_thread(self._profile.get, where={"user_id": user_id})
-            return self._latest_profile_from_results(results)
+            return self._upgrade_profile(self._latest_profile_from_results(results))
         except Exception:
             pass
         return {}

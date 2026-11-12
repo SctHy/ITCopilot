@@ -38,7 +38,19 @@ def _role(kwargs: Dict[str, Any]) -> str:
         return "intent"
     if names & {"search_knowledge_base", "create_ticket", "request_access", "lookup_asset"}:
         return "agent"
+    # 记忆维护（后台）：画像提炼、工作记忆压缩摘要、摘要合并。
+    if "save_profile" in names:
+        return "memory_profile"
+    first = _first_user(kwargs)
+    if first.startswith("用 2-3 句话总结"):
+        return "memory_summary"
+    if first.startswith("你是对话摘要器"):
+        return "memory_merge"
     return "other"
+
+
+def _first_user(kwargs: Dict[str, Any]) -> str:
+    return next((_text(m.get("content")) for m in kwargs.get("messages") or [] if m.get("role") == "user"), "")
 
 
 def _composition(kwargs: Dict[str, Any]) -> Dict[str, int]:

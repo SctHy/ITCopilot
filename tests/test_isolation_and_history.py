@@ -56,10 +56,10 @@ def test_private_working_and_cross_conversation_memory_are_scoped(db_url):
         await m.commit_turn(a, 'old', 'a', 'VPN SECRET-A', {'request_id': 'a', 'response': '证书过期'})
         await m.store_episodic_turn(a, 'old', 'a', 'VPN SECRET-A', '证书过期')
         await m.store_episodic_turn(ALICE.subject, 'legacy', 'legacy', 'VPN LEGACY', '旧记录')
-        m._profile.upsert(ids=[m._profile_doc_id(a)], documents=[json.dumps({'systems': ['SECRET-A']})], metadatas=[{'user_id': a}])
+        m._profile.upsert(ids=[m._profile_doc_id(a)], documents=[json.dumps({'schema_version': 4, 'work': 'PROFILE-A'})], metadatas=[{'user_id': a}])
         own = await m.get_context(a, 'new', query='VPN')
         other = await m.get_context(b, 'old', query='VPN')
-        assert own.relevant_history and 'SECRET-A' in str(own.user_profile)
+        assert own.relevant_history and 'PROFILE-A' in str(own.user_profile)
         assert 'LEGACY' not in str(own.relevant_history)
         assert not other.recent_messages and not other.relevant_history and not other.user_profile
         assert await m.get_turn_receipt(b, 'old', 'a') is None

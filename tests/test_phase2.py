@@ -17,33 +17,22 @@ def test_state_tracks_entities_and_missing_slots():
 
 
 def test_profile_normalization_removes_sensitive_values():
-    profile = MemoryManager._normalize_profile({
-        "department": "研发",
-        "systems": ["GitLab", "password=bad"],
-        "entities": {"employee_id": ["u1001"], "token": ["secret-token"]},
-    })
-    assert profile["department"] == "研发"
-    assert "[REDACTED]" in profile["systems"]
-    assert profile["entities"]["token"] == ["[REDACTED]"]
-    assert profile["schema_version"] == 3
-    assert profile["stable_attributes"]["department"] == "研发"
+    profile = MemoryManager._normalize_profile({"background": "研发部后端", "work": "维护 GitLab；password=bad", "extra": "x" * 500})
+    assert profile == {"schema_version": 4, "background": "研发部后端", "work": "[REDACTED]"}
 
 
 def test_memory_budget_and_profile_merge():
     from memory.conversation_memory import MemoryManager
     values = MemoryManager._budget_texts(["a" * 300, "b" * 300, "c" * 300], 128)
     assert len(values) == 1
-    merged = MemoryManager._merge_profile({"systems": ["GitLab"], "entities": {"role": ["engineer"]}}, {"systems": ["Jira"], "entities": {"role": ["engineer", "admin"]}})
-    assert merged["systems"] == ["GitLab", "Jira"]
-    assert merged["entities"]["role"] == ["engineer", "admin"]
+    merged = MemoryManager._merge_profile({"background": "研发部", "work": "GitLab"}, {"work": "GitLab 与 Jira"})
+    assert merged == {"schema_version": 4, "background": "研发部", "work": "GitLab 与 Jira"}
 
 
-def test_profile_conflict_marks_old_fact_superseded():
+def test_profile_revision_replaces_outdated_field():
     from memory.conversation_memory import MemoryManager
-    old = MemoryManager._normalize_profile({"department": "研发"})
-    new = MemoryManager._normalize_profile({"department": "产品"})
-    merged = MemoryManager._merge_profile(old, new)
-    assert any(f["value"] == "研发" and f["status"] == "superseded" for f in merged["facts"])
+    merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部"}), MemoryManager._normalize_profile({"background": "产品部"}))
+    assert merged["background"] == "产品部" and "研发" not in str(merged)
 
 
 def test_versioned_intent_suite_is_complete():

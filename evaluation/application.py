@@ -23,7 +23,7 @@ def auth(username: str = "alice", **overrides) -> dict:
 
 
 @asynccontextmanager
-async def application(*, model=None, redis_url=None, documents=()):
+async def application(*, model=None, redis_url=None, documents=(), maintenance=False):
     import api.main as api
     from api import state
 
@@ -97,9 +97,11 @@ async def application(*, model=None, redis_url=None, documents=()):
                         patch("memory.conversation_memory.redis.from_url", return_value=fake)
                     )
                 async with api.lifespan(api.app):
-                    # Async summarization introduces unrelated model calls into measured trials.
-                    await state.profile_updater.close()
-                    state.profile_updater = None
+                    # Async summarization introduces unrelated model calls into measured trials;
+                    # long-dialogue suites keep it (maintenance=True) because compression is what they measure.
+                    if not maintenance:
+                        await state.profile_updater.close()
+                        state.profile_updater = None
                     if documents:
                         await state.kb.add_documents_async(list(documents))
                     if model is not None:

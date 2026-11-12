@@ -24,11 +24,11 @@ def test_redaction_removes_sensitive_keys(key):
 
 
 def test_memory_profile_merge_preserves_old_values():
-    old = MemoryManager._normalize_profile({"department": "研发", "systems": ["GitLab"]})
-    new = MemoryManager._normalize_profile({"department": "产品", "systems": ["Jira"]})
+    old = MemoryManager._normalize_profile({"background": "研发部", "communication": "中文，简短"})
+    new = MemoryManager._normalize_profile({"background": "产品部"})
     merged = MemoryManager._merge_profile(old, new)
-    assert merged["systems"] == ["GitLab", "Jira"]
-    assert any(f["value"] == "研发" and f["status"] == "superseded" for f in merged["facts"])
+    # 修订版漏写的字段沿用旧值；写了的字段整句替换。
+    assert merged["communication"] == "中文，简短" and merged["background"] == "产品部"
 
 
 @pytest.mark.parametrize("texts,budget,expected", [(["a" * 100], 128, 1), (["a" * 100, "b" * 100], 128, 2), (["a" * 10, "b" * 10], 128, 2)])
@@ -37,9 +37,8 @@ def test_memory_token_budget(texts, budget, expected):
 
 
 def test_memory_sensitive_profile_is_redacted():
-    profile = MemoryManager._normalize_profile({"systems": ["password=secret"], "entities": {"token": ["secret-token"]}})
-    assert profile["systems"] == ["[REDACTED]"]
-    assert profile["entities"]["token"] == ["[REDACTED]"]
+    profile = MemoryManager._normalize_profile({"work": "password=secret", "environment": "token abc"})
+    assert profile["work"] == "[REDACTED]" and profile["environment"] == "[REDACTED]"
 
 
 def test_rag_vector_bm25_hybrid_and_citation():

@@ -81,6 +81,68 @@ def test_profile_counter_restarts_after_compression_and_keys_do_not_collide():
 
 
 def test_profile_in_prompt_keeps_chinese_readable():
-    ctx = MemoryContext(recent_messages=[], relevant_history=[], user_profile={"department": "研发", "devices": ["MacBook"]}, summary="")
+    ctx = MemoryContext(recent_messages=[], relevant_history=[], user_profile={"background": "研发部", "environment": "MacBook"}, summary="")
     text = ctx.to_prompt_text()
     assert "研发" in text and "\\u" not in text
+
+
+def test_profile_prompt_is_a_short_document():
+    stored = MemoryManager._normalize_profile({"background": "platform 组后端工程师，新入职", "work": "看 platform 代码，用 GitLab、Jira",
+                                               "environment": "公司配 MacBook Pro，手机 iPhone", "communication": "中文，回答简短"})
+    text = MemoryContext(recent_messages=[], relevant_history=[], user_profile=stored, summary="").to_prompt_text()
+    assert text == ("[用户画像]\n背景：platform 组后端工程师，新入职\n工作内容：看 platform 代码，用 GitLab、Jira\n"
+                    "设备与环境：公司配 MacBook Pro，手机 iPhone\n沟通偏好：中文，回答简短")
+
+
+def test_each_profile_field_is_capped():
+    stored = MemoryManager._normalize_profile({k: "很长" * 200 for k in ("background", "work", "environment", "communication")})
+    assert all(len(stored[k]) <= 80 for k in ("background", "work", "environment", "communication"))
+
+
+def test_legacy_list_profile_is_upgraded():
+    legacy = {"schema_version": 3, "department": "platform", "systems": ["GitLab", "Jira"], "devices": ["MacBook Pro"],
+              "preferences": ["中文"], "facts": [{"key": "department", "value": "old", "status": "superseded"}], "stable_attributes": {}}
+    assert MemoryManager._upgrade_profile(legacy) == {"schema_version": 4, "background": "platform", "work": "GitLab、Jira",
+                                                      "environment": "MacBook Pro", "communication": "中文"}
+
+
+def test_history_window_trims_in_blocks_so_prefix_stays_cacheable():
+    from memory.conversation_memory import Message, MsgRole
+
+    def first(n):
+        msgs = [Message(role=MsgRole.USER if i % 2 == 0 else MsgRole.ASSISTANT, content=f"m{i}") for i in range(n)]
+        turns = MemoryContext(recent_messages=msgs, relevant_history=[], user_profile={}, summary="").history_turns(limit=20)
+        assert len(turns) <= 20 and turns[0]["role"] == "user"
+        return turns[0]["content"]
+
+    assert first(20) == "m0"
+    # 压缩推迟时列表继续增长：21–30 条共用同一个开头，前缀缓存不被逐轮打断。
+    assert {first(n) for n in range(21, 31)} == {"m10"}
+    assert first(31) == "m20"
+
+
+def test_profile_extraction_sees_only_what_the_employee_said():
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from evaluation.fake_model import scripted_model
+    prompts = []
+
+    async def reply(messages, info):
+        prompts.append("".join(str(getattr(p, "content", "")) for m in messages for p in m.parts))
+        return ModelResponse(parts=[ToolCallPart("save_profile", {"background": "platform 组后端", "communication": "中文"})])
+
+    async def run():
+        with tempfile.TemporaryDirectory() as path:
+            m = manager(path)
+            m._llm = scripted_model(reply)
+            await m.commit_turn("u", "c", "r1", "我在 platform 组做后端", {"request_id": "r1", "response": "结论：先给结论再列步骤。ASSISTANT-STYLE"})
+            assert await m.update_profile("u", "c")
+            first = await m._get_profile("u")
+            await m.update_profile("u", "c")
+            await m._redis.aclose()
+            return first
+
+    profile = asyncio.run(run())
+    assert "我在 platform 组做后端" in prompts[0] and "ASSISTANT-STYLE" not in prompts[0]
+    # 第二次提炼把上一版画像作为“旧版本”交给模型修订。
+    assert "背景：platform 组后端" in prompts[1]
+    assert profile == {"schema_version": 4, "background": "platform 组后端", "communication": "中文"}

@@ -10,6 +10,8 @@
 - 纯英文消息在本轮提示里明确要求英文回复；规则补充“工具失败如实说明原因”“用用户的语言回复”。
 - 思考档位：新增 `IT_COPILOT_AGENT_THINKING`（disabled/low/high/max，只作用于 Agent），默认 disabled。实测 4 档 × 160 用例：开思考无可测量收益，成本 1.5–3.5 倍、首字时延翻倍（docs/evaluation-deep.md §10）。
 - Token：规则加“不写过渡语”、回复“每个问题一般不超过 200 字”（system 预算 300→320 字）；预取知识改为紧凑文本（`knowledge_text`）；情景记忆加余弦距离门槛（`IT_COPILOT_MEMORY_MAX_DISTANCE`，默认 0.6），改按相关度 × 重要度排序；技能支持 full/progressive/auto 披露（`IT_COPILOT_SKILL_DISCLOSURE`，SKILL.md 新增 `intent_groups`、`write_tools`），当前规模下 auto 取 full。同为关闭思考时，总输入 −5% ~ −10%、输出 −10% ~ −13%、时延 p50 −6% ~ −10%。
+- 用户画像改为四个字段的短文档（背景、工作内容、设备与环境、沟通偏好，每项一句话、限 80 字，schema 4），像 AGENTS.md 一样每次在旧版本上整份修订；提炼只看员工自己说的话，不写故障、工单等一次性事务。删除事实列表、`stable_attributes` 与 `FACT` 状态机；schema 3 画像读取时就地转换。长会话里画像从平均 2,654 字降到 42 字。
+- 长对话：会话摘要原样保留错误码、事件 ID 等标识；压缩推迟时历史按 10 条一块截断，不逐轮滑动以保住前缀缓存。新增 `scripts/evaluate_long_dialogue.py`（4 个会话共 84 轮，回忆探针与写操作终态），`evaluation/application.py` 加 `maintenance` 开关。84 轮总费用 −45%（画像提炼 −88%），探针 19/19 与写操作 4/4 持平（docs/evaluation-deep.md §11）。
 - 评测：`evaluation/token_audit.py` 按组成部分统计每次模型调用并记录真实用量与费用，三个业务评测脚本默认开启；`scripts/compare_token_modes.py` 对比多组报告。
 - 评测：Jev 预取命中计为知识检索证据（`evaluate_application.py`、`evaluate_simulated.py`）；`forbid_text` 前 4 字内有否定词时不计；新增 `scripts/evaluate_experience.py`（真实口吻对话 + SSE 时延）与 `scripts/evaluate_rag_gitlab.py`（GitLab 公开 Handbook 检索）。
 - 前端：全部改为 TypeScript（strict，CI 增加 `npm run typecheck`）；App.vue 拆成页面（`src/views/`）、接口层（`src/api/`）与可单测的会话模块（`chatSession`、`authSession`），对话切页不丢；共享事项轮询改为单飞，临时失败不再关闭事项；OIDC 配置缺 `issuer`/`client_id` 时直接报错；构建依赖移到 devDependencies。

@@ -55,7 +55,7 @@
 | I29 | 评测会话 | `TRIAL` dialogue → user_stop/max_turns → approving → grading → completed/failed | [evaluate_simulated.py](../scripts/evaluate_simulated.py) |
 | H02 | 工具熔断 | `CIRCUIT` closed → open → half_open → closed/open；取消与迟到回调受 generation 限制 | [tool_manager.py](../tooling/tool_manager.py)、[executor.py](../tooling/executor.py) |
 
-原状态建模保留九张转换表：`APPROVAL`、`EXECUTION`、`ACTION`、`GRANT`、`INBOX`、`OUTBOX`、`CONNECTION`、`ALERT`、`FACT`。后续共享事项迁移另外引入持久回合和核验记录，边界见下文及相应 ADR。
+原状态建模保留八张转换表：`APPROVAL`、`EXECUTION`、`ACTION`、`GRANT`、`INBOX`、`OUTBOX`、`CONNECTION`、`ALERT`（画像改为整份修订的短文档后，`FACT` 事实生命周期表已删除）。后续共享事项迁移另外引入持久回合和核验记录，边界见下文及相应 ADR。
 
 共享事项的核验队列：`queued → running → passed / failed / unknown`；运行租约到期可重新领取，最多三次。排队或运行中的检查可因目标变更、停止或新检查而进入 `stale / cancelled`。结果提交同时检查租约、目标版本、进度版本及当前任务运行状态；旧结果不能唤醒重规划。只有 `failed` 可以在目标预算内唤醒最多两轮只读跟进，`unknown` 转人工。
 
