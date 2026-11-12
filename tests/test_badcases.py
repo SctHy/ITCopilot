@@ -78,6 +78,20 @@ def test_feedback_requires_owner_in_same_tenant_and_upserts_redacted_comment(sto
     assert http.post(path, json={"rating": 0}, headers=auth("alice")).status_code == 422
 
 
+def test_feedback_truncates_after_redaction_expands_a_maximum_length_comment(store):
+    row = turn(store.engine, "feedback-length")
+    comment = "密码: Ab9 " + "补" * 492
+    assert len(comment) == 500
+    response = TestClient(app).post("/chat/" + row["request_id"] + "/feedback",
+        json={"rating": -1, "reason": "unsafe", "comment": comment}, headers=auth("alice"))
+    assert response.status_code == 200, response.text
+    with store.engine.connect() as db:
+        saved = db.execute(select(feedback).where(feedback.c.request_id == row["request_id"])).mappings().one()
+    assert "Ab9" not in saved["comment"]
+    assert saved["comment"].startswith("密码: [REDACTED] ")
+    assert len(saved["comment"]) == 500
+
+
 def test_signal_and_negative_feedback_create_complete_redacted_snapshots(store, db_url, monkeypatch):
     async def run():
         manager = await memory(db_url, monkeypatch)

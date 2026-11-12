@@ -50,7 +50,7 @@ class BadcaseStore:
                 raise BadcaseNotFound("回合不存在或不属于当前用户")
             statement = (postgresql if db.dialect.name == "postgresql" else sqlite).insert(feedback)
             values = dict(request_id=request_id, tenant=principal.tenant, actor=principal.scope_key,
-                          rating=rating, reason=reason, comment=redact_text(comment), created_at=self.clock())
+                          rating=rating, reason=reason, comment=redact_text(comment)[:500], created_at=self.clock())
             db.execute(statement.values(**values).on_conflict_do_update(
                 index_elements=[feedback.c.request_id, feedback.c.actor],
                 set_={k: v for k, v in values.items() if k not in {"request_id", "actor"}}))
