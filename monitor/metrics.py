@@ -44,6 +44,7 @@ WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作
 GRANT_DRIFT = Counter("it_copilot_grant_drift_total", "巡检发现的授权资源漂移", ["system"])
 RECONCILE_SKIPPED = Counter("it_copilot_reconcile_skipped_total", "适配器暂时不可用而跳过的授权巡检")
 WORKFLOW_OLDEST_AGE = Gauge("it_copilot_workflow_oldest_age_seconds", "最久未处理的工作流动作年龄", ["state"])
+CONFIG_RELOADS = Counter("it_copilot_config_reloads_total", "运行中配置热加载：applied 生效，rejected 校验失败、沿用上一份配置", ["config", "outcome"])
 POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后对在途审批与授权的处置", ["outcome"])
 
 # ── IM 渠道 ─────────────────────────────────────────────────────────────

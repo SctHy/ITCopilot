@@ -132,21 +132,27 @@ def test_budget_hides_write_tools_but_allows_reads(tmp_path, db_url):
     assert router.pick("agent_read", "default").reason != "budget"
 
 
-def test_invalid_hot_reload_raises_and_valid_reload_records_change(tmp_path, db_url):
+def test_invalid_hot_reload_keeps_last_good_config_and_valid_reload_applies(tmp_path, db_url):
     from core.db import change_events
     from sqlalchemy import select
     store = WorkflowStore(db_url)
     router = configured(tmp_path, engine=store.engine)
+    kept = router.fingerprint
     data = router.config.model_dump()
     data["routes"]["agent_read"]["max_rounds"] = 0
     router.path.write_text(yaml.safe_dump(data))
-    with pytest.raises(ValidationError):
-        router.pick("agent_read", "default")
+    assert router.pick("agent_read", "default").max_rounds == 3
+    assert router.pick("agent_read", "default").max_rounds == 3
+    assert router.fingerprint == kept
+    router.path.write_text("routes: [")
+    assert router.pick("agent_read", "default").max_rounds == 3
     data["routes"]["agent_read"]["max_rounds"] = 4
     router.path.write_text(yaml.safe_dump(data))
     assert router.pick("agent_read", "default").max_rounds == 4
     with store.engine.connect() as db:
-        assert db.execute(select(change_events.c.kind)).scalar_one() == "model_route"
+        kinds = db.execute(select(change_events.c.kind, change_events.c.detail).order_by(change_events.c.id)).all()
+    assert [kind for kind, _ in kinds] == ["model_route_rejected", "model_route_rejected", "model_route"]
+    assert kinds[0].detail["kept"] == kept
 
 
 def test_thinking_is_route_config_not_an_environment_toggle(tmp_path):
@@ -160,6 +166,17 @@ def test_thinking_is_route_config_not_an_environment_toggle(tmp_path):
     settings = router.pick("agent_write", "default").settings
     assert settings["max_tokens"] == 16000 and settings["extra_body"]["reasoning_effort"] == "max"
     assert "temperature" not in settings
+
+
+def test_models_without_a_thinking_api_get_no_vendor_parameters(tmp_path):
+    config = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    config["models"]["deepseek-flash"]["thinking_api"] = "none"
+    router = configured(tmp_path, config=config)
+    settings = router.pick("agent_read", "default").settings
+    assert "extra_body" not in settings and settings["temperature"] == .2
+    config["routes"]["agent_write"]["thinking"] = "low"
+    with pytest.raises(ValidationError, match="thinking API"):
+        RoutingConfig.model_validate(config)
 
 
 def test_failed_turn_keeps_known_tokens_and_cost():

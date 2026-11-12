@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic_ai import Agent, RunContext, Tool
@@ -54,6 +55,19 @@ from tooling.executor import ToolExecutor, ToolInputInvalid, WriteGuardBlocked, 
 logger = logging.getLogger(__name__)
 
 ESCALATION_MARKERS = ("转人工", "人工客服", "人工坐席", "无法处理", "escalate")
+
+
+@dataclass
+class _TurnBudget:
+    """One Agent turn's model budget: route, deadline, usage measured across every run and the single failover."""
+    route: str
+    request_timeout_s: float
+    deadline_at: float
+    usage: RunUsage = field(default_factory=RunUsage)
+    failed_over: bool = False
+
+    def known_usage(self) -> Dict[str, int]:
+        return {key: int(getattr(self.usage, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
 
 
 class BaseAgent:
@@ -193,86 +207,17 @@ class BaseAgent:
         deps = AgentRunDeps(req)
         if self._skill_manager and self.spec.skills.disclosure == "progressive":
             req.skill_text = self._skill_manager.selected_prompt(req.message, req.intent_group, req.allowed_writes or ())
-        tenant = req.principal.tenant if req.principal is not None else None
-        route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
-        self.router.reload()
-        route_config = self.router.config.routes[route]
-        deadline_at = time.monotonic() + route_config.turn_deadline_s
-        deadline = asyncio.timeout_at(deadline_at)
-        measured = RunUsage()
-        failed_over = False
-        req.route_metadata = {"model": route_config.candidates[0],
-                              "route": route, "route_reason": "primary", "cost_usd": 0.0}
-        kwargs = dict(deps=deps, message_history=history_messages(req.history), usage=measured)
-
-        def known_usage():
-            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
-
-        async def run(prompt, **overrides):
-            nonlocal failed_over
-            routed = self.router.pick(route, tenant)
-            if routed.reason == "budget":
-                req.hidden_tools = req.hidden_tools | frozenset(name for name, tool in self.get_tools().items() if not tool.retry_safe)
-                prompt += "\n本租户当日模型预算已用完，不能起草新的写操作申请；请明确告知用户，仍可回答只读问题。"
-            async def invoke(selection):
-                req.route_metadata.update(model=selection.name, route=selection.route, route_reason=selection.reason)
-                model = DeadlineModel(selection.model, deadline=deadline_at, request_timeout_s=route_config.request_timeout_s)
-                options = {**kwargs, **overrides, "model": model, "model_settings": selection.settings,
-                           "usage_limits": UsageLimits(request_limit=selection.max_rounds)}
-                started = time.monotonic()
-                before_usage = known_usage()
-                try:
-                    response = (await self._run_streaming(prompt, req, options)
-                                if req.stream_answer and req.emit is not None else
-                                await self._runtime().run(prompt, **options))
-                except (asyncio.CancelledError, TurnDeadlineExceeded):
-                    self.router.breakers[selection.name].abandon_probe(selection.generation)
-                    raise
-                except MODEL_ERRORS as exc:
-                    if time.monotonic() >= deadline_at:
-                        self.router.breakers[selection.name].abandon_probe(selection.generation)
-                        raise TurnDeadlineExceeded("Agent turn deadline exceeded") from exc
-                    self.router.record(selection, time.monotonic() - started, success=not is_model_unavailable(exc))
-                    raise
-                finally:
-                    delta_usage = {key: value - before_usage[key] for key, value in known_usage().items()}
-                    req.route_metadata["cost_usd"] += self.router.cost(selection.name, delta_usage)
-                self.router.record(selection, time.monotonic() - started, success=True)
-                return response
-            try:
-                return await invoke(routed)
-            except MODEL_ERRORS as exc:
-                if not is_model_unavailable(exc) or req.first_token_ms is not None or failed_over:
-                    raise
-                failed_over = True
-                alternative = self.router.pick(route, tenant, excluding=frozenset({routed.name}), reason="failover")
-                return await invoke(alternative)
-
-        async def generate():
-            result = await run(turn_prompt(req))
-            problems = claim_problems(result.output or "", deps, req)
-            if problems:
-                flow.send("correct")
-                # 回答与本轮实际业务结果不一致（无据的“已提交”、失败未说明、无据的“已撤回”）：
-                # 带上具体不一致之处让模型补调工具或改口，只纠正一次。
-                logger.warning("agent reply disagrees with this turn's write results (%d); asking once to correct", len(problems))
-                metrics.AGENT_CLAIM_CHECKS.labels(outcome="corrected").inc()
-                req.signals.append("claim_corrected")
-                await req.publish("answer_reset", {})
-                correcting_at = time.monotonic()
-                try:
-                    result = await run(correction_prompt(problems), message_history=result.all_messages())
-                finally:
-                    req.stage_ms["claim_correction"] = (time.monotonic() - correcting_at) * 1000
-            return result
+        turn = self._start_turn(req)
+        deadline = asyncio.timeout_at(turn.deadline_at)
+        kwargs = dict(deps=deps, message_history=history_messages(req.history), usage=turn.usage)
 
         try:
             async with deadline:
-                result = await generate()
+                result = await self._generate(req, deps, turn, kwargs, flow)
         except (TimeoutError, TurnDeadlineExceeded) as exc:
             if not deadline.expired() and not isinstance(exc, TurnDeadlineExceeded):
                 flow.send("fail")
-                raise ModelUnavailableError("模型请求超时", deps.used, deps.traces, os.getenv("OPENAI_BASE_URL", ""), token_usage=known_usage()) from exc
+                raise ModelUnavailableError("模型请求超时", deps.used, deps.traces, os.getenv("OPENAI_BASE_URL", ""), token_usage=turn.known_usage()) from exc
             flow.send("deadline")
             req.signals.append("deadline")
             writes = {trace["tool_name"]: trace["output"] for trace in deps.traces
@@ -282,26 +227,26 @@ class BaseAgent:
                 else "待审批申请，审批通过后执行。")) for name, output in sorted(writes.items())])
                        if writes else "处理超时，请重试")
             await req.publish("answer_reset", {})
-            return AgentCallResult(content, deps.used, deps.traces, "partial", known_usage(), error_code="deadline")
+            return AgentCallResult(content, deps.used, deps.traces, "partial", turn.known_usage(), error_code="deadline")
         except asyncio.CancelledError:
             flow.send("cancel")
             raise
         except UsageLimitExceeded:
             flow.send("fail")
-            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit", token_usage=known_usage()) from None
+            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit", token_usage=turn.known_usage()) from None
         except UnexpectedModelBehavior as exc:
             flow.send("fail")
-            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output", token_usage=known_usage()) from exc
+            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output", token_usage=turn.known_usage()) from exc
         except Exception as exc:
             flow.send("fail")
             if is_model_unavailable(exc):
                 base_url = os.getenv("OPENAI_BASE_URL", "")
-                raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url, token_usage=known_usage()) from exc
+                raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url, token_usage=turn.known_usage()) from exc
             raise
         content = strip_execution_notes(result.output or "")
         if not content:
             flow.send("fail")
-            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output", token_usage=known_usage())
+            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output", token_usage=turn.known_usage())
         remaining = claim_problems(content, deps, req)
         if remaining:
             # 纠正一次后仍不一致：不再请求模型，追加以审批记录为准的确定性说明。
@@ -312,8 +257,63 @@ class BaseAgent:
         content = redact_user_secrets(content, req.message)
         status = "partial" if result.response.finish_reason == "length" else "success"
         flow.send("truncate" if status == "partial" else "complete")
-        return AgentCallResult(content, deps.used, deps.traces, status, known_usage())
+        return AgentCallResult(content, deps.used, deps.traces, status, turn.known_usage())
 
+
+
+    def _start_turn(self, req: Request) -> "_TurnBudget":
+        route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
+        self.router.reload()
+        config = self.router.config.routes[route]
+        req.route_metadata = {"model": config.candidates[0], "route": route, "route_reason": "primary", "cost_usd": 0.0}
+        return _TurnBudget(route, config.request_timeout_s, time.monotonic() + config.turn_deadline_s)
+
+    async def _generate(self, req: Request, deps: AgentRunDeps, turn: "_TurnBudget", kwargs: Dict[str, Any], flow):
+        result = await self._run_model(req, turn, turn_prompt(req), kwargs)
+        problems = claim_problems(result.output or "", deps, req)
+        if problems:
+            flow.send("correct")
+            # 回答与本轮实际业务结果不一致（无据的“已提交”、失败未说明、无据的“已撤回”）：
+            # 带上具体不一致之处让模型补调工具或改口，只纠正一次。
+            logger.warning("agent reply disagrees with this turn's write results (%d); asking once to correct", len(problems))
+            metrics.AGENT_CLAIM_CHECKS.labels(outcome="corrected").inc()
+            req.signals.append("claim_corrected")
+            await req.publish("answer_reset", {})
+            correcting_at = time.monotonic()
+            try:
+                result = await self._run_model(req, turn, correction_prompt(problems), {**kwargs, "message_history": result.all_messages()})
+            finally:
+                req.stage_ms["claim_correction"] = (time.monotonic() - correcting_at) * 1000
+        return result
+
+    async def _run_model(self, req: Request, turn: "_TurnBudget", prompt: str, kwargs: Dict[str, Any]):
+        """One Agent run on the routed model; fails over once per turn, only before any answer text was pushed."""
+        tenant = req.principal.tenant if req.principal is not None else None
+        routed = self.router.pick(turn.route, tenant)
+        if routed.reason == "budget":
+            req.hidden_tools = req.hidden_tools | frozenset(name for name, tool in self.get_tools().items() if not tool.retry_safe)
+            prompt += "\n本租户当日模型预算已用完，不能起草新的写操作申请；请明确告知用户，仍可回答只读问题。"
+        try:
+            return await self._invoke_model(req, turn, routed, prompt, kwargs)
+        except MODEL_ERRORS as exc:
+            if not is_model_unavailable(exc) or req.first_token_ms is not None or turn.failed_over:
+                raise
+            turn.failed_over = True
+            alternative = self.router.pick(turn.route, tenant, excluding=frozenset({routed.name}), reason="failover")
+            return await self._invoke_model(req, turn, alternative, prompt, kwargs)
+
+    async def _invoke_model(self, req: Request, turn: "_TurnBudget", selection, prompt: str, kwargs: Dict[str, Any]):
+        req.route_metadata.update(model=selection.name, route=selection.route, route_reason=selection.reason)
+        options = {**kwargs, "model": DeadlineModel(selection.model, deadline=turn.deadline_at, request_timeout_s=turn.request_timeout_s),
+                   "model_settings": selection.settings, "usage_limits": UsageLimits(request_limit=selection.max_rounds)}
+        before = turn.known_usage()
+        operation = (self._run_streaming(prompt, req, options) if req.stream_answer and req.emit is not None
+                     else self._runtime().run(prompt, **options))
+        try:
+            return await self.router.run(selection, operation, deadline_at=turn.deadline_at)
+        finally:
+            spent = {key: value - before[key] for key, value in turn.known_usage().items()}
+            req.route_metadata["cost_usd"] += self.router.cost(selection.name, spent)
 
     async def _run_streaming(self, prompt: str, req: Request, kwargs: Dict[str, Any]):
         """边生成边推送 answer_delta。带工具调用的那轮回复里的文字只是过渡语，推送 answer_reset 让前端清掉草稿。"""

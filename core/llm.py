@@ -21,22 +21,12 @@ from pydantic_ai.settings import ModelSettings
 DEFAULT_MODEL = "deepseek-flash"
 
 
-def _thinking_settings() -> Optional[ModelSettings]:
-    # DeepSeek 的 thinking 模式拒绝 required/指定函数的 tool_choice，结构化输出依赖它，需显式关闭。
-    thinking = (os.getenv("OPENAI_THINKING_TYPE") or "").strip().lower()
-    if not thinking:
-        return None
-    if thinking not in {"enabled", "disabled"}:
-        raise ValueError("OPENAI_THINKING_TYPE must be enabled or disabled")
-    return ModelSettings(extra_body={"thinking": {"type": thinking}})
-
-
-def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = "") -> Model:
-    """构造 PydanticAI Model；参数为空时取 OPENAI_* 环境变量。构造过程不发起网络请求。"""
+def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = "", settings: Optional[ModelSettings] = None) -> Model:
+    """构造 PydanticAI Model；参数为空时取 OPENAI_* 环境变量。settings 是厂商相关的模型级默认值（见 core/model_router）。构造过程不发起网络请求。"""
     name = model or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
     # 本地无鉴权服务不需要 key；空 key 时给占位值，避免 SDK 在构造期报错。
     provider = OpenAIProvider(base_url=base_url or os.getenv("OPENAI_BASE_URL") or None, api_key=api_key or os.getenv("OPENAI_API_KEY") or "sk-local")
-    return OpenAIChatModel(name, provider=provider, settings=_thinking_settings())
+    return OpenAIChatModel(name, provider=provider, settings=settings)
 
 
 async def close_model(model: Any) -> None:

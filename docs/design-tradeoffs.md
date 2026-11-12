@@ -41,7 +41,7 @@ IT-Copilot 定位为面向企业 IT 服务场景的 Agent 平台，覆盖员工�
 
 业务治理留在项目代码里而不交给框架：JSON Schema 校验、缺槽位时禁止写操作、同请求写操作去重、审批存储可用性守卫和 trace 都在 `BaseAgent._invoke_tool` 中完成；写工具以 `sequential=True` 注册为屏障，不与其他工具并发。熔断/TTL 缓存和混合 RAG 同样是自有逻辑。
 
-`core/llm.py` 是唯一的模型工厂：用 `OpenAIChatModel` 直连 OpenAI-compatible 服务，业务代码只依赖 PydanticAI 的 `Model` 抽象，换厂商只改环境变量。早期版本经一个自写的 Anthropic→OpenAI 协议网关转发，PydanticAI 原生支持 OpenAI 协议后这一跳没有存在价值，已删除。结构化输出依赖 `tool_choice=required`，而 DeepSeek 的 thinking 模式拒绝它，所以 `OPENAI_THINKING_TYPE=disabled` 通过 `extra_body` 关闭 thinking。真实密钥只在本地未提交环境变量中。
+`core/llm.py` 是唯一的模型工厂：用 `OpenAIChatModel` 直连 OpenAI-compatible 服务，业务代码只依赖 PydanticAI 的 `Model` 抽象，换厂商只改环境变量。早期版本经一个自写的 Anthropic→OpenAI 协议网关转发，PydanticAI 原生支持 OpenAI 协议后这一跳没有存在价值，已删除。结构化输出依赖 `tool_choice=required`，而 DeepSeek 的 thinking 模式拒绝它，所以 `config/model_routes.yaml` 里 DeepSeek 模型声明 `thinking_api: deepseek`，路由在模型级默认值和每次请求里经 `extra_body` 关闭 thinking；不支持该协议的模型写 `none`，不发送这个参数。真实密钥只在本地未提交环境变量中。
 
 ## 监控：为什么是“燃烧率 + 状态机”
 

@@ -199,7 +199,10 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    from core.llm import _thinking_settings, complete_text
+    import yaml
+
+    from core.llm import complete_text
+    from core.model_router import DEFAULT_CONFIG, RoutingConfig, model_defaults
 
     seen = {}
 
@@ -210,9 +213,9 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
             "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
         })
 
-    monkeypatch.setenv("OPENAI_THINKING_TYPE", "disabled")
+    config = RoutingConfig.model_validate(yaml.safe_load(DEFAULT_CONFIG.read_text())).models["deepseek-flash"]
     provider = OpenAIProvider(base_url="http://upstream.test/v1", api_key="k", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
-    model = OpenAIChatModel("m", provider=provider, settings=_thinking_settings())
+    model = OpenAIChatModel("m", provider=provider, settings=model_defaults(config))
     assert asyncio.run(complete_text(model, "hi", max_tokens=8)).text == "ok"
     assert seen["body"]["thinking"] == {"type": "disabled"}
 

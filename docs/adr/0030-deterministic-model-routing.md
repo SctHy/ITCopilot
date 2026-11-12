@@ -10,11 +10,11 @@
 
 - `config/model_routes.yaml` 声明模型凭据环境变量引用、能力、地域、数据等级、价格和按角色排列的候选。Pydantic 在加载时拒绝未知字段、非法数值、悬空引用、缺失工具能力和没有合规候选的租户。未单列租户显式继承 `default` 配置。
 - `ModelRouter.pick(route, tenant)` 先过滤合规、地域和熔断，再按配置顺序选择。首选最近五分钟 P95 超出该路由 SLO 时优先健康备选；每个模型复用现有 CircuitBreaker，generation 避免过时的并发结果关闭新熔断。取消释放半开探测。
-- 热加载检查文件 mtime，非法新配置抛出错误，成功加载写 `model_route` 变更事件；熔断打开也记录事件以供归因。
+- 启动时配置非法直接失败。热加载检查文件 mtime：运行中改出非法配置时拒绝这次修改、继续使用上一份已校验的配置，记录错误日志、`it_copilot_config_reloads_total{outcome=rejected}` 和 `model_route_rejected` 变更事件（同一次修改只报一次）；成功加载写 `model_route` 变更事件。熔断打开也记录事件以供归因。改错一个值不应让所有副本的全部模型调用立即失败。
 - `allowed_writes` 非空或 `None` 走规格的写路由，空集合走只读路由。只有尚未发送任何 `answer_delta` 时，模型不可用才允许切换一次；已发送文本后维持原失败边界。
 - 从 `turn_records` 计算租户 UTC 当日模型成本，缓存60秒。达到 `tenants.quotas.daily_cost_usd` 后，写路由隐藏所有副作用工具并说明预算，只读路由继续。确认已有草稿走确定性路径，记录 `model=none / route=confirmation / cost=0`。
 - Agent、意图、检索改写/重排、摘要、画像、共享事项进度建议及评测模型均通过 router 取得模型。后台画像任务保留提交者 context，以免平台级 worker 丢失租户而使用错误合规配置。
-- 思考档位和轮数只从路由配置读取，移除两个全局 Agent 环境变量。`ModelSettings.timeout` 限制供应商一次尝试；PydanticAI 的 `request_timeout` 则限制含SDK重试及读完流的整个请求。WP6进一步对两者施加整轮剩余时间上限。
+- 思考档位和轮数只从路由配置读取，移除两个全局 Agent 环境变量。思考开关的厂商协议由模型的 `thinking_api` 声明：`deepseek` 经 `extra_body` 开关，并作为模型级默认值关闭思考（覆盖不经路由设置的 `complete_text` 调用）；`none` 不发送任何思考参数，路由为其配置思考档位时加载失败。`OPENAI_THINKING_TYPE` 已移除。`ModelSettings.timeout` 限制供应商一次尝试；PydanticAI 的 `request_timeout` 则限制含SDK重试及读完流的整个请求。WP6进一步对两者施加整轮剩余时间上限。
 - 版本元数据记录最终候选、路由及选择原因；输入缓存按单独价格计费，从普通输入量中扣除。当前峰值估算见官方价格页，非供应商实际账单。
 - 当前只配置已有凭据的 `deepseek-flash`。价格于2026-11-12从 [DeepSeek官方价格页](https://api-docs.deepseek.com/quick_start/pricing/) 核验：峰值每百万输入/输出/缓存命中为0.30/1.20/0.006美元，非高峰减半。没有引入第二个真实供应商。
 

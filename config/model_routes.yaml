@@ -9,6 +9,7 @@ models:
     regions: [cn]
     data_classes: [public, internal]
     supports: [tools, tool_choice_required]
+    thinking_api: deepseek
 routes:
   intent_fallback: {candidates: [deepseek-flash], timeout_s: 3}
   agent_read: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 3, latency_slo_s: 6, turn_deadline_s: 20}
