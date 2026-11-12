@@ -66,6 +66,10 @@ PROBES: Dict[Tuple[str, str], Tuple[Request, str]] = {
     ("POST", "/approvals/{approval_id}/release"): (post("/approvals/{private}/release"), "deny"),
     ("POST", "/approvals/{approval_id}/reconcile"): (post("/approvals/{private}/reconcile"), "deny"),
     ("GET", "/approvals/{approval_id}/audit"): (get("/approvals/{private}/audit"), "deny"),
+    ("GET", "/business/employees/{employee_id}"): (get("/business/employees/1001"), "deny"),  # same id, own (empty) directory
+    ("GET", "/knowledge/documents"): (get("/knowledge/documents"), "list"),
+    ("DELETE", "/knowledge/documents/{document_id}"): (delete("/knowledge/documents/{doc}"), "deny"),
+    ("POST", "/search"): (post("/search", query=MARK), "list"),
     ("GET", "/admin/audit"): (get("/admin/audit", limit=500), "list"),
     ("GET", "/admin/sessions/revocations"): (get("/admin/sessions/revocations"), "list"),
     ("GET", "/tasks"): (get("/tasks"), "list"),
@@ -104,17 +108,14 @@ PROBES: Dict[Tuple[str, str], Tuple[Request, str]] = {
 }
 
 # Known cross-tenant leaks: route -> (probe, kind, plan phase that closes it).
-GAPS: Dict[Tuple[str, str], Tuple[Request, str, str]] = {
-    ("GET", "/knowledge/documents"): (get("/knowledge/documents"), "list", "阶段 2：知识库只按部门过滤"),
-    ("DELETE", "/knowledge/documents/{document_id}"): (delete("/knowledge/documents/{doc}"), "deny", "阶段 2：别的租户的管理员能删本租户文档"),
-    ("POST", "/search"): (post("/search", query=MARK), "list", "阶段 2：检索按部门，'*' 对所有租户可见"),
-    ("GET", "/business/employees/{employee_id}"): (get("/business/employees/1001"), "deny", "阶段 1：沙箱目录与授权台账没有 tenant"),
-}
+GAPS: Dict[Tuple[str, str], Tuple[Request, str, str]] = {}
 
 # Act on the caller's own tenant only; ``test_own_scope_writes_stay_in_the_callers_tenant`` checks
 # the owner's data afterwards, and the routes' own tests cover the rest.
 OWN_SCOPE = {
     ("POST", "/tasks"), ("GET", "/auth/me"), ("POST", "/auth/logout-all"), ("POST", "/admin/sessions/revoke"),
+    ("POST", "/knowledge/add"), ("POST", "/knowledge/upload"), ("GET", "/knowledge/stats"),
+    ("GET", "/policy"), ("POST", "/policy/revalidate"),   # caller's tenant policy; platform admins sweep all
 }
 
 # Isolation tested elsewhere with a same-subject, other-tenant caller.
@@ -133,10 +134,8 @@ PLATFORM = {
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
     ("POST", "/channels/feishu/events"): "signed by Feishu; tenant mapping in 阶段 1",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",
-    ("GET", "/skills"): "", ("POST", "/skills/reload"): "阶段 3：应改为平台管理员",
-    ("GET", "/policy"): "阶段 3：按租户策略", ("POST", "/policy/revalidate"): "阶段 3：只复核本租户",
-    ("POST", "/ops/retention/run"): "阶段 1：按租户清理", ("GET", "/knowledge/stats"): "阶段 2：无鉴权的全局片段数",
-    ("POST", "/knowledge/add"): "阶段 2：写入全局知识库", ("POST", "/knowledge/upload"): "阶段 2：写入全局知识库",
+    ("GET", "/skills"): "", ("POST", "/skills/reload"): "多租户模式下仅运营方租户的平台管理员（ADR 0025）",
+    ("POST", "/ops/retention/run"): "同上",
 }
 
 
@@ -149,7 +148,7 @@ def world(env, caps, db_url, monkeypatch):  # noqa: F811
 
     async def knowledge(params, ctx=None):
         return await kb.search_handler(params, ctx)
-    tools.register(Tool(name="knowledge_search", description="kb", handler=knowledge, schema=KNOWLEDGE_SEARCH_SCHEMA))
+    tools.register(Tool(name="knowledge_search", description="kb", handler=knowledge, schema=KNOWLEDGE_SEARCH_SCHEMA, cache_ttl=60))  # as in production
     sessions = SessionRevocations(workflow.engine, cache_ttl_s=0)
     for name, value in {"workflow": workflow, "tasks": tasks, "task_capabilities": caps, "task_worker": None, "worker": None,
                         "kb": kb, "tool_manager": tools, "sessions": sessions, "memory": None, "tenants": None,
@@ -225,6 +224,8 @@ def test_no_route_reaches_another_tenants_objects(world):
     assert dict((r[0], r[1]) for r in before["approvals"][0])[ids["private"]] == "pending" and len(before["documents"]) == 2 and before["revocations"] == [f"dev:{MARK}"]
     for who in ("alice", "erin"):  # the owner's tenant sees the marked data, so the sweep would notice a leak
         assert MARK in client.get("/tasks", headers=auth(who)).text
+        # Also warms the knowledge_search result cache: an intruder's identical query must not hit it.
+        assert MARK in client.post("/search", params={"query": MARK}, headers=auth(who)).text
     failures = [f for request, kind in PROBES.values() for f in probe(client, request, kind, ids)]
     assert failures == [], "\n".join(failures)
     assert snapshot(workflow, tasks, kb, sessions, ids) == before
@@ -254,3 +255,11 @@ def test_own_scope_writes_stay_in_the_callers_tenant(world):
     assert after == before
     assert sorted(r["subject"] for r in sessions.list("intruder")) == sorted(["dev:alice", f"dev:{MARK}"])
     assert client.get("/tasks", headers=auth("alice")).status_code == 200   # A's alice was not signed out
+    # Knowledge flows neither way: B's upload is searchable in B only, and A's stats do not count it.
+    stats = client.get("/knowledge/stats", headers=auth("alice")).json()["total_chunks"]
+    added = client.post("/knowledge/add", headers=erin, json={"documents": [{"title": "B-ONLY-91C SOP", "content": "B-ONLY-91C 证书"}]})
+    assert added.status_code == 200 and added.json()["total_chunks"] == 1
+    assert "B-ONLY-91C" in client.post("/search", params={"query": "B-ONLY-91C"}, headers=auth("bob", tenant="intruder")).text
+    for who in ("alice", "erin"):
+        assert "B-ONLY-91C" not in client.post("/search", params={"query": "B-ONLY-91C"}, headers=auth(who)).text
+    assert client.get("/knowledge/stats", headers=auth("alice")).json()["total_chunks"] == stats

@@ -31,7 +31,7 @@ def _own_record(req, directory):
         raise ValueError("台账服务不可用")
     if not employee_id:
         raise ValueError("当前登录身份未绑定工号，无法查询台账")
-    return directory.employee(employee_id) or {"devices": [], "tickets": []}
+    return directory.employee(employee_id, principal.tenant) or {"devices": [], "tickets": []}
 
 
 def lookup_asset(req, args, directory):
@@ -67,7 +67,7 @@ def _pending(req, args, action):
     principal = getattr(req, "principal", None)
     if action == "create_ticket" and not args.get("employee_id"):
         args["employee_id"] = (principal.employee_id if principal else None) or next(iter(req.entities.get("employee_id", [])), "")
-    policy = load_policy()
+    policy = load_policy(getattr(principal, "tenant", None))  # the caller's tenant overlay (ADR 0025)
     normalised = policy.normalise({"tool_name": action, "arguments": args})
     if principal is not None:
         policy.check_requester(normalised, principal.employee_id, principal.roles)

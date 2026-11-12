@@ -1,5 +1,36 @@
 # Changelog
 
+## 未发布 — 多租户阶段 3：租户策略、租户目标系统与平台管理员
+
+见 ADR 0025。
+
+- 租户策略覆盖 `config/policies/<tenant>.yaml`：只能在平台基线上收紧（审批人数、时长、可申请的系统和角色、审批人和代申请角色、需申请人确认的操作），放宽或基线没有的内容在加载时拒绝；没有覆盖的租户策略和版本号都与之前相同。示例见 `config/policies/acme.yaml.sample`。
+- 审批、确认、复核、执行前检查、授权到期检查、智能体工具预检、事项回合、目标核验，都使用所属租户的策略；`revalidate(tenant)` 按租户复核；worker 发现任一覆盖变化时复核，并在该租户名下审计 `policy_loaded`。`GET /policy` 返回调用者所在租户的策略。
+- 租户自己的目标系统 `config/tenant_adapters.yaml`（凭据只写环境变量名）：多租户模式下，部署自己的 Gitea 只为运营方租户执行，没有配置的租户只有本地沙箱。动作按审批单所属的租户选择适配器。
+- 新角色 `platform_admin`（多租户模式下只在运营方租户 `IT_COPILOT_PLATFORM_TENANT` 内有效）：`/skills/reload`、`/ops/retention/run` 需要该角色；`/policy/revalidate` 由租户管理员发起时只复核本租户。单租户模式下行为不变。
+- 静态守卫只认真正的租户过滤（`.c.tenant ==`、与 `principal.tenant` 的比较、写入时设置 tenant），只是读取 `row["tenant"]` 不算。
+
+## 未发布 — 多租户阶段 2：按租户隔离的知识库
+
+见 ADR 0024。
+
+- 每个租户一个知识库（`KnowledgeLibrary`）：自己的向量 collection 和自己的 BM25 索引；`default` 沿用原来的 collection。检索、列出、导入、删除都只作用于调用者的租户；`knowledge_search` 的租户取自请求作用域，工具参数里没有 tenant 字段。
+- `knowledge_search` 的结果缓存 key 包含租户，相同查询不会跨租户命中缓存。
+- `/knowledge/stats` 改为需要登录（行为变化）。
+- 跨租户巡检不再有已知缺口；知识库同时验证了两个方向。
+- 未实现：平台公共知识库与租户订阅。多租户模式下 `/mcp` 的检索直接报错（它没有鉴权，不知道调用者的租户）。
+
+## 未发布 — 多租户阶段 1：租户作用域与行级安全
+
+见 ADR 0023。
+
+- 租户作用域（`core/tenant_context.py`）：请求进入调用者的租户（`current_principal` 改为 async），飞书消息、执行 worker 的每个动作、事项 worker、目标核验进入各自的租户，启动过程与其余后台循环进入系统作用域 `*`。
+- 多租户模式下：令牌必须带 tenant；签发方必须是租户登记的 issuer（没有登记时用默认签发方），不匹配返回 401；OIDC 也信任各租户登记的 realm，未知签发方在取公钥之前就拒绝；飞书消息必须来自租户登记的工作区。
+- 迁移 `0004`：`actions`、`access_grants`、`audit`、`approval_decisions` 增加 tenant 列；沙箱目录 `directory_*` 的主键加上 tenant，每个租户有自己的目录（`seed_directory(tenant)`）。`/business/employees/{id}` 只查本租户，跨租户泄漏已修复。
+- 迁移 `0005`：PostgreSQL 行级安全。每个事务设置 `app.tenant`，未设置时什么都看不到。多租户模式下，连接角色能绕过 RLS（超级用户或 BYPASSRLS）时拒绝启动；`deploy/postgres/app-role.sql` 创建普通角色 `itc_app`。默认 compose 暂不切换角色。
+- worker 在多租户模式下不领取停用租户的动作，恢复后按原顺序继续执行。
+- `WorkflowStore.employee(employee_id, tenant)` 必须传 tenant；测试中直接操作沙箱目录时用 `tests.conftest.run_in_tenant`。
+
 ## 未发布 — 多租户阶段 0：租户注册表与隔离巡检
 
 见 ADR 0022 与 [docs/multi-tenant-plan.md](docs/multi-tenant-plan.md)。

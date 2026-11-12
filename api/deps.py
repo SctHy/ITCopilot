@@ -10,7 +10,9 @@ from typing import Any, Dict, Optional
 from fastapi import Depends, Header, HTTPException
 
 from api import state
-from core.identity import ROLE_IT_ADMIN, AuthError, Principal, principal_from_token
+from core import tenant_context
+from core.env import multi_tenant_enabled
+from core.identity import ROLE_IT_ADMIN, ROLE_PLATFORM_ADMIN, AuthError, Principal, principal_from_token
 from monitor import metrics
 
 logger = logging.getLogger("it_copilot")
@@ -78,16 +80,18 @@ async def admin_change(principal: Principal, event: str, subject: Optional[str] 
                             detail=change.detail or None)
 
 
-def check_tenant(tenant: str) -> None:
-    """Multi-tenant mode (ADR 0022): the token's tenant must be registered and active. Fails closed."""
+def check_tenant(principal: Principal) -> None:
+    """Multi-tenant mode (ADR 0022/0023): the token's tenant must be registered and active, and the
+    token must come from that tenant's issuer. Fails closed."""
     from core.tenancy import TenantUnavailable
 
     try:
-        state.tenants.check(tenant)
+        state.tenants.check(principal.tenant, principal.issuer or "")
     except TenantUnavailable as exc:
-        if exc.reason == "unknown":
-            metrics.AUTH_FAILURES.labels(reason="unknown_tenant").inc()
-            raise HTTPException(401, "租户未开通", headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}) from None
+        if exc.reason in {"unknown", "issuer_mismatch"}:
+            metrics.AUTH_FAILURES.labels(reason="unknown_tenant" if exc.reason == "unknown" else "issuer_mismatch").inc()
+            detail = "租户未开通" if exc.reason == "unknown" else "令牌签发方与租户不匹配"
+            raise HTTPException(401, detail, headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}) from None
         metrics.AUTH_FAILURES.labels(reason="tenant_inactive").inc()
         raise HTTPException(403, "租户已停用，请联系平台管理员") from None
     except Exception:
@@ -95,17 +99,21 @@ def check_tenant(tenant: str) -> None:
         raise HTTPException(503, "身份校验暂不可用，请稍后重试") from None
 
 
-def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
+def _verify(authorization: Optional[str]) -> Principal:
     scheme, _, token = (authorization or "").partition(" ")
     try:
         if scheme.lower() != "bearer":
             raise AuthError("missing bearer token")
-        principal = principal_from_token(token.strip())
+        return principal_from_token(token.strip())
     except AuthError as exc:
         metrics.AUTH_FAILURES.labels(reason="unauthenticated").inc()
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+def _admit(principal: Principal) -> None:
+    """Tenant, revocation and directory checks for a verified token; runs in the principal's tenant scope."""
     if state.tenants is not None:
-        check_tenant(principal.tenant)
+        check_tenant(principal)
     if state.sessions is not None:
         try:
             revoked = state.sessions.is_revoked(principal)
@@ -122,6 +130,24 @@ def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
             access.observe(principal)  # directory upkeep for task invites; must not gate unrelated endpoints
         except Exception:
             logger.warning("task identity observe failed; retried on next request", exc_info=True)
+
+
+async def current_principal(authorization: Optional[str] = Header(None)) -> Principal:
+    """The verified caller. Also enters the caller's tenant scope for the rest of the request
+    (ADR 0023): async so the scope is set in the request's own context - a sync dependency runs in a
+    worker thread whose context changes never reach the endpoint. Database checks run in a thread,
+    which inherits the scope."""
+    principal = _verify(authorization)
+    tenant_context.enter(principal.tenant)
+    await asyncio.to_thread(_admit, principal)
+    return principal
+
+
+def authenticate(authorization: Optional[str]) -> Principal:
+    """Synchronous ``current_principal`` for callers outside a request; scopes only its own checks."""
+    principal = _verify(authorization)
+    with tenant_context.tenant_scope(principal.tenant):
+        _admit(principal)
     return principal
 
 
@@ -135,6 +161,26 @@ def require_roles(*roles: str):
 
 
 require_admin = require_roles(ROLE_IT_ADMIN)
+
+
+def platform_tenant() -> str:
+    return os.getenv("IT_COPILOT_PLATFORM_TENANT", "default")
+
+
+def is_platform_admin(principal: Principal) -> bool:
+    """Who may act on the deployment as a whole (ADR 0025). One organisation per deployment: its IT
+    admins, as before. Multi-tenant: the ``platform_admin`` role, and only in the operator tenant
+    (IT_COPILOT_PLATFORM_TENANT) - a tenant's own IdP can grant itself any role, not this authority."""
+    if not multi_tenant_enabled():
+        return principal.is_admin
+    return ROLE_PLATFORM_ADMIN in principal.roles and principal.tenant == platform_tenant()
+
+
+def require_platform_admin(principal: Principal = Depends(current_principal)) -> Principal:
+    if not is_platform_admin(principal):
+        metrics.AUTH_FAILURES.labels(reason="forbidden").inc()
+        raise HTTPException(403, "需要平台管理员：该操作作用于整个部署")
+    return principal
 
 
 def forbid(message: str = "无权访问该资源"):

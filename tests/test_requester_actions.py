@@ -3,7 +3,6 @@
 Both reuse the approval CAS and the revoke action queued at grant time, so they inherit the
 existing guarantees (one terminal transition, drift-checked revocation, audit per change).
 """
-import asyncio
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import api.main as api
 from api import state
-from tests.conftest import auth
+from tests.conftest import auth, run_in_tenant
 from tests.test_workflow import ALICE, BOB, ERIN, Clock, access, create, run
 from workflow.adapters import AdapterRegistry
 from workflow.adapters.local import LocalDirectoryAdapter
@@ -47,7 +46,7 @@ def test_requester_withdraws_a_pending_request_and_nothing_executes(env):
     # A vote arriving after the withdrawal changes nothing.
     assert store.decide("a", "approved", BOB, pending["payload_hash"])["status"] == "withdrawn"
     run(worker)
-    assert store.employee("1001")["grants"] == [] and store.get("a")["results"] == []
+    assert store.employee("1001", "default")["grants"] == [] and store.get("a")["results"] == []
     withdrawn = [e for e in store.audit("a") if e["event"] == "withdrawn"]
     assert withdrawn == [{"event": "withdrawn", "actor": "dev:alice", "action_id": None, "detail": {"reason": "不需要了"}, "at": withdrawn[0]["at"]}]
     assert store.withdraw("missing", ALICE) is None
@@ -107,14 +106,14 @@ def granted(store, worker, approval_id="a", principal=ALICE, actions=None):
 def test_requester_gives_access_back_before_it_expires(env):
     store, worker, clock = env
     body = granted(store, worker)
-    assert store.employee("1001")["grants"] and body["lifecycle"] == "active_until_revocation"
+    assert store.employee("1001", "default")["grants"] and body["lifecycle"] == "active_until_revocation"
     with pytest.raises(ApprovalForbidden):
         store.release("a", DAVE)                                    # unrelated colleague
     released = store.release("a", ALICE)
     grant_id = body["results"][0]["operation_id"]
     assert released["released"] == [grant_id]
     run(worker)
-    state_ = store.employee("1001")
+    state_ = store.employee("1001", "default")
     assert state_["grants"] == [] and state_["access_ledger"][0]["status"] == "revoked"
     assert store.get("a")["lifecycle"] == "completed"
     assert store.release("a", ALICE)["released"] == []             # idempotent once given back
@@ -133,24 +132,24 @@ def test_holder_or_admin_may_release_but_other_tenants_may_not(env):
         store.release("a", dataclasses.replace(ERIN, tenant="other"))
     assert store.release("a", ERIN)["released"]                     # IT admin, same tenant
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
 
 
 def test_release_keeps_preexisting_and_drifted_access(env):
     store, worker, _ = env
     adapter = worker.registry.local
-    asyncio.run(adapter.apply("seed", access(role="developer", system="gitlab")))
+    run_in_tenant(adapter.apply("seed", access(role="developer", system="gitlab")))
     granted(store, worker, "pre", ALICE, [access(role="readonly", duration_hours=8)])
     with pytest.raises(ApprovalStateConflict):
         store.release("pre", ALICE)                                 # nothing was granted, nothing to give back
     granted(store, worker, "b", ALICE, [access(system="Jira", duration_hours=8)])
-    asyncio.run(adapter.apply("manual-upgrade", access(system="jira", role="reporter")))
+    run_in_tenant(adapter.apply("manual-upgrade", access(system="jira", role="reporter")))
     store.release("b", ALICE)
     run(worker)
     # Early release goes through the same drift check as expiry: someone else's change survives.
-    grants = {g["system"]: g["role"] for g in store.employee("1001")["grants"]}
+    grants = {g["system"]: g["role"] for g in store.employee("1001", "default")["grants"]}
     assert grants == {"gitlab": "developer", "jira": "reporter"}
-    assert {g["system"]: g["status"] for g in store.employee("1001")["access_ledger"]}["jira"] == "drifted"
+    assert {g["system"]: g["status"] for g in store.employee("1001", "default")["access_ledger"]}["jira"] == "drifted"
 
 
 def test_pending_request_has_nothing_to_release(env):
@@ -189,5 +188,5 @@ def test_withdraw_and_release_endpoints(http):
     assert response.status_code == 200 and len(body["released"]) == 1
     assert body["revocations"][0]["status"] == "queued" and body["revocations"][0]["phase"] == "ready"
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     assert client.post("/approvals/w/release", headers=auth("alice")).status_code == 409

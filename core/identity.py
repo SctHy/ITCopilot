@@ -18,17 +18,21 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Iterable, Optional
+from typing import Any, Callable, Dict, FrozenSet, Iterable, Optional, Set
 
 import jwt
 import yaml
+from core.env import multi_tenant_enabled
 from core.scopes import identity_scope
 
 ROLE_EMPLOYEE = "employee"
 ROLE_APPROVER = "approver"
 ROLE_IT_ADMIN = "it_admin"
 ROLE_AUDITOR = "auditor"
-KNOWN_ROLES = frozenset({ROLE_EMPLOYEE, ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR})
+# Operates the deployment itself (skills, retention, every tenant's policy sweep). Counts only for
+# identities of the operator tenant in multi-tenant mode (api.deps.is_platform_admin, ADR 0025).
+ROLE_PLATFORM_ADMIN = "platform_admin"
+KNOWN_ROLES = frozenset({ROLE_EMPLOYEE, ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR, ROLE_PLATFORM_ADMIN})
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _DEV_ISSUER = "it-copilot-dev"
@@ -53,6 +57,9 @@ class Principal:
     # Token issue time (epoch seconds); None for identities not taken from a token (IM mapping,
     # stored records). Not part of identity equality.
     issued_at: Optional[int] = field(default=None, compare=False, repr=False)
+    # Token issuer; None for identities not taken from a token. Bound to the tenant in
+    # multi-tenant mode (core.tenancy, ADR 0023). Not part of identity equality.
+    issuer: Optional[str] = field(default=None, compare=False, repr=False)
 
     @property
     def scope_key(self) -> str:
@@ -134,11 +141,31 @@ def _jwks_client(url: str) -> jwt.PyJWKClient:
     return jwt.PyJWKClient(url, cache_keys=True, lifespan=600)
 
 
+# Further issuers to trust besides OIDC_ISSUER: in multi-tenant mode the API sets this to the
+# tenant registry's bound issuers (one Keycloak realm per tenant). Which tenant a token may
+# claim is checked against the same binding afterwards (core.tenancy.TenantRegistry.check).
+extra_issuers: Callable[[], Set[str]] = frozenset
+
+
+def default_issuer() -> str:
+    """The issuer of tenants without their own: OIDC_ISSUER, or the dev issuer in dev mode."""
+    return os.getenv("OIDC_ISSUER", "").rstrip("/") if auth_mode() == "oidc" else _DEV_ISSUER
+
+
 def _oidc_claims(token: str) -> Dict[str, Any]:
-    issuer = os.getenv("OIDC_ISSUER", "").rstrip("/")
-    if not issuer:
+    main = os.getenv("OIDC_ISSUER", "").rstrip("/")
+    if not main:
         raise AuthError("OIDC_ISSUER is not configured")
-    jwks_url = os.getenv("OIDC_JWKS_URL") or f"{issuer}/protocol/openid-connect/certs"
+    try:
+        claimed = str(jwt.decode(token, options={"verify_signature": False}).get("iss") or "").rstrip("/")
+    except jwt.PyJWTError as exc:
+        raise AuthError(f"invalid token: {type(exc).__name__}") from exc
+    # The unverified issuer only picks which keys to verify with; an issuer we do not trust is
+    # refused before any key is fetched from it.
+    if claimed != main and claimed not in {i.rstrip("/") for i in extra_issuers()}:
+        raise AuthError("untrusted token issuer")
+    issuer = claimed
+    jwks_url = (os.getenv("OIDC_JWKS_URL") if issuer == main else None) or f"{issuer}/protocol/openid-connect/certs"
     audience = os.getenv("OIDC_AUDIENCE", "it-copilot")
     try:
         key = _jwks_client(jwks_url).get_signing_key_from_jwt(token).key
@@ -187,11 +214,19 @@ def principal_from_token(token: str) -> Principal:
         # Department drives knowledge filtering and approval routing; a token without
         # it is not usable rather than silently defaulting to a broad scope.
         raise AuthError("token has no department claim")
+    tenant = claims.get("tenant")
+    if not tenant:
+        # One-organisation deployments may omit the claim; with several tenants a token that does
+        # not say whose it is must not fall into "default" (ADR 0023).
+        if multi_tenant_enabled():
+            raise AuthError("token has no tenant claim")
+        tenant = "default"
     employee_id = claims.get("employee_id")
     if isinstance(employee_id, list):
         employee_id = employee_id[0] if employee_id else None
     return Principal(
         subject=str(claims["sub"]), username=str(claims.get("preferred_username") or claims["sub"]),
         department=str(department), roles=_roles(claims), employee_id=str(employee_id) if employee_id else None,
-        tenant=str(claims.get("tenant") or "default"), issued_at=int(claims["iat"]) if isinstance(claims.get("iat"), (int, float)) else None,
+        tenant=str(tenant), issued_at=int(claims["iat"]) if isinstance(claims.get("iat"), (int, float)) else None,
+        issuer=str(claims.get("iss") or "").rstrip("/") or None,
     )

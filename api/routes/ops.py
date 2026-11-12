@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from api import state
-from api.deps import current_principal, forbid, admin_change, require_admin, require_roles
+from api.deps import current_principal, forbid, admin_change, require_platform_admin, require_roles
 from core.identity import ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
 
@@ -26,7 +26,7 @@ async def skills():
 
 
 @router.post("/skills/reload")
-async def reload_skills(principal: Principal = Depends(require_admin)):
+async def reload_skills(principal: Principal = Depends(require_platform_admin)):
     async with admin_change(principal, "skills_reloaded") as change:
         body = state.skills.summary() if state.skills and state.skills.reload() is not None else {"count": 0}
         change.detail = {"count": body.get("count", 0)}
@@ -85,7 +85,7 @@ async def trace_request(request_id: str, principal: Principal = Depends(current_
 
 
 @router.post("/ops/retention/run")
-async def run_retention(principal: Principal = Depends(require_admin)):
+async def run_retention(principal: Principal = Depends(require_platform_admin)):
     """立即执行一次保留期清理（后台每小时也会执行）；返回各类删除行数。审批、执行与审计记录不会被清理。"""
     if state.retention is None:
         raise HTTPException(503, "service not ready")

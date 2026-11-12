@@ -149,3 +149,27 @@ def test_cli_adds_suspends_and_lists(db_url, monkeypatch, capsys):
     assert cli.main(["list"]) == 0
     listed = capsys.readouterr().out.split("\n")
     assert any(line.split()[:3] == ["acme", "suspended", "enterprise"] for line in listed)
+
+
+def test_tenant_columns_are_backfilled_and_audit_stays_append_only(db_url):
+    """Migration 0004 on existing data (ADR 0023)."""
+    from sqlalchemy.exc import DatabaseError
+
+    upgrade(db_url, "0003")
+    engine = create_engine(db_url)
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO approvals (id, request_id, requester, tenant, status, execution, payload_hash, policy_version, "
+                        "approvals_required, payload, version, created_at, expires_at) VALUES "
+                        "('ap', 'r', 'dev:alice', 'acme', 'pending', 'not_executed', 'h', 'v', 1, '{}', 0, 0, 0)"))
+        db.execute(text("INSERT INTO audit (approval_id, event, actor, at) VALUES ('ap', 'created', 'x', 0), ('gone', 'created', 'x', 0)"))
+        db.execute(text("INSERT INTO directory_employees (id, username, active, locked, password_version) VALUES ('1001', 'alice', 1, 0, 0)"))
+    engine.dispose()
+    upgrade(db_url, "head")
+    engine = create_engine(db_url)
+    with engine.connect() as db:
+        assert dict(db.execute(text("SELECT approval_id, tenant FROM audit")).all()) == {"ap": "acme", "gone": "default"}
+        assert db.execute(text("SELECT tenant, id FROM directory_employees WHERE id = '1001'")).all() == [("default", "1001")]
+    with pytest.raises(DatabaseError, match="append-only"):
+        with engine.begin() as db:
+            db.execute(text("UPDATE audit SET actor = 'someone else'"))
+    engine.dispose()

@@ -23,6 +23,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from core.env import multi_tenant_enabled
+from core.tenancy import DEFAULT_TENANT
+from core.tenant_context import SYSTEM, TenantContextMissing, current_tenant
 from core.vector_store import VectorStore
 from core.protocols import CacheState, cache_state
 from core.states import Protocol
@@ -50,15 +53,13 @@ DOCUMENT_UPDATE = Protocol("document_update", "prepared", {
 })
 
 
-class KnowledgeBase:
+class KnowledgeLibrary:
     """
-    RAG 知识库。向量由本地中英 embedding（core/embedding.py，默认 jina-embeddings-v2-base-zh）生成，
-    存在 PostgreSQL（pgvector）或本地 SQLite，不调用外部 Embeddings API。
+    一个租户的知识库（ADR 0024）。向量由本地中英 embedding（core/embedding.py，默认 jina-embeddings-v2-base-zh）生成，
+    存在 PostgreSQL（pgvector）或本地 SQLite，不调用外部 Embeddings API。每个租户一个 collection、一份 BM25 索引。
     """
 
-    COLLECTION_NAME = "knowledge_base"
-
-    def __init__(self, database_url: str):
+    def __init__(self, store: VectorStore, collection: str, *, seed_demo: bool = False):
         self._write_lock = threading.RLock()
         self._index_lock = threading.RLock()
         self._lexical_index: Dict[str, Dict[str, Any]] = {}
@@ -68,11 +69,10 @@ class KnowledgeBase:
         self._mask_cache: Dict[Optional[str], np.ndarray] = {}
         self._indexed_version: tuple = (-1, 0.)
         # Docker 已预下载 embedding 模型，本地首次使用会下载。
-        self._collection = VectorStore(database_url).collection(self.COLLECTION_NAME)
+        self._collection = store.collection(collection)
 
-        # 非生产环境导入演示知识库：只写入新增或内容有变化的文档，已有数据库也能补齐。
-        seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}
-        self._seeding_demo = os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo
+        # 非生产环境给 default 租户导入演示知识库：只写入新增或内容有变化的文档，已有数据库也能补齐。
+        self._seeding_demo = seed_demo
         if self._seeding_demo:
             self._load_default_docs()
         self._rebuild_lexical_index()
@@ -317,22 +317,6 @@ class KnowledgeBase:
         """异步获取文档片段数量。"""
         return await asyncio.to_thread(self._collection.count)
 
-    # ── MCP 工具 handler ─────────────────────────────────────────────────────
-
-    async def search_handler(self, params: Dict[str, Any], context: Any) -> List[Dict]:
-        """
-        作为 MCP 工具的 handler 注册。
-
-        MCPToolManager.register(Tool(
-            name="knowledge_search",
-            handler=kb.search_handler,
-            ...
-        ))
-        """
-        query = params.get("query", "")
-        top_k = params.get("top_k", 5)
-        return await self.search_async(query, top_k=top_k, department=params.get("department"), mode=params.get("mode", "hybrid"))
-
     # ── 内部方法 ──────────────────────────────────────────────────────────────
 
     def _chunk_text(self, text: str, chunk_size: int = 500) -> List[str]:
@@ -385,3 +369,78 @@ class KnowledgeBase:
             return "stale"
         logger.info("跳过演示文档《%s》：知识库中已有非演示来源的同名文档", doc["title"])
         return "foreign"
+
+
+class KnowledgeBase:
+    """Per-tenant knowledge libraries behind one interface (ADR 0024).
+
+    Each tenant's documents live in their own vector collection with their own BM25 index:
+    ``knowledge_base`` for ``default`` (the collection that existed before tenants, so no data
+    moves) and ``knowledge_base:<tenant>`` for the others. A search, list, add or delete only ever
+    touches one tenant's library, so ``department`` filtering happens inside a tenant.
+
+    ``tenant`` is resolved as: the argument; else the tenant scope (``core.tenant_context``) -
+    a request's caller, which is how the ``knowledge_search`` tool gets it without the model ever
+    seeing or choosing it; else ``default``, but only when multi-tenant mode is off.
+    """
+
+    COLLECTION_NAME = "knowledge_base"
+    _tokens = staticmethod(KnowledgeLibrary._tokens)
+
+    def __init__(self, database_url: str):
+        self._store = VectorStore(database_url)
+        self._libraries: Dict[str, KnowledgeLibrary] = {}
+        self._lock = threading.Lock()
+        seed_demo = os.getenv("IT_COPILOT_SEED_DEMO_DOCS", "true").lower() in {"1", "true", "yes"}
+        self._seed_demo = os.getenv("IT_COPILOT_ENV", "development").lower() != "production" and seed_demo
+        self.library(DEFAULT_TENANT)  # load (and seed) the default library at startup, as before
+
+    @staticmethod
+    def resolve(tenant: Optional[str] = None) -> str:
+        if tenant:
+            return tenant
+        scoped = current_tenant()
+        if scoped and scoped != SYSTEM:
+            return scoped
+        if multi_tenant_enabled():
+            raise TenantContextMissing("knowledge base access needs a tenant")
+        return DEFAULT_TENANT
+
+    def library(self, tenant: Optional[str] = None) -> KnowledgeLibrary:
+        tenant = self.resolve(tenant)
+        with self._lock:
+            library = self._libraries.get(tenant)
+            if library is None:
+                name = self.COLLECTION_NAME if tenant == DEFAULT_TENANT else f"{self.COLLECTION_NAME}:{tenant}"
+                library = self._libraries[tenant] = KnowledgeLibrary(self._store, name, seed_demo=self._seed_demo and tenant == DEFAULT_TENANT)
+            return library
+
+    def add_documents(self, documents: List[Dict[str, str]], *, tenant: Optional[str] = None) -> int:
+        return self.library(tenant).add_documents(documents)
+
+    async def add_documents_async(self, documents: List[Dict[str, str]], *, tenant: Optional[str] = None) -> int:
+        library = self.library(tenant)  # resolved here: the scope is the caller's, not the worker thread's
+        return await asyncio.to_thread(library.add_documents, documents)
+
+    def list_documents(self, department: Optional[str] = None, *, tenant: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.library(tenant).list_documents(department)
+
+    def delete_document(self, document_id: str, *, tenant: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        return self.library(tenant).delete_document(document_id)
+
+    def search(self, query: str, top_k: int = 5, *, tenant: Optional[str] = None, **kwargs) -> List[Dict[str, Any]]:
+        return self.library(tenant).search(query, top_k, **kwargs)
+
+    async def search_async(self, query: str, top_k: int = 5, *, tenant: Optional[str] = None, **kwargs) -> List[Dict[str, Any]]:
+        library = self.library(tenant)
+        return await asyncio.to_thread(library.search, query, top_k, **kwargs)
+
+    async def doc_count_async(self, *, tenant: Optional[str] = None) -> int:
+        library = self.library(tenant)
+        return await asyncio.to_thread(library._collection.count)
+
+    async def search_handler(self, params: Dict[str, Any], context: Any) -> List[Dict]:
+        """``knowledge_search`` tool handler. The tenant comes from the scope, never from ``params``:
+        the tool's schema has no tenant field, so a model (or an injected document) cannot pick one."""
+        return await self.search_async(params.get("query", ""), top_k=params.get("top_k", 5),
+                                       department=params.get("department"), mode=params.get("mode", "hybrid"))

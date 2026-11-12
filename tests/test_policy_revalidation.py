@@ -52,7 +52,7 @@ def test_pending_approval_no_longer_allowed_is_invalidated(env):
     # An approver acting on the stale card cannot revive it.
     assert store.decide("a", "approved", BOB, pending["payload_hash"])["status"] == "invalidated"
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     assert store.revalidate()["invalidated"] == []  # idempotent
 
 
@@ -65,7 +65,7 @@ def test_rule_edit_without_bumping_the_label_still_rechecks(env):
     assert store.policy.declared_version == label and store.policy.version != pending["policy_version"]
     assert store.decide("a", "approved", BOB, pending["payload_hash"])["status"] == "invalidated"
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
 
 
 def test_fingerprint_ignores_formatting_but_not_rules():
@@ -111,7 +111,7 @@ def test_approved_but_unexecuted_work_is_cancelled_before_any_effect(env):
     assert body["execution"] == "failed" and body["results"][0]["status"] == "cancelled"
     assert notices[-1]["event"] == "execution_failed" and "v2" in notices[-1]["detail"]["error"]
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
 
 
 def test_worker_refuses_first_effect_when_policy_changed_after_approval(env):
@@ -123,7 +123,7 @@ def test_worker_refuses_first_effect_when_policy_changed_after_approval(env):
     run(worker)
     body = store.get("a")
     assert body["execution"] == "failed" and "v2" in body["results"][0]["error"]
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
 
 
 def test_live_grants_are_shortened_or_revoked_early(env):
@@ -132,7 +132,7 @@ def test_live_grants_are_shortened_or_revoked_early(env):
         body = create(store, approval_id, actions=[access(system=system, duration_hours=100)])
         store.decide(approval_id, "approved", BOB, body["payload_hash"])
     run(worker)
-    assert {g["system"] for g in store.employee("1001")["grants"]} == {"gitlab", "jira"}
+    assert {g["system"] for g in store.employee("1001", "default")["grants"]} == {"gitlab", "jira"}
 
     def edit(data):
         without_gitlab_readonly(data)
@@ -142,10 +142,10 @@ def test_live_grants_are_shortened_or_revoked_early(env):
     report = store.revalidate()
     assert len(report["grants_revoked"]) == 1 and len(report["grants_shortened"]) == 1
     run(worker)
-    assert [g["system"] for g in store.employee("1001")["grants"]] == ["jira"]  # gitlab revoked now
+    assert [g["system"] for g in store.employee("1001", "default")["grants"]] == ["jira"]  # gitlab revoked now
     clock.t += 10 * 3600 + 1
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     assert "policy_shortened" in events(store, "b") and "policy_revoked" in events(store, "a")
     assert store.revalidate()["grants_shortened"] == []
 
@@ -164,7 +164,7 @@ def test_on_behalf_requests_are_rechecked_against_the_role_they_were_filed_under
     own = create(store, "own", ALICE, [access(system="VPN", duration_hours=100)])
     store.decide("own", "approved", BOB, own["payload_hash"])
     run(worker)
-    assert {g["system"] for g in store.employee("1001")["grants"]} == {"gitlab", "vpn"}
+    assert {g["system"] for g in store.employee("1001", "default")["grants"]} == {"gitlab", "vpn"}
 
     store.policy = changed("v2", no_on_behalf)
     report = store.revalidate()
@@ -172,7 +172,7 @@ def test_on_behalf_requests_are_rechecked_against_the_role_they_were_filed_under
     assert len(report["grants_revoked"]) == 1 and "policy_revoked" in events(store, "granted")
     run(worker)
     # Only the on-behalf grant goes; alice's own request is untouched by the on-behalf rule.
-    assert [g["system"] for g in store.employee("1001")["grants"]] == ["vpn"]
+    assert [g["system"] for g in store.employee("1001", "default")["grants"]] == ["vpn"]
     again = store.revalidate()
     assert again["invalidated"] == [] and again["grants_revoked"] == []  # idempotent
 
@@ -183,7 +183,7 @@ def test_on_behalf_rule_also_stops_approved_work_before_its_first_effect(env):
     store.decide("a", "approved", BOB, body["payload_hash"])
     store.policy = changed("v2", no_on_behalf)
     run(worker)
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     assert store.get("a")["results"][0]["status"] == "cancelled"
 
 
@@ -209,7 +209,7 @@ def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_las
     assert load_policy().declared_version == "edited"
     path.write_text("version: [unclosed", encoding="utf-8")
     assert load_policy().declared_version == "edited"
-    policy_module._last_good.pop(str(path))
+    policy_module._last_good.pop((str(path), None))
 
 
 def test_worker_sweeps_once_per_version(env):
@@ -268,5 +268,5 @@ def test_a_retry_after_a_transient_failure_rechecks_the_policy(db_url):
     clock.t += 60
     run(worker)
     body = store.get("a")
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     assert body["execution"] == "failed" and "v2" in body["results"][0]["error"]

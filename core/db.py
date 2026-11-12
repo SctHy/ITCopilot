@@ -36,6 +36,8 @@ from sqlalchemy import (
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import TypeDecorator
 
+from core.tenant_context import current_tenant
+
 metadata = MetaData()
 
 # Shared service rooms own durable inputs and bounded Agent runs. Private chat memory
@@ -124,6 +126,7 @@ approvals = Table(
 approval_decisions = Table(
     "approval_decisions", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
     Column("approval_id", String(200), nullable=False),
     Column("actor", String(200), nullable=False),
     Column("actor_name", String(200)),                         # display only (migration 0002)
@@ -137,6 +140,7 @@ approval_decisions = Table(
 actions = Table(
     "actions", metadata,
     Column("id", String(64), primary_key=True),                 # idempotency key passed to adapters
+    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
     Column("approval_id", String(200), nullable=False),
     Column("seq", Integer, nullable=False),
     Column("kind", String(20), nullable=False),                 # apply / revoke / compensate
@@ -157,11 +161,13 @@ actions = Table(
 )
 Index("ix_actions_due", actions.c.status, actions.c.not_before)
 Index("ix_actions_approval", actions.c.approval_id, actions.c.seq)
+Index("ix_actions_tenant", actions.c.tenant, actions.c.status, actions.c.not_before)
 
 # Ledger of time-bound grants this service created; drives expiry revocation.
 access_grants = Table(
     "access_grants", metadata,
     Column("action_id", String(64), primary_key=True),
+    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
     Column("approval_id", String(200), nullable=False),
     Column("employee_id", String(64), nullable=False),
     Column("system", String(40), nullable=False),
@@ -173,10 +179,12 @@ access_grants = Table(
     Column("revoke_action_id", String(64)),
     Column("updated_at", Float, nullable=False),
 )
+Index("ix_access_grants_tenant", access_grants.c.tenant, access_grants.c.employee_id)
 
 audit = Table(
     "audit", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
     Column("approval_id", String(200), nullable=False),
     Column("action_id", String(64)),
     Column("event", String(60), nullable=False),
@@ -185,6 +193,7 @@ audit = Table(
     Column("at", Float, nullable=False),
 )
 Index("ix_audit_approval", audit.c.approval_id, audit.c.id)
+Index("ix_audit_tenant", audit.c.tenant, audit.c.id)
 
 # Administrative changes that are not tied to one approval (knowledge documents, policy
 # re-checks, skill reloads, retention sweeps). Append-only, like ``audit`` (enforced by triggers,
@@ -237,48 +246,59 @@ tenants = Table(
 
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
+# Every directory row belongs to a tenant and the tenant is part of the key (migration 0004): the
+# sandbox stands in for each tenant's own IAM, so two tenants can both have employee 1001.
 directory_employees = Table(
     "directory_employees", metadata,
-    Column("id", String(64), primary_key=True),
+    Column("tenant", String(80), nullable=False),
+    Column("id", String(64), nullable=False),
     Column("username", String(80), nullable=False),
     Column("department", String(80)),
     Column("active", Integer, nullable=False, default=1),
     Column("locked", Integer, nullable=False, default=1),
     Column("password_version", Integer, nullable=False, default=0),
+    PrimaryKeyConstraint("tenant", "id", name="pk_directory_employees"),
 )
 
 directory_grants = Table(
     "directory_grants", metadata,
+    Column("tenant", String(80), nullable=False),
     Column("employee_id", String(64), nullable=False),
     Column("system", String(40), nullable=False),
     Column("role", String(40), nullable=False),
     Column("operation_id", String(64)),
-    PrimaryKeyConstraint("employee_id", "system", name="pk_directory_grants"),
+    PrimaryKeyConstraint("tenant", "employee_id", "system", name="pk_directory_grants"),
 )
 
 directory_tickets = Table(
     "directory_tickets", metadata,
-    Column("id", String(40), primary_key=True),
+    Column("tenant", String(80), nullable=False),
+    Column("id", String(40), nullable=False),
     Column("employee_id", String(64), nullable=False),
     Column("title", Text, nullable=False),
     Column("description", Text, nullable=False),
+    PrimaryKeyConstraint("tenant", "id", name="pk_directory_tickets"),
 )
 
 # Sandbox device inventory: which employee holds which device and whether it is remotely locked.
 directory_devices = Table(
     "directory_devices", metadata,
-    Column("id", String(40), primary_key=True),                 # asset tag, e.g. DEV-1001
+    Column("tenant", String(80), nullable=False),
+    Column("id", String(40), nullable=False),                   # asset tag, e.g. DEV-1001
     Column("employee_id", String(64), nullable=False),
     Column("kind", String(40), nullable=False),
     Column("locked", Integer, nullable=False, default=0),
     Column("operation_id", String(64)),                         # action that last locked it
+    PrimaryKeyConstraint("tenant", "id", name="pk_directory_devices"),
 )
 
 # Effects applied by the local adapter, keyed by action id: makes retries idempotent.
 directory_effects = Table(
     "directory_effects", metadata,
-    Column("operation_id", String(64), primary_key=True),
+    Column("tenant", String(80), nullable=False),
+    Column("operation_id", String(64), nullable=False),
     Column("result", JSON),
+    PrimaryKeyConstraint("operation_id", name="pk_directory_effects"),
 )
 
 
@@ -394,7 +414,16 @@ def make_engine(url: str) -> Engine:
             connection.exec_driver_sql("BEGIN" if connection.get_execution_options().get("read_only") else "BEGIN IMMEDIATE")
 
         return engine
-    return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
+    engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
+
+    @event.listens_for(engine, "begin")
+    def _tenant_setting(connection):
+        # Row-level security (migration 0005) filters on app.tenant. SET LOCAL semantics (third
+        # argument true): it ends with the transaction, so a pooled connection never carries one
+        # request's tenant into the next. Outside any scope it is empty and matches nothing.
+        connection.exec_driver_sql("SELECT set_config('app.tenant', %s, true)", (current_tenant() or "",))
+
+    return engine
 
 
 def read(engine: Engine) -> Connection:
@@ -421,8 +450,11 @@ def migrate(url: str) -> None:
     from alembic import command
     from alembic.config import Config
 
+    from core.tenant_context import system_scope
+
     root = pathlib.Path(__file__).resolve().parent.parent
     config = Config()
     config.set_main_option("script_location", str(root / "migrations"))
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
-    command.upgrade(config, "head")
+    with system_scope():  # data migrations span every tenant
+        command.upgrade(config, "head")

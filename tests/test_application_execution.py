@@ -123,7 +123,7 @@ def test_interruption_between_approval_and_receipt_can_retry():
             response = await http.post("/chat", json=payload)
             assert response.status_code == 200 and response.json()["approval_required"]
             assert [e["event"] for e in state.workflow.audit(rid + ":approval")] == ["created"]
-            assert state.workflow.employee("1001")["grants"] == []
+            assert state.workflow.employee("1001", "default")["grants"] == []
 
     asyncio.run(run())
 

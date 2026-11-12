@@ -46,3 +46,16 @@ def with_read_tool(orchestrator):
                      lambda req, args: {"code": args.get("code", ""), "meaning": "测试诊断结果"}, required=["code"])
     orchestrator.set_shared_tools({**orchestrator._shared_tools, "diagnose": tool})
     return orchestrator
+
+
+def run_in_tenant(coro, tenant: str = "default"):
+    """Run ``coro`` in a tenant scope, as the worker does for each action: tests that act on the
+    sandbox directory directly (an out-of-band change in the target system) say whose it is."""
+    import asyncio
+
+    from core.tenant_context import tenant_scope
+
+    async def scoped():
+        with tenant_scope(tenant):
+            return await coro
+    return asyncio.run(scoped())

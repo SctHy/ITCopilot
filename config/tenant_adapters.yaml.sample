@@ -1,0 +1,10 @@
+# Each tenant's own target systems (ADR 0025). Copy to config/tenant_adapters.yaml (or set
+# IT_COPILOT_TENANT_ADAPTERS). Credentials are named by environment variable, never written here;
+# a missing variable refuses to start. In multi-tenant mode a tenant not listed here gets the local
+# sandbox only - the deployment's own Gitea (IT_COPILOT_GITEA_*) acts for the operator tenant alone.
+tenants:
+  acme:
+    gitea:
+      url: https://git.acme.example
+      repos: {gitlab: acme-it/platform}
+      token_env: ACME_GITEA_TOKEN        # or user_env + password_env

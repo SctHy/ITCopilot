@@ -25,7 +25,10 @@ from sqlalchemy import and_, false, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
+from core.tenant_context import require_tenant, tenant_scope
+from core.tenancy import DEFAULT_TENANT, multi_tenant_enabled
 from core.db import (
+    tenants,
     access_grants,
     actions,
     approval_decisions,
@@ -127,12 +130,19 @@ class WorkflowStore:
         self.notify = notify
         self.shared_access = None
         self.shared_filter = None
+        # Multi-tenant mode: the worker does not claim actions of tenants that are not active.
+        self.active_tenants_only = multi_tenant_enabled()
         self._seed()
 
     @property
     def policy(self) -> AccessPolicy:
-        """The injected policy, or the policy file as it is now (edits apply without restart)."""
+        """The injected policy, or the platform base policy as it is now (edits apply without restart)."""
         return self._policy or load_policy()
+
+    def policy_for(self, tenant: Optional[str]) -> AccessPolicy:
+        """The policy that governs ``tenant``'s requests: the base narrowed by its overlay (ADR 0025).
+        Every decision about an approval or grant uses the policy of the tenant that owns it."""
+        return self._policy or load_policy(tenant)
 
     @policy.setter
     def policy(self, value: AccessPolicy) -> None:
@@ -141,24 +151,37 @@ class WorkflowStore:
     def close(self) -> None:
         self.engine.dispose()
 
-    def _seed(self) -> None:
-        with self.engine.begin() as db:
-            known = set(db.execute(select(directory_employees.c.id)).scalars())
-            rows = [{"id": i, "username": u, "department": d} for i, u, d in SEED_EMPLOYEES if i not in known]
+    def _seed(self, tenant: str = DEFAULT_TENANT) -> None:
+        """The demo sandbox directory; only the ``default`` tenant gets one at startup (ADR 0023)."""
+        with tenant_scope(tenant), self.engine.begin() as db:
+            known = set(db.execute(select(directory_employees.c.id).where(directory_employees.c.tenant == tenant)).scalars())
+            rows = [{"tenant": tenant, "id": i, "username": u, "department": d} for i, u, d in SEED_EMPLOYEES if i not in known]
             if rows:
                 db.execute(insert(directory_employees), rows)
             # One laptop per seeded employee: DEV-<employee id>.
-            devices = set(db.execute(select(directory_devices.c.id)).scalars())
-            rows = [{"id": f"DEV-{i}", "employee_id": i, "kind": "laptop", "locked": 0} for i, _, _ in SEED_EMPLOYEES if f"DEV-{i}" not in devices]
+            devices = set(db.execute(select(directory_devices.c.id).where(directory_devices.c.tenant == tenant)).scalars())
+            rows = [{"tenant": tenant, "id": f"DEV-{i}", "employee_id": i, "kind": "laptop", "locked": 0}
+                    for i, _, _ in SEED_EMPLOYEES if f"DEV-{i}" not in devices]
             if rows:
                 db.execute(insert(directory_devices), rows)
 
+    def seed_directory(self, tenant: str) -> None:
+        """Give a tenant the demo sandbox directory (evaluation, local multi-tenant trials)."""
+        self._seed(tenant)
+
     def username_of(self, employee_id: str) -> Optional[str]:
+        """Directory username in the current tenant scope (the worker runs each action in its tenant's)."""
+        tenant = require_tenant()
         with schema.read(self.engine) as db:
-            return db.execute(select(directory_employees.c.username).where(directory_employees.c.id == employee_id)).scalar()
+            return db.execute(select(directory_employees.c.username).where(directory_employees.c.tenant == tenant,
+                                                                           directory_employees.c.id == employee_id)).scalar()
 
     def _audit(self, db, approval_id, event, actor, *, action_id=None, detail=None) -> None:
-        db.execute(insert(audit).values(approval_id=approval_id, action_id=action_id, event=event, actor=actor[:200], detail=detail, at=self.clock()))
+        # The entry takes the approval's tenant; an approval this scope cannot see yields NULL and the
+        # NOT NULL column refuses the entry rather than filing it under some other tenant.
+        tenant = select(approvals.c.tenant).where(approvals.c.id == approval_id).scalar_subquery()
+        db.execute(insert(audit).values(tenant=tenant, approval_id=approval_id, action_id=action_id, event=event, actor=actor[:200],
+                                        detail=detail, at=self.clock()))
 
     def _notify(self, db, approval_id: str, event: str, detail: Optional[Dict[str, Any]] = None) -> None:
         if not self.notify:
@@ -213,13 +236,14 @@ class WorkflowStore:
         immutable ``created`` audit entry, outside the hash."""
         if not action_requests:
             raise ValueError("审批必须包含冻结的工具名称和参数")
-        frozen_actions = [self.policy.normalise(a) for a in action_requests]
+        policy = self.policy_for(principal.tenant)
+        frozen_actions = [policy.normalise(a) for a in action_requests]
         for action in frozen_actions:
-            self.policy.check_requester(action, principal.employee_id, principal.roles)
-        required = max(self.policy.requirement(a).approvals for a in frozen_actions)
-        draft = ask_requester and self.policy.needs_confirmation(frozen_actions)
+            policy.check_requester(action, principal.employee_id, principal.roles)
+        required = max(policy.requirement(a).approvals for a in frozen_actions)
+        draft = ask_requester and policy.needs_confirmation(frozen_actions)
         frozen = {"request_id": request_id, "requester": principal.subject, "tenant": principal.tenant, "conv_id": conv_id,
-                  "action_requests": frozen_actions, "policy_version": self.policy.version}
+                  "action_requests": frozen_actions, "policy_version": policy.version}
         digest = hashlib.sha256(canonical(frozen).encode()).hexdigest()
         now = self.clock()
         # Roles at filing time, outside the frozen hash: server-derived, and only used to
@@ -235,12 +259,12 @@ class WorkflowStore:
                         id=approval_id, request_id=request_id, conv_id=conv_id, requester=principal.subject, requester_name=principal.username,
                         requester_employee_id=principal.employee_id, department=principal.department, tenant=principal.tenant,
                         status=ApprovalStatus.DRAFT if draft else ApprovalStatus.PENDING, execution=Execution.NOT_EXECUTED,
-                        payload_hash=digest, policy_version=self.policy.version,
+                        payload_hash=digest, policy_version=policy.version,
                         approvals_required=required, payload=payload, version=0, created_at=now,
-                        expires_at=now + (self.policy.confirmation_ttl_hours if draft else self.policy.approval_ttl_hours) * 3600,
+                        expires_at=now + (policy.confirmation_ttl_hours if draft else policy.approval_ttl_hours) * 3600,
                         confirmed_at=None if draft else now,
                     ))
-                    detail = {"policy_version": self.policy.version, "approvals_required": required, "awaiting_confirmation": draft}
+                    detail = {"policy_version": policy.version, "approvals_required": required, "awaiting_confirmation": draft}
                     if provenance:
                         detail["provenance"] = provenance
                     self._audit(db, approval_id, "created", principal.subject, detail=detail)
@@ -319,7 +343,7 @@ class WorkflowStore:
             requester_employee_id=row["requester_employee_id"], department=row["department"], tenant=row["tenant"],
             status=row["status"], execution=Execution.NOT_EXECUTED,
             payload_hash=hashlib.sha256(canonical(frozen).encode()).hexdigest(), policy_version=row["policy_version"],
-            approvals_required=max(self.policy.requirement(a).approvals for a in rest), payload=payload, version=0,
+            approvals_required=max(self.policy_for(row["tenant"]).requirement(a).approvals for a in rest), payload=payload, version=0,
             created_at=now, expires_at=row["expires_at"], confirmed_at=row["confirmed_at"],
         ))
         self._audit(db, rest_id, "created", row["requester"], detail={"carried_from": row["id"], "by": by,
@@ -363,7 +387,7 @@ class WorkflowStore:
 
     def list(self, principal: Principal, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         private_scope = or_(approvals.c.requester == principal.subject, principal.can_read_all,
-            bool(self.policy.approver_roles.intersection(principal.roles)))
+            bool(self.policy_for(principal.tenant).approver_roles.intersection(principal.roles)))
         shared_scope = and_(approvals.c.tenant == principal.tenant,
             or_(approvals.c.requester == principal.subject, principal.is_admin))
         if self.shared_filter:
@@ -387,7 +411,7 @@ class WorkflowStore:
         if body["status"] == ApprovalStatus.DRAFT:  # not yet submitted: the requester's own business
             return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all)
         return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all
-                or bool(self.policy.approver_roles.intersection(principal.roles)))
+                or bool(self.policy_for(principal.tenant).approver_roles.intersection(principal.roles)))
 
     def _shared_scope(self, row, principal, db=None, decision=False):
         if row.get('tenant') != principal.tenant:
@@ -421,7 +445,7 @@ class WorkflowStore:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return False
-            if not self.policy.approver_roles.intersection(principal.roles):
+            if not self.policy_for(principal.tenant).approver_roles.intersection(principal.roles):
                 raise ApprovalForbidden("当前身份没有审批权限")
             if not self._shared_scope(row, principal, db, decision=True):
                 raise ApprovalForbidden("无权处理该审批")
@@ -434,7 +458,7 @@ class WorkflowStore:
             if now >= row["expires_at"]:
                 self._expire(db, row, now)
                 return True
-            if row["policy_version"] != self.policy.version:
+            if row["policy_version"] != self.policy_for(row["tenant"]).version:
                 # Frozen under an older policy: re-check before any vote counts.
                 row = self._revalidate_pending(db, row, now)
                 if row is None:
@@ -451,7 +475,7 @@ class WorkflowStore:
             if db.execute(select(approval_decisions.c.id).where(approval_decisions.c.approval_id == approval_id,
                                                                  approval_decisions.c.actor == principal.subject)).first():
                 return True  # same approver re-submitting
-            db.execute(insert(approval_decisions).values(approval_id=approval_id, actor=principal.subject, actor_name=principal.username, decision=decision, at=now))
+            db.execute(insert(approval_decisions).values(tenant=row["tenant"], approval_id=approval_id, actor=principal.subject, actor_name=principal.username, decision=decision, at=now))
             approved = db.execute(select(func.count()).select_from(approval_decisions).where(
                 approval_decisions.c.approval_id == approval_id, approval_decisions.c.decision == "approved")).scalar()
             values: Dict[str, Any] = {}
@@ -541,12 +565,12 @@ class WorkflowStore:
             if now >= row["expires_at"]:
                 self._expire(db, row, now)
                 return True
-            if row["policy_version"] != self.policy.version:
+            if row["policy_version"] != self.policy_for(row["tenant"]).version:
                 row = self._revalidate_pending(db, row, now)
                 if row is None:
                     return True
             self._cas(db, row, status=ApprovalStatus.PENDING, confirmed_at=now,
-                      expires_at=now + self.policy.approval_ttl_hours * 3600)
+                      expires_at=now + self.policy_for(row["tenant"]).approval_ttl_hours * 3600)
             self._audit(db, approval_id, "confirmed", principal.subject, detail={"via": "card" if payload_hash else "message"})
             self._supersede(db, approval_id, row["conv_id"], row["requester"], row["tenant"], row["payload"]["action_requests"], now)
             self._notify(db, approval_id, "confirmed")
@@ -635,16 +659,28 @@ class WorkflowStore:
     #   active grant       role withdrawn -> revoked now; max duration shortened -> expiry moved earlier
     # Loosening never widens frozen work: quorums only go up and expiries only move earlier.
 
-    def revalidate(self) -> Dict[str, Any]:
-        policy, now = self.policy, self.clock()
-        report: Dict[str, Any] = {"policy_version": policy.version, "invalidated": [], "quorum_raised": [], "cancelled": [],
+    def revalidate(self, tenant: Optional[str] = None) -> Dict[str, Any]:
+        """Re-check open work against the current policy of the tenant that owns it (ADR 0025).
+        ``tenant`` limits the sweep to one tenant; None sweeps every tenant with open work."""
+        now = self.clock()
+        report: Dict[str, Any] = {"policy_version": self.policy_for(tenant).version, "invalidated": [], "quorum_raised": [], "cancelled": [],
                                   "grants_revoked": [], "grants_shortened": []}
         with schema.read(self.engine) as db:
-            pending = db.execute(select(approvals.c.id).where(approvals.c.status.in_(OPEN), approvals.c.policy_version != policy.version)).scalars().all()
-            queued = db.execute(select(approvals.c.id).where(approvals.c.status == ApprovalStatus.APPROVED, approvals.c.policy_version != policy.version,
+            owners = [tenant] if tenant else sorted(set(db.execute(select(approvals.c.tenant).where(
+                approvals.c.status.in_((*OPEN, ApprovalStatus.APPROVED)))).scalars()) | set(db.execute(
+                select(access_grants.c.tenant).where(access_grants.c.status == GrantStatus.ACTIVE)).scalars()))
+        for owner in owners:
+            self._revalidate_tenant(owner, self.policy_for(owner), now, report)
+        return report
+
+    def _revalidate_tenant(self, tenant: str, policy: AccessPolicy, now: float, report: Dict[str, Any]) -> None:
+        stale = and_(approvals.c.tenant == tenant, approvals.c.policy_version != policy.version)
+        with schema.read(self.engine) as db:
+            pending = db.execute(select(approvals.c.id).where(stale, approvals.c.status.in_(OPEN))).scalars().all()
+            queued = db.execute(select(approvals.c.id).where(stale, approvals.c.status == ApprovalStatus.APPROVED,
                                                              approvals.c.execution.in_((Execution.QUEUED, Execution.EXECUTING)))).scalars().all()
             grants = db.execute(select(access_grants.c.action_id).join(approvals, approvals.c.id == access_grants.c.approval_id)
-                                .where(access_grants.c.status == GrantStatus.ACTIVE, approvals.c.policy_version != policy.version)).scalars().all()
+                                .where(stale, access_grants.c.status == GrantStatus.ACTIVE)).scalars().all()
         for approval_id in pending:
             try:
                 with self.engine.begin() as db:
@@ -668,11 +704,10 @@ class WorkflowStore:
                 outcome = self._recheck_grant(db, grant_id, now)
                 if outcome:
                     report[outcome].append(grant_id)
-        return report
 
     def _revalidate_pending(self, db, row, now):
         """Returns the refreshed row, or None when the approval was invalidated."""
-        policy = self.policy
+        policy = self.policy_for(row["tenant"])
         frozen = row["payload"]["action_requests"]
         reason = policy.still_allows(frozen, self._requester(row))
         if reason:
@@ -689,7 +724,8 @@ class WorkflowStore:
 
     def _cancel_if_disallowed(self, db, approval_id: str, now: float) -> bool:
         row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-        reason = self.policy.still_allows(row["payload"]["action_requests"], self._requester(row))
+        policy = self.policy_for(row["tenant"])
+        reason = policy.still_allows(row["payload"]["action_requests"], self._requester(row))
         if not reason:
             return False
         # Only actions nobody started; one already running is stopped by the worker's own check.
@@ -698,7 +734,7 @@ class WorkflowStore:
                                .values(status=ActionStatus.CANCELLED, error=reason[:500], version=actions.c.version + 1, updated_at=now)).rowcount
         if not cancelled:
             return False
-        self._audit(db, approval_id, "policy_cancelled", "system", detail={"to": self.policy.version, "reason": reason, "actions": cancelled})
+        self._audit(db, approval_id, "policy_cancelled", "system", detail={"to": policy.version, "reason": reason, "actions": cancelled})
         self._refresh_execution(db, approval_id)
         return True
 
@@ -706,7 +742,8 @@ class WorkflowStore:
         grant = db.execute(select(access_grants).where(access_grants.c.action_id == grant_id)).mappings().first()
         if grant["status"] != GrantStatus.ACTIVE or not grant["revoke_action_id"]:
             return None
-        max_hours = self.policy.max_hours(grant["system"], grant["role"])
+        policy = self.policy_for(grant["tenant"])
+        max_hours = policy.max_hours(grant["system"], grant["role"])
         approval = db.execute(select(approvals).where(approvals.c.id == grant["approval_id"])).mappings().first()
         if max_hours is None or not self._may_have_filed(grant["employee_id"], approval):
             expires_at, outcome = now, "grants_revoked"
@@ -723,15 +760,17 @@ class WorkflowStore:
             return None  # revocation already running or done
         db.execute(update(access_grants).where(access_grants.c.action_id == grant_id).values(expires_at=expires_at, updated_at=now))
         self._audit(db, grant["approval_id"], "policy_" + outcome.removeprefix("grants_"), "system", action_id=grant_id,
-                    detail={"to": self.policy.version, "system": grant["system"], "role": grant["role"], "expires_at": _iso(expires_at)})
+                    detail={"to": policy.version, "system": grant["system"], "role": grant["role"], "expires_at": _iso(expires_at)})
         return outcome
 
     def policy_block(self, approval_id: str) -> Optional[str]:
         """Checked by the worker right before an approval's first effect."""
         with schema.read(self.engine) as db:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-        policy = self.policy
-        if not row or row["policy_version"] == policy.version:
+        if not row:
+            return None
+        policy = self.policy_for(row["tenant"])
+        if row["policy_version"] == policy.version:
             return None
         return policy.still_allows(row["payload"]["action_requests"], self._requester(row))
 
@@ -741,7 +780,7 @@ class WorkflowStore:
         if requester is None:
             return True
         try:
-            self.policy.check_requester({"arguments": {"employee_id": employee_id}}, *requester)
+            self.policy_for(approval["tenant"]).check_requester({"arguments": {"employee_id": employee_id}}, *requester)
         except PolicyViolation:
             return False
         return True
@@ -765,10 +804,12 @@ class WorkflowStore:
 
     def _enqueue(self, db, row, now) -> None:
         rows = []
+        with tenant_scope(row["tenant"]):  # route to the owning tenant's adapters, whoever decided (ADR 0025)
+            routes = [self.route(action) for action in row["payload"]["action_requests"]]
         for seq, action in enumerate(row["payload"]["action_requests"]):
             rows.append({
-                "id": action_id(row["id"], row["payload_hash"], seq), "approval_id": row["id"], "seq": seq, "kind": "apply",
-                "tool_name": action["tool_name"], "arguments": action["arguments"], "adapter": self.route(action),
+                "id": action_id(row["id"], row["payload_hash"], seq), "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
+                "tool_name": action["tool_name"], "arguments": action["arguments"], "adapter": routes[seq],
                 "status": ActionStatus.QUEUED, "attempts": 0, "not_before": now, "version": 0, "created_at": now, "updated_at": now,
             })
         db.execute(insert(actions), rows)
@@ -802,6 +843,10 @@ class WorkflowStore:
             earlier.c.seq < actions.c.seq, earlier.c.status != ActionStatus.SUCCEEDED,
         ).exists()
         due = and_(due, or_(actions.c.kind != "apply", ~blocked))
+        if self.active_tenants_only:
+            # Multi-tenant mode (ADR 0023): a suspended or offboarding tenant's actions wait, unclaimed,
+            # until it is active again; nothing is cancelled and the queue order is kept.
+            due = and_(due, actions.c.tenant.in_(select(tenants.c.id).where(tenants.c.status == "active")))
         with schema.read(self.engine) as db:
             candidates = db.execute(select(actions).where(due, actions.c.id.not_in(exclude_ids)).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
         claimed = []
@@ -872,12 +917,12 @@ class WorkflowStore:
                 if not preexisting:
                     revoke_id = hashlib.sha256(f"{action['id']}:revoke".encode()).hexdigest()
                     db.execute(insert(actions).values(
-                        id=revoke_id, approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
+                        id=revoke_id, tenant=action["tenant"], approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
                         tool_name="revoke_access", arguments={"employee_id": args["employee_id"], "system": args["system"],
                         "role": args["role"], "baseline_level": baseline}, adapter=action["adapter"], status=ActionStatus.QUEUED, attempts=0,
                         not_before=expires_at, version=0, parent_action_id=action["id"], created_at=now, updated_at=now))
                 db.execute(insert(access_grants).values(
-                    action_id=action["id"], approval_id=action["approval_id"], employee_id=args["employee_id"], system=args["system"],
+                    action_id=action["id"], tenant=action["tenant"], approval_id=action["approval_id"], employee_id=args["employee_id"], system=args["system"],
                     role=args["role"], adapter=action["adapter"], baseline_role=baseline, status=GrantStatus.PREEXISTING if preexisting else GrantStatus.ACTIVE,
                     expires_at=expires_at, revoke_action_id=revoke_id, updated_at=now))
             elif action["kind"] == "revoke":
@@ -953,15 +998,20 @@ class WorkflowStore:
 
     # ── Read models ─────────────────────────────────────────────────────────
 
-    def employee(self, employee_id: str) -> Optional[Dict[str, Any]]:
+    def employee(self, employee_id: str, tenant: str) -> Optional[Dict[str, Any]]:
+        """Sandbox directory record and grant ledger of one employee of ``tenant``."""
         with schema.read(self.engine) as db:
-            row = db.execute(select(directory_employees).where(directory_employees.c.id == employee_id)).mappings().first()
+            row = db.execute(select(directory_employees).where(directory_employees.c.tenant == tenant, directory_employees.c.id == employee_id)).mappings().first()
             if not row:
                 return None
-            grants = db.execute(select(directory_grants).where(directory_grants.c.employee_id == employee_id).order_by(directory_grants.c.system)).mappings().all()
-            tickets = db.execute(select(directory_tickets.c.id, directory_tickets.c.title).where(directory_tickets.c.employee_id == employee_id)).all()
-            devices = db.execute(select(directory_devices).where(directory_devices.c.employee_id == employee_id).order_by(directory_devices.c.id)).mappings().all()
-            ledger = db.execute(select(access_grants).where(access_grants.c.employee_id == employee_id).order_by(access_grants.c.updated_at)).mappings().all()
+            grants = db.execute(select(directory_grants).where(directory_grants.c.tenant == tenant, directory_grants.c.employee_id == employee_id)
+                                .order_by(directory_grants.c.system)).mappings().all()
+            tickets = db.execute(select(directory_tickets.c.id, directory_tickets.c.title).where(directory_tickets.c.tenant == tenant,
+                                                                                                directory_tickets.c.employee_id == employee_id)).all()
+            devices = db.execute(select(directory_devices).where(directory_devices.c.tenant == tenant, directory_devices.c.employee_id == employee_id)
+                                 .order_by(directory_devices.c.id)).mappings().all()
+            ledger = db.execute(select(access_grants).where(access_grants.c.tenant == tenant, access_grants.c.employee_id == employee_id)
+                                .order_by(access_grants.c.updated_at)).mappings().all()
         return {
             "employee_id": row["id"], "username": row["username"], "department": row["department"], "active": row["active"],
             "locked": row["locked"], "password_version": row["password_version"],
@@ -978,12 +1028,14 @@ class WorkflowStore:
             rows = db.execute(select(audit).where(audit.c.approval_id == approval_id).order_by(audit.c.id)).mappings().all()
         return [{"event": r["event"], "actor": r["actor"], "action_id": r["action_id"], "detail": r["detail"], "at": _iso(r["at"])} for r in rows]
 
-    def reset_directory(self, employee_ids: Iterable[str]) -> None:
+    def reset_directory(self, employee_ids: Iterable[str], tenant: str = DEFAULT_TENANT) -> None:
         """Evaluation helper: restore seeded sandbox state between sequential cases."""
         from sqlalchemy import delete
         ids = list(employee_ids)
-        with self.engine.begin() as db:
-            db.execute(delete(directory_grants).where(directory_grants.c.employee_id.in_(ids)))
-            db.execute(delete(directory_tickets).where(directory_tickets.c.employee_id.in_(ids)))
-            db.execute(update(directory_employees).where(directory_employees.c.id.in_(ids)).values(locked=1, password_version=0, active=1))
-            db.execute(update(directory_devices).where(directory_devices.c.employee_id.in_(ids)).values(locked=0, operation_id=None))
+        with tenant_scope(tenant), self.engine.begin() as db:
+            db.execute(delete(directory_grants).where(directory_grants.c.tenant == tenant, directory_grants.c.employee_id.in_(ids)))
+            db.execute(delete(directory_tickets).where(directory_tickets.c.tenant == tenant, directory_tickets.c.employee_id.in_(ids)))
+            db.execute(update(directory_employees).where(directory_employees.c.tenant == tenant, directory_employees.c.id.in_(ids))
+                       .values(locked=1, password_version=0, active=1))
+            db.execute(update(directory_devices).where(directory_devices.c.tenant == tenant, directory_devices.c.employee_id.in_(ids))
+                       .values(locked=0, operation_id=None))

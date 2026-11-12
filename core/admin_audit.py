@@ -72,6 +72,19 @@ def record_system(engine, event: str, subject: Optional[str] = None, detail: Opt
                    outcome="succeeded", at=at)
 
 
+def record_as(engine, tenant: str, actor: str, event: str, subject: Optional[str] = None,
+              detail: Optional[Dict[str, Any]] = None, *, at: Optional[float] = None) -> int:
+    """A non-human entry under one tenant (e.g. that tenant's policy overlay took effect)."""
+    return _insert(engine, tenant=tenant, actor=actor, event=event, subject=subject, detail=detail, outcome="succeeded", at=at)
+
+
+def last_tenant_event(engine, tenant: str, event: str) -> Optional[Dict[str, Any]]:
+    with schema.read(engine) as db:
+        row = db.execute(select(admin_audit).where(admin_audit.c.tenant == tenant, admin_audit.c.event == event)
+                         .order_by(admin_audit.c.id.desc()).limit(1)).mappings().first()
+    return dict(row) if row else None
+
+
 def last_system(engine, event: str) -> Optional[Dict[str, Any]]:
     with schema.read(engine) as db:
         row = db.execute(select(admin_audit).where(admin_audit.c.tenant == GLOBAL_TENANT, admin_audit.c.event == event)

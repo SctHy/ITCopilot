@@ -4,6 +4,7 @@ Runs on SQLite by default. Set IT_COPILOT_TEST_DATABASE_URL=postgresql+psycopg:/
 same tests on PostgreSQL (each test gets its own schema).
 """
 import asyncio
+from tests.conftest import run_in_tenant
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -64,11 +65,11 @@ def test_frozen_hash_and_concurrent_approvals_execute_once(env):
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda _: store.decide("a", "approved", BOB, pending["payload_hash"]), range(20)))
     assert store.get("a")["execution"] == "queued"
-    assert store.employee("1001")["grants"] == []  # nothing happens before the worker
+    assert store.employee("1001", "default")["grants"] == []  # nothing happens before the worker
     run(worker)
     body = store.get("a")
     assert body["execution"] == "succeeded" and len(body["results"]) == 1
-    assert store.employee("1001")["grants"] == [{"system": "gitlab", "role": "readonly", "operation_id": body["results"][0]["operation_id"]}]
+    assert store.employee("1001", "default")["grants"] == [{"system": "gitlab", "role": "readonly", "operation_id": body["results"][0]["operation_id"]}]
     events = [e["event"] for e in store.audit("a")]
     assert events.count("approved") == 1 and events.count("apply_succeeded") == 1
 
@@ -81,7 +82,7 @@ def test_competing_approve_and_reject_are_atomic(env):
     run(worker)
     body = store.get("a")
     assert body["status"] in {"approved", "rejected"} and len(body["decisions"]) == 1
-    assert bool(store.employee("1001")["grants"]) == (body["status"] == "approved")
+    assert bool(store.employee("1001", "default")["grants"]) == (body["status"] == "approved")
 
 
 def test_separation_of_duties_and_authority(env):
@@ -126,7 +127,7 @@ def test_developer_access_needs_two_distinct_approvers_even_concurrently(env):
         list(pool.map(lambda p: store.decide("b", "approved", p, other["payload_hash"]), [BOB, CAROL]))
     assert store.get("b")["status"] == "approved"
     run(worker)
-    assert {g["system"] for g in store.employee("1001")["grants"]} == {"gitlab", "jira"}
+    assert {g["system"] for g in store.employee("1001", "default")["grants"]} == {"gitlab", "jira"}
 
 
 def test_preflight_failure_applies_nothing_and_rejection_never_executes(env):
@@ -136,11 +137,11 @@ def test_preflight_failure_applies_nothing_and_rejection_never_executes(env):
     run(worker)
     body = store.get("a")
     assert body["execution"] == "failed" and [r["status"] for r in body["results"]] == ["failed", "cancelled"]
-    assert store.employee("1001")["grants"] == []
+    assert store.employee("1001", "default")["grants"] == []
     rejected = create(store, "b")
     store.decide("b", "rejected", BOB, rejected["payload_hash"])
     run(worker)
-    assert store.get("b")["execution"] == "not_executed" and store.employee("1001")["grants"] == []
+    assert store.get("b")["execution"] == "not_executed" and store.employee("1001", "default")["grants"] == []
 
 
 def test_grant_expires_and_is_revoked(env):
@@ -148,13 +149,13 @@ def test_grant_expires_and_is_revoked(env):
     pending = create(store, actions=[access(duration_hours=2)])
     store.decide("a", "approved", BOB, pending["payload_hash"])
     run(worker)
-    assert store.employee("1001")["access_ledger"][0]["status"] == "active"
+    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "active"
     clock.t += 3600
     run(worker)
-    assert store.employee("1001")["grants"]  # not yet expired
+    assert store.employee("1001", "default")["grants"]  # not yet expired
     clock.t += 3601
     run(worker)
-    state = store.employee("1001")
+    state = store.employee("1001", "default")
     assert state["grants"] == [] and state["access_ledger"][0]["status"] == "revoked"
     assert store.get("a")["revocations"][0]["status"] == "succeeded"
 
@@ -162,23 +163,23 @@ def test_grant_expires_and_is_revoked(env):
 def test_revocation_never_removes_preexisting_or_drifted_access(env):
     store, worker, clock = env
     adapter = worker.registry.local
-    asyncio.run(adapter.apply("seed", access(role="developer", system="gitlab")))  # alice already has developer
+    run_in_tenant(adapter.apply("seed", access(role="developer", system="gitlab")))  # alice already has developer
     pending = create(store, actions=[access(role="readonly", duration_hours=1)])
     store.decide("a", "approved", BOB, pending["payload_hash"])
     run(worker)
     assert store.get("a")["revocations"] == []
-    assert store.employee("1001")["access_ledger"][0]["status"] == "preexisting"
+    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "preexisting"
     # A grant whose permission someone changes afterwards is left for review, not deleted.
     other = create(store, "b", ALICE, [access(system="Jira", duration_hours=1)])
     store.decide("b", "approved", BOB, other["payload_hash"])
     run(worker)
-    asyncio.run(adapter.apply("manual-upgrade", access(system="jira", role="reporter")))
+    run_in_tenant(adapter.apply("manual-upgrade", access(system="jira", role="reporter")))
     clock.t += 7200
     run(worker)
-    roles = {g["system"]: g["role"] for g in store.employee("1001")["grants"]}
+    roles = {g["system"]: g["role"] for g in store.employee("1001", "default")["grants"]}
     assert roles == {"gitlab": "developer", "jira": "reporter"}
     assert store.get("b")["revocations"][0]["status"] == "manual_review"
-    assert {g["system"]: g["status"] for g in store.employee("1001")["access_ledger"]}["jira"] == "drifted"
+    assert {g["system"]: g["status"] for g in store.employee("1001", "default")["access_ledger"]}["jira"] == "drifted"
 
 
 class FlakyAdapter(LocalDirectoryAdapter):
@@ -211,7 +212,7 @@ def test_ambiguous_outcome_is_reconciled_before_retry(env, applied_before_error,
     body = store.get("a")
     assert body["execution"] == "succeeded" and body["results"][0].get("reconciled", False) == applied_before_error
     assert adapter.calls == expected_calls
-    assert store.employee("1001")["password_version"] == 1
+    assert store.employee("1001", "default")["password_version"] == 1
 
 
 def test_worker_crash_after_effect_is_recovered_without_repeating(db_url):
@@ -240,7 +241,7 @@ asyncio.run(ExecutionWorker(store, AdapterRegistry(adapter), worker_id="doomed",
     run(ExecutionWorker(recovered, AdapterRegistry(LocalDirectoryAdapter(recovered.engine)), worker_id="w2"))
     body = recovered.get("a")
     assert body["execution"] == "succeeded" and body["results"][0]["reconciled"] is True
-    assert recovered.employee("1001")["password_version"] == 1
+    assert recovered.employee("1001", "default")["password_version"] == 1
 
 
 def test_permanent_failure_mid_batch_compensates_earlier_grants(env):
@@ -255,7 +256,7 @@ def test_permanent_failure_mid_batch_compensates_earlier_grants(env):
     body = store.get("a")
     assert [r["status"] for r in body["results"]] == ["succeeded", "failed"]
     assert body["execution"] == "failed" and body["revocations"][0]["status"] == "succeeded"
-    assert asyncio.run(adapter.current_level("1001", "gitlab")) is None
+    assert run_in_tenant(adapter.current_level("1001", "gitlab")) is None
     assert "compensation_scheduled" in [e["event"] for e in store.audit("a")]
 
 
@@ -284,7 +285,7 @@ def test_amended_request_supersedes_the_pending_duplicate_in_the_same_conversati
     for approval_id in ("t4", rest["approval_id"], "j1", "g1", "t3"):
         store.decide(approval_id, "approved", BOB, store.get(approval_id)["payload_hash"])
     run(worker)
-    assert len(store.employee("1001")["tickets"]) == 2  # t4, t3 — t1/t2/b1 never executed
+    assert len(store.employee("1001", "default")["tickets"]) == 2  # t4, t3 — t1/t2/b1 never executed
     assert any(e["event"] == "superseded" and e["detail"]["remainder"] == rest["approval_id"] for e in store.audit("b1"))
     assert store.audit(rest["approval_id"])[0]["detail"]["carried_from"] == "b1"
     assert [e["event"] for e in store.audit("t1")][-1] == "superseded"
@@ -304,8 +305,8 @@ def test_carried_over_part_keeps_its_own_approval_rule_and_votes_start_over(env)
         store.decide(approval_id, "approved", BOB, store.get(approval_id)["payload_hash"])
     store.decide(rest["approval_id"], "approved", CAROL, rest["payload_hash"])
     run(worker)
-    assert store.employee("1001")["password_version"] == 1  # reset once, not twice
-    assert asyncio.run(worker.registry.local.current_level("1001", "gitlab")) == "developer"
+    assert store.employee("1001", "default")["password_version"] == 1  # reset once, not twice
+    assert run_in_tenant(worker.registry.local.current_level("1001", "gitlab")) == "developer"
 
 
 def test_an_approver_without_an_employee_id_cannot_approve(env):

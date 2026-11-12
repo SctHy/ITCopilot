@@ -50,11 +50,11 @@ def test_agent_metrics_record_status_tokens_and_tool_calls():
 
     async def run():
         orchestrator = orchestrator_with(FunctionModel(respond))
-        orchestrator.directory = SimpleNamespace(employee=lambda eid: {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}], "tickets": []})
+        orchestrator.directory = SimpleNamespace(employee=lambda eid, tenant: {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}], "tickets": []})
         labels = {"status": "success", "error_code": "none"}
         before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input"),
                   sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success"))
-        await orchestrator._execute(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001")))
+        await orchestrator._execute(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001", tenant="default")))
         assert sample("it_copilot_agent_requests_total", **labels) == before[0] + 1
         assert sample("it_copilot_llm_tokens_total", model="deepseek-chat", direction="input") == before[1] + 11
         assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", outcome="success") == before[2] + 1

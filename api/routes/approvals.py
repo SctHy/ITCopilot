@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api import state
 from api.approval_actions import confirm_approval, release_grants, submit_decision, withdraw_approval
-from api.deps import current_principal, forbid, admin_change, require_admin, require_roles, require_workflow
+from api.deps import current_principal, forbid, admin_change, is_platform_admin, require_admin, require_roles, require_workflow
 from api.schemas import ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal
 from core.env import env_float
 from core.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
@@ -71,21 +71,23 @@ async def reconcile_approval(approval_id: str, principal: Principal = Depends(re
     return body
 
 
-@router.get("/policy", dependencies=[Depends(current_principal)])
-async def policy_info():
-    """当前生效的访问策略版本；改 config/access_policy.yaml 并升版本号后无需重启即生效。"""
-    policy = await asyncio.to_thread(lambda: require_workflow().policy)
-    return {"version": policy.version, "approval_ttl_hours": policy.approval_ttl_hours}
+@router.get("/policy")
+async def policy_info(principal: Principal = Depends(current_principal)):
+    """调用者所在租户当前生效的访问策略：平台基线加本租户的收紧覆盖（ADR 0025）；改文件后无需重启即生效。"""
+    policy = await asyncio.to_thread(require_workflow().policy_for, principal.tenant)
+    return {"version": policy.version, "approval_ttl_hours": policy.approval_ttl_hours, "tenant_overlay": policy.tenant is not None}
 
 
 @router.post("/policy/revalidate")
 async def policy_revalidate(principal: Principal = Depends(require_admin)):
-    """立即按当前策略复核在途审批与未到期授权（worker 发现版本变化时也会自动执行）。"""
+    """立即按当前策略复核在途审批与未到期授权（worker 发现版本变化时也会自动执行）。
+    IT 管理员复核本租户；平台管理员复核所有租户（ADR 0025）。"""
     store = require_workflow()
-    async with admin_change(principal, "policy_revalidated", store.policy.version) as change:
-        report = await asyncio.to_thread(store.revalidate)
+    scope = None if is_platform_admin(principal) else principal.tenant
+    async with admin_change(principal, "policy_revalidated", store.policy_for(principal.tenant).version, {"scope": scope or "*"}) as change:
+        report = await asyncio.to_thread(store.revalidate, scope)
         change.subject = report["policy_version"]
-        change.detail = {k: len(v) for k, v in report.items() if isinstance(v, list)}
+        change.detail.update({k: len(v) for k, v in report.items() if isinstance(v, list)})
     if state.worker:
         state.worker.kick()
     return report
@@ -102,7 +104,7 @@ async def business_employee(employee_id: str, principal: Principal = Depends(cur
     """沙箱目录中的员工状态与限时授权台账：本人、审批人、管理员、审计员可查。"""
     if employee_id != principal.employee_id and not principal.has_any(ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR):
         raise forbid("只能查看本人账号状态")
-    body = await asyncio.to_thread(require_workflow().employee, employee_id)
+    body = await asyncio.to_thread(require_workflow().employee, employee_id, principal.tenant)
     if not body:
         raise HTTPException(404, "employee not found")
     return body

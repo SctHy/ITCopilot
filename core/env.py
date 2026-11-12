@@ -9,3 +9,8 @@ def env_float(name: str, default: float) -> float:
         return value if math.isfinite(value) else default
     except (TypeError, ValueError):
         return default
+
+
+def multi_tenant_enabled() -> bool:
+    """IT_COPILOT_MULTI_TENANT (ADR 0022); here so core.identity can read it without importing core.tenancy."""
+    return os.getenv("IT_COPILOT_MULTI_TENANT", "false").strip().lower() in {"1", "true", "yes", "on"}

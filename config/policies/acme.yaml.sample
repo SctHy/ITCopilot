@@ -1,0 +1,21 @@
+# Tenant policy overlay (ADR 0025). Copy to config/policies/<tenant>.yaml; the file name is the tenant id.
+# An overlay can only make the platform base (config/access_policy.yaml) stricter. Anything that would
+# widen access - more hours, fewer approvals, a system or role the base does not have, an extra approver
+# role - is refused at load and the tenant keeps its last good version. Edits apply without a restart;
+# open approvals and grants of this tenant are re-checked.
+version: "acme-2026-11-12.1"
+
+approval_ttl_hours: 48                 # <= base
+approver_roles: [it_admin]             # subset of base: only IT admins approve here
+on_behalf_roles: []                    # nobody files for someone else
+requester_confirmation: [create_ticket]   # added to the base list
+
+systems:
+  gitlab:
+    roles:
+      developer: {approvals: 3, max_hours: 24}   # approvals >= base, max_hours <= base
+      reporter: null                              # not requestable in this tenant
+  vpn: null                                       # whole system off
+
+actions:
+  reset_password: {approvals: 2}

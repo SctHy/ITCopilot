@@ -28,7 +28,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
 
 import httpx2
 import yaml
@@ -169,7 +169,8 @@ def parse_message(settings: FeishuSettings, event: Dict[str, Any]) -> Tuple[Opti
     conv_id = f"{CHANNEL}:{chat_id}" if direct else f"{CHANNEL}:{chat_id}:{root or message_id}"
     return InboundMessage(
         id=f"{CHANNEL}:{message_id}", channel=CHANNEL, conv_id=conv_id[:200],
-        sender={"open_id": ids.get("open_id"), "user_id": ids.get("user_id"), "union_id": ids.get("union_id")},
+        sender={"open_id": ids.get("open_id"), "user_id": ids.get("user_id"), "union_id": ids.get("union_id"),
+                "tenant_key": header.get("tenant_key") or sender.get("tenant_key")},
         text=_text_of(message), address={"message_id": message_id, "chat_id": chat_id},
         addressed=direct or mentioned, thread_root=f"{CHANNEL}:{root}" if root else None,
         meta={"chat_type": chat_type, "message_type": message.get("message_type"), "event_id": header.get("event_id")},
@@ -205,6 +206,17 @@ def resolve_principal(sender: Dict[str, Any]) -> Optional[Principal]:
         if sender.get(key) and sender[key] in directory:
             return directory[sender[key]]
     return None
+
+
+def bind_workspace(resolve: Callable[[Dict[str, Any]], Optional[Principal]], registry) -> Callable[[Dict[str, Any]], Optional[Principal]]:
+    """Multi-tenant mode (ADR 0023): a mapped person counts only when the message came from the Feishu
+    workspace bound to their tenant. A mapping file entry cannot make another workspace's user ours."""
+    def resolver(sender: Dict[str, Any]) -> Optional[Principal]:
+        principal = resolve(sender)
+        if principal is None or registry.feishu_tenant(sender.get("tenant_key")) != principal.tenant:
+            return None
+        return principal
+    return resolver
 
 
 # ── Sending ───────────────────────────────────────────────────────────────────

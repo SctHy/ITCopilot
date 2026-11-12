@@ -23,3 +23,6 @@
 | [0020](0020-requester-confirms-drafted-requests.md) | 申请人确认 Agent 起草的申请后才进入审批 | 已采纳 |
 | [0021](0021-audit-integrity-and-policy-identity.md) | 审计完整性：来源摘要、管理操作先写意图、审计表只追加、策略按内容识别（修订 0008） | 已采纳 |
 | [0022](0022-multi-tenant-registry-and-isolation-sweep.md) | 多租户阶段 0：租户注册表与开关、跨租户路由巡检、未限定租户的查询静态守卫 | 已采纳 |
+| [0023](0023-tenant-scope-and-row-level-security.md) | 多租户阶段 1：租户作用域、签发方与飞书工作区绑定、审批子表与沙箱目录带 tenant、PostgreSQL 行级安全 | 已采纳 |
+| [0024](0024-per-tenant-knowledge-libraries.md) | 多租户阶段 2：每个租户一个知识库，检索时由代码注入租户，工具缓存 key 包含租户 | 已采纳 |
+| [0025](0025-tenant-policy-overlays-adapters-and-platform-admin.md) | 多租户阶段 3：只能收紧的租户策略覆盖、租户自己的目标系统与凭据、部署级操作需要平台管理员 | 已采纳 |

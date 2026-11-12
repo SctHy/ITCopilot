@@ -17,7 +17,7 @@ from api import state
 from api.main import app
 from core.concurrency import LeaseLostError
 from core.db import task_checkpoints, task_verifications, task_runs
-from tests.conftest import auth
+from tests.conftest import auth, run_in_tenant
 from tests.test_shared_tasks import env as shared_env, room, proposal
 from tests.test_task_capabilities import progress
 from tests.test_workflow import ALICE, BOB
@@ -209,7 +209,7 @@ def test_fresh_current_entitlement_gates_human_acceptance(env, caps):
     tasks, workflow, clock = env
     task = ready_task(tasks, caps)
     adapter = LocalDirectoryAdapter(workflow.engine)
-    asyncio.run(adapter.apply('grant', {'tool_name': 'request_access', 'arguments': {'employee_id': ALICE.employee_id, 'system': 'gitlab', 'role': 'readonly'}}))
+    run_in_tenant(adapter.apply('grant', {'tool_name': 'request_access', 'arguments': {'employee_id': ALICE.employee_id, 'system': 'gitlab', 'role': 'readonly'}}))
     worker = TaskVerificationWorker(caps.goals)
     assert asyncio.run(worker.run_once())
     assert caps.goals.read(task['id'], ALICE)['acceptable']
@@ -228,9 +228,9 @@ def test_verifier_checks_current_state_not_historical_operation(env, caps):
     task = ready_task(tasks, caps)
     adapter = LocalDirectoryAdapter(workflow.engine)
     args = {'employee_id': ALICE.employee_id, 'system': 'gitlab', 'role': 'readonly'}
-    asyncio.run(adapter.apply('grant', {'tool_name': 'request_access', 'arguments': args}))
-    asyncio.run(adapter.apply('revoke', {'tool_name': 'revoke_access', 'arguments': args}))
-    assert asyncio.run(adapter.observe('grant', {}))
+    run_in_tenant(adapter.apply('grant', {'tool_name': 'request_access', 'arguments': args}))
+    run_in_tenant(adapter.apply('revoke', {'tool_name': 'revoke_access', 'arguments': args}))
+    assert run_in_tenant(adapter.observe('grant', {}))
     asyncio.run(TaskVerificationWorker(caps.goals).run_once())
     view = caps.goals.read(task['id'], ALICE)
     assert view['history'][0]['status'] == 'failed' and not view['acceptable']

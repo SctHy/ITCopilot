@@ -83,7 +83,7 @@ def test_real_gitea_grant_expiry_and_drift(tmp_path):
         clock.t += 3601
         await worker.run_until_idle()
         assert await gitea.current_level("1001", "gitlab") is None
-        assert store.employee("1001")["access_ledger"][0]["status"] == "revoked"
+        assert store.employee("1001", "default")["access_ledger"][0]["status"] == "revoked"
         # Drift: an operator upgrades alice by hand after our grant; expiry must not delete it.
         drift = store.create("drift", request_id="r2", conv_id="c", principal=ALICE, action_requests=[access(role="readonly", duration_hours=1)])
         store.decide("drift", "approved", BOB, drift["payload_hash"])

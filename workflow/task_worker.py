@@ -4,6 +4,7 @@ import logging
 
 from core.concurrency import LeaseLostError, run_leased
 from core.protocols import SERVICE
+from core.tenant_context import tenant_scope
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ class TaskWorker:
             return await asyncio.to_thread(self.store.renew, claim, self.lease_s)
 
         try:
-            await run_leased(operation, renew, self.lease_s / 3)
+            # The run acts for the room's tenant: its tools, approvals and directory reads (ADR 0023).
+            with tenant_scope(claim["tenant"]):
+                await run_leased(operation, renew, self.lease_s / 3)
         except LeaseLostError:
             logger.info("shared task claim lost: %s", claim["id"])
         return True

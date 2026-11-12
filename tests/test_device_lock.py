@@ -1,6 +1,6 @@
 """Remote lock of a lost device: proposed by the agent, approved by someone else, executed by the worker
 against the sandbox inventory, and only ever for a device the named employee holds."""
-import asyncio
+from tests.conftest import run_in_tenant
 
 import pytest
 
@@ -18,7 +18,7 @@ def lock(device="DEV-1001", employee="1001"):
 
 
 def devices(store, employee="1001"):
-    return {d["device_id"]: d["locked"] for d in store.employee(employee)["devices"]}
+    return {d["device_id"]: d["locked"] for d in store.employee(employee, "default")["devices"]}
 
 
 def test_tool_only_proposes_and_only_for_the_callers_own_account():
@@ -49,7 +49,7 @@ def test_approved_lock_is_applied_once_and_reported(env):  # noqa: F811
     assert _results_text(body["results"]) == "：设备 DEV-1001 已远程锁定"
     # Re-applying the same action id returns the recorded effect instead of repeating it.
     adapter = worker.registry.local
-    again = asyncio.run(adapter.apply(body["results"][0]["operation_id"], lock()))
+    again = run_in_tenant(adapter.apply(body["results"][0]["operation_id"], lock()))
     assert again == {"action": "lock_device", "employee_id": "1001", "device_id": "DEV-1001"}
 
 

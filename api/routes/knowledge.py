@@ -25,13 +25,13 @@ async def _add_knowledge(documents: list[Dict[str, Any]], principal: Principal, 
     async with admin_change(principal, "knowledge_added", None, {
             "via": via, "documents": len(documents), "titles": [d["title"][:200] for d in documents[:20]]}) as change:
         try:
-            chunks = await state.kb.add_documents_async(documents)
+            chunks = await state.kb.add_documents_async(documents, tenant=principal.tenant)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         # 让 Agent 立即检索到新文档，而不是等待 60 秒 TTL 缓存过期。
         state.tool_manager.invalidate_cache("knowledge_search")
         change.detail["chunks"] = chunks
-    return {"documents": len(documents), "chunks": chunks, "total_chunks": await state.kb.doc_count_async()}
+    return {"documents": len(documents), "chunks": chunks, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 
 
 @router.post("/knowledge/add")
@@ -66,12 +66,12 @@ async def knowledge_upload(file: UploadFile = File(...), principal: Principal = 
     return await _add_knowledge([doc.model_dump(exclude_none=True) for doc in payload.documents], principal, "upload:" + name.name[:100])
 
 
-@router.get("/knowledge/documents", dependencies=[Depends(require_admin)])
-async def knowledge_documents(department: Optional[str] = Query(None, max_length=80)):
-    """管理员按文档查看知识库（标题、来源、部门、片段数、是否为演示种子）。"""
+@router.get("/knowledge/documents")
+async def knowledge_documents(department: Optional[str] = Query(None, max_length=80), principal: Principal = Depends(require_admin)):
+    """管理员按文档查看本租户的知识库（标题、来源、部门、片段数、是否为演示种子）。"""
     if not state.kb:
         raise HTTPException(503, "service not ready")
-    items = await asyncio.to_thread(state.kb.list_documents, department)
+    items = await asyncio.to_thread(state.kb.list_documents, department, tenant=principal.tenant)
     return {"items": items, "total": len(items)}
 
 
@@ -81,18 +81,18 @@ async def knowledge_delete(document_id: str, principal: Principal = Depends(requ
     if not state.kb:
         raise HTTPException(503, "service not ready")
     async with admin_change(principal, "knowledge_deleted", document_id) as change:
-        removed = await asyncio.to_thread(state.kb.delete_document, document_id)
+        removed = await asyncio.to_thread(state.kb.delete_document, document_id, tenant=principal.tenant)
         if removed is None:
             raise HTTPException(404, "document not found")
         state.tool_manager.invalidate_cache("knowledge_search")
         logger.info("knowledge document %s deleted by %s", document_id, principal.subject)
         change.detail = {k: removed[k] for k in ("title", "source", "chunks", "demo_seed")}
-    return {**removed, "total_chunks": await state.kb.doc_count_async()}
+    return {**removed, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 
 
 @router.get("/knowledge/stats")
-async def knowledge_stats():
-    count = await state.kb.doc_count_async() if state.kb else 0
+async def knowledge_stats(principal: Principal = Depends(current_principal)):
+    count = await state.kb.doc_count_async(tenant=principal.tenant) if state.kb else 0
     # documents 是旧接口的片段数别名；前端明确展示 total_chunks。
     return {"documents": count, "total_chunks": count}
 

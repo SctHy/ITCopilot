@@ -6,9 +6,10 @@ import json
 import logging
 import os
 import pathlib
+import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 import yaml
 
@@ -37,8 +38,9 @@ class ActionRequirement:
 
 
 class AccessPolicy:
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: Dict[str, Any], *, tenant: Optional[str] = None):
         self.data = data
+        self.tenant = tenant          # None: the platform base (no overlay)
         # The identity of a policy is its declared label *and* its rules. Every approval, grant and
         # revalidation compares this string, so editing a rule without bumping ``version`` still
         # reads as a new policy and open work gets re-checked (comments and key order do not count).
@@ -116,25 +118,155 @@ class AccessPolicy:
         return int(rule["max_hours"]) if rule else None
 
 
+class PolicyOverlayError(ValueError):
+    """A tenant overlay that would loosen the platform base, or that is malformed."""
+
+
+OVERLAY_KEYS = {"version", "approval_ttl_hours", "confirmation_ttl_hours", "requester_confirmation",
+                "on_behalf_roles", "approver_roles", "systems", "actions"}
+ROLE_KEYS = {"approvals", "default_hours", "max_hours"}
+TENANT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")   # core.tenancy.TENANT_ID; never a path component otherwise
+
+
+def _positive(value, what: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise PolicyOverlayError(f"{what} 必须是正整数")
+    return value
+
+
+def tighten(base: Dict[str, Any], overlay: Dict[str, Any], tenant: str) -> Dict[str, Any]:
+    """The base policy narrowed by a tenant overlay (ADR 0025). An overlay can only make access harder:
+    more approvals, shorter lifetimes, fewer requestable systems and roles, fewer people who may file on
+    behalf of others or approve, more actions that need the requester's confirmation. Anything that
+    would widen access - or that the base does not know - is refused, not ignored."""
+    if not isinstance(overlay, dict):
+        raise PolicyOverlayError("覆盖策略必须是 YAML 映射")
+    unknown = set(overlay) - OVERLAY_KEYS
+    if unknown:
+        raise PolicyOverlayError(f"覆盖策略不支持的字段：{sorted(unknown)}")
+    if not isinstance(overlay.get("version"), (str, int)) or not str(overlay["version"]).strip():
+        raise PolicyOverlayError("覆盖策略必须声明 version")
+    merged = json.loads(json.dumps(base))
+    merged["version"] = f"{base['version']}/{tenant}:{overlay['version']}"
+    for key, default in (("approval_ttl_hours", 72), ("confirmation_ttl_hours", 24)):
+        if key in overlay:
+            value, limit = _positive(overlay[key], key), int(base.get(key, default))
+            if value > limit:
+                raise PolicyOverlayError(f"{key} 不能超过平台基线 {limit}")
+            merged[key] = value
+    if "requester_confirmation" in overlay:
+        extra = set(overlay["requester_confirmation"] or [])
+        if not extra <= set(REQUIRED_ARGS):
+            raise PolicyOverlayError(f"requester_confirmation 含未知操作：{sorted(extra - set(REQUIRED_ARGS))}")
+        merged["requester_confirmation"] = sorted(set(base.get("requester_confirmation", [])) | extra)
+    for key in ("on_behalf_roles", "approver_roles"):
+        if key in overlay:
+            narrowed = set(overlay[key] or [])
+            if not narrowed <= set(base.get(key, [])):
+                raise PolicyOverlayError(f"{key} 只能是平台基线的子集，不能加入 {sorted(narrowed - set(base.get(key, [])))}")
+            merged[key] = sorted(narrowed)
+    for system, system_rule in (overlay.get("systems") or {}).items():
+        if system not in merged.get("systems", {}):
+            raise PolicyOverlayError(f"平台基线没有系统 {system}，覆盖策略不能新增")
+        if system_rule is None:
+            del merged["systems"][system]                      # not requestable in this tenant
+            continue
+        unknown = set(system_rule) - {"roles"}
+        if unknown or not isinstance(system_rule.get("roles", {}), dict):
+            raise PolicyOverlayError(f"systems.{system} 只能包含 roles")
+        roles = merged["systems"][system]["roles"]
+        for role, rule in (system_rule.get("roles") or {}).items():
+            if role not in roles:
+                raise PolicyOverlayError(f"平台基线没有 {system}/{role}，覆盖策略不能新增")
+            if rule is None:
+                del roles[role]
+                continue
+            if not isinstance(rule, dict) or set(rule) - ROLE_KEYS:
+                raise PolicyOverlayError(f"{system}/{role} 只能设置 {sorted(ROLE_KEYS)}")
+            current = roles[role]
+            approvals = _positive(rule.get("approvals", current["approvals"]), f"{system}/{role}.approvals")
+            max_hours = _positive(rule.get("max_hours", current["max_hours"]), f"{system}/{role}.max_hours")
+            if approvals < current["approvals"]:
+                raise PolicyOverlayError(f"{system}/{role} 的审批人数不能少于平台基线 {current['approvals']}")
+            if max_hours > current["max_hours"]:
+                raise PolicyOverlayError(f"{system}/{role} 的最长时长不能超过平台基线 {current['max_hours']} 小时")
+            default_hours = _positive(rule.get("default_hours", min(current["default_hours"], max_hours)), f"{system}/{role}.default_hours")
+            if default_hours > max_hours:
+                raise PolicyOverlayError(f"{system}/{role} 的默认时长不能超过最长时长")
+            roles[role] = {"approvals": approvals, "default_hours": default_hours, "max_hours": max_hours}
+    for name, rule in (overlay.get("actions") or {}).items():
+        if name not in merged.get("actions", {}):
+            raise PolicyOverlayError(f"平台基线没有操作 {name}，覆盖策略不能新增")
+        if not isinstance(rule, dict) or set(rule) - {"approvals"}:
+            raise PolicyOverlayError(f"actions.{name} 只能设置 approvals")
+        floor = int((merged["actions"][name] or {}).get("approvals", 1))
+        approvals = _positive(rule.get("approvals", floor), f"actions.{name}.approvals")
+        if approvals < floor:
+            raise PolicyOverlayError(f"{name} 的审批人数不能少于平台基线 {floor}")
+        merged["actions"][name] = {**(merged["actions"][name] or {}), "approvals": approvals}
+    return merged
+
+
 @lru_cache(maxsize=4)
 def _load(path: str, mtime_ns: int) -> AccessPolicy:
     return AccessPolicy(yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8")))
 
 
-_last_good: Dict[str, AccessPolicy] = {}
+@lru_cache(maxsize=256)
+def _load_overlay(base_path: str, base_mtime_ns: int, overlay_path: str, overlay_mtime_ns: int, tenant: str) -> AccessPolicy:
+    base = _load(base_path, base_mtime_ns)
+    overlay = yaml.safe_load(pathlib.Path(overlay_path).read_text(encoding="utf-8"))
+    return AccessPolicy(tighten(base.data, overlay, tenant), tenant=tenant)
 
 
-def load_policy() -> AccessPolicy:
-    """The policy file as it is now: an edit takes effect on the next call, without a restart
-    (the cache is keyed by mtime). Open approvals and grants are re-checked by ``WorkflowStore.revalidate``.
-    A broken edit keeps the last version that loaded, so a typo cannot widen or stop access."""
-    path = os.getenv("IT_COPILOT_ACCESS_POLICY", str(_ROOT / "config/access_policy.yaml"))
+_last_good: Dict[Tuple[str, Optional[str]], AccessPolicy] = {}
+
+
+def base_path() -> str:
+    return os.getenv("IT_COPILOT_ACCESS_POLICY", str(_ROOT / "config/access_policy.yaml"))
+
+
+def overlay_dir() -> pathlib.Path:
+    return pathlib.Path(os.getenv("IT_COPILOT_POLICY_DIR", str(_ROOT / "config/policies")))
+
+
+def overlay_path(tenant: Optional[str]) -> Optional[pathlib.Path]:
+    """The tenant's overlay file, if it has one. Only well-formed tenant ids name a file."""
+    if not tenant or not TENANT_ID.fullmatch(tenant):
+        return None
+    path = overlay_dir() / f"{tenant}.yaml"
+    return path if path.is_file() else None
+
+
+def overlay_tenants() -> List[str]:
+    directory = overlay_dir()
+    return sorted(p.stem for p in directory.glob("*.yaml") if TENANT_ID.fullmatch(p.stem)) if directory.is_dir() else []
+
+
+def load_policy(tenant: Optional[str] = None) -> AccessPolicy:
+    """The policy for ``tenant`` as it is now: the platform base, narrowed by the tenant's overlay
+    (``config/policies/<tenant>.yaml``) when there is one. An edit to either file takes effect on the
+    next call, without a restart (caches are keyed by mtime); open work is re-checked by
+    ``WorkflowStore.revalidate``. A broken or loosening edit keeps the last version that loaded, so a
+    typo cannot widen or stop access; with no good version yet the call fails (fail closed)."""
+    path = base_path()
+    overlay = overlay_path(tenant)
+    key = (path, tenant if overlay else None)
     try:
-        policy = _load(path, pathlib.Path(path).stat().st_mtime_ns)
+        if overlay is None:
+            policy = _load(path, pathlib.Path(path).stat().st_mtime_ns)
+        else:
+            policy = _load_overlay(path, pathlib.Path(path).stat().st_mtime_ns, str(overlay), overlay.stat().st_mtime_ns, tenant)
     except Exception:
-        if path not in _last_good:
+        if key not in _last_good:
             raise
-        logger.exception("access policy %s failed to load; keeping version %s", path, _last_good[path].version)
-        return _last_good[path]
-    _last_good[path] = policy
+        logger.exception("access policy %s failed to load; keeping version %s", overlay or path, _last_good[key].version)
+        return _last_good[key]
+    _last_good[key] = policy
     return policy
+
+
+def policy_signature() -> str:
+    """Changes whenever the base or any overlay's effective rules change: the worker's cue to re-check open work."""
+    versions = [load_policy().version] + [load_policy(t).version for t in overlay_tenants()]
+    return hashlib.sha256("|".join(versions).encode()).hexdigest()[:16]

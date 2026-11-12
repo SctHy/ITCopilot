@@ -4,7 +4,8 @@ Until row-level security backs the application filters (plan phase 1), a forgott
 ``tenant ==`` is a cross-tenant leak. This test parses the application code and finds every
 function that builds a ``select``/``update``/``delete``/``insert`` over a table with a ``tenant``
 column without visible scoping: a ``tenant`` reference, or one of the shared filters that include
-it (``access_filter``, ``TaskAccess.filter``, ``approval_filter``, ``_shared_scope``).
+it (``access_filter``, ``TaskAccess.filter``, ``approval_filter``, ``_shared_scope``). A mention of
+``tenant`` that filters nothing (``row["tenant"]`` choosing a policy) does not count.
 
 Functions that are legitimately unscoped are listed in ``UNSCOPED`` with the reason. A new one
 fails the test: scope the query, or add it here with a reason a reviewer can check. An entry
@@ -17,7 +18,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGES = ("agents", "api", "core", "intake", "memory", "monitor", "tooling", "workflow")
 TENANT_TABLES = {"service_tasks", "approvals", "admin_audit", "session_revocations", "task_identities"}
 VERBS = {"select", "update", "delete", "insert"}
-SCOPED_BY = ("tenant", "access_filter(", "self.filter(", "approval_filter", "_shared_scope")
+# A tenant *filter*, not any mention of the word: reading row["tenant"] to pick a policy scopes nothing.
+SCOPED_BY = (".c.tenant ==", ".c.tenant.in_(", "tenant == ", "== principal.tenant", "!= principal.tenant",
+             "tenant=",  # an insert that sets the row's tenant
+             "access_filter(", "self.filter(", "approval_filter", "_shared_scope")
 
 SYSTEM = "system job over every tenant; plan phase 1 runs it once per tenant under tenant_context"
 UNSCOPED = {
@@ -26,7 +30,6 @@ UNSCOPED = {
     "workflow/store.py::_revalidate_pending": SYSTEM,
     "workflow/store.py::_cancel_if_disallowed": SYSTEM,
     "workflow/store.py::_recheck_grant": SYSTEM,
-    "workflow/store.py::claim": "worker outbox claim; plan phase 4 makes it tenant-fair",
     "workflow/store.py::policy_block": "worker, by id of an action it already claimed",
     "workflow/store.py::_refresh_execution": "worker, by id of an action it already claimed",
     "workflow/store.py::_notify": "by id inside a transaction that already authorized the approval",

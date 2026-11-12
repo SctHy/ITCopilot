@@ -17,18 +17,19 @@ Tenant ids are lowercase ``[a-z0-9_-]``; ``*`` (global audit entries) and ids st
 """
 from __future__ import annotations
 
-import os
 import re
 import threading
 import time
 from enum import StrEnum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
 from core.db import admin_audit, tenants as T
+from core.env import multi_tenant_enabled  # noqa: F401  (re-exported)
+from core.identity import default_issuer
 
 DEFAULT_TENANT = "default"
 TENANT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
@@ -52,14 +53,24 @@ class TenantExists(Exception):
     pass
 
 
-def multi_tenant_enabled() -> bool:
-    return os.getenv("IT_COPILOT_MULTI_TENANT", "false").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def ensure_supported(database_url: str) -> None:
-    """Refuse to start multi-tenant on a database that cannot enforce row-level isolation."""
-    if multi_tenant_enabled() and database_url.startswith("sqlite"):
+def ensure_supported(database_url: str, engine=None) -> None:
+    """Refuse to start multi-tenant on a database that cannot enforce row-level isolation: SQLite
+    (no RLS), or a PostgreSQL role that bypasses it - superusers and BYPASSRLS roles ignore every
+    policy, FORCE or not (ADR 0023). ``engine`` is checked when given."""
+    if not multi_tenant_enabled():
+        return
+    if database_url.startswith("sqlite"):
         raise RuntimeError("IT_COPILOT_MULTI_TENANT requires PostgreSQL; SQLite is single-tenant only (ADR 0022)")
+    if engine is not None and bypasses_row_security(engine):
+        raise RuntimeError("IT_COPILOT_MULTI_TENANT: the database role is a superuser or has BYPASSRLS, so row-level "
+                           "security would not apply; connect as a plain role (deploy/postgres/app-role.sql, ADR 0023)")
+
+
+def bypasses_row_security(engine) -> bool:
+    if engine.dialect.name != "postgresql":
+        return False
+    with engine.connect() as db:
+        return bool(db.execute(text("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")).scalar())
 
 
 def valid_tenant_id(tenant: str) -> bool:
@@ -71,6 +82,7 @@ class TenantRegistry:
         self.engine, self.clock, self.cache_ttl_s = engine, clock, cache_ttl_s
         self._cache: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
         self._lock = threading.Lock()
+        self._issuers: Optional[Tuple[float, Set[str]]] = None
 
     def get(self, tenant: str) -> Optional[Dict[str, Any]]:
         now = time.monotonic()
@@ -87,13 +99,37 @@ class TenantRegistry:
             self._cache[tenant] = (now, value)
         return value
 
-    def check(self, tenant: str) -> None:
-        """Raise ``TenantUnavailable`` unless the tenant is registered and active."""
+    def check(self, tenant: str, issuer: Optional[str] = None) -> None:
+        """Raise ``TenantUnavailable`` unless the tenant is registered and active, and - for a token
+        identity - the token came from the tenant's issuer (its own realm, or the deployment's default
+        issuer when it has none). A realm can therefore only speak for its own tenant (ADR 0023)."""
         row = self.get(tenant)
         if row is None:
             raise TenantUnavailable(tenant, "unknown")
         if row["status"] != TenantStatus.ACTIVE:
             raise TenantUnavailable(tenant, row["status"])
+        if issuer is not None and issuer.rstrip("/") != (row["issuer"] or default_issuer()).rstrip("/"):
+            raise TenantUnavailable(tenant, "issuer_mismatch")
+
+    def issuers(self) -> Set[str]:
+        """Issuers bound to active tenants: the extra realms OIDC verification trusts."""
+        now = time.monotonic()
+        with self._lock:
+            cached = self._issuers
+        if cached and now - cached[0] < self.cache_ttl_s:
+            return cached[1]
+        with schema.read(self.engine) as db:
+            value = set(db.execute(select(T.c.issuer).where(T.c.issuer.is_not(None), T.c.status == TenantStatus.ACTIVE)).scalars())
+        with self._lock:
+            self._issuers = (now, value)
+        return value
+
+    def feishu_tenant(self, tenant_key: Optional[str]) -> Optional[str]:
+        """The tenant bound to a Feishu workspace (event ``header.tenant_key``), if any."""
+        if not tenant_key:
+            return None
+        with schema.read(self.engine) as db:
+            return db.execute(select(T.c.id).where(T.c.feishu_tenant_key == tenant_key)).scalar()
 
     def list(self) -> List[Dict[str, Any]]:
         with schema.read(self.engine) as db:
@@ -133,6 +169,7 @@ class TenantRegistry:
     def _forget(self, tenant: str) -> None:
         with self._lock:
             self._cache.pop(tenant, None)
+            self._issuers = None
 
     @staticmethod
     def _audit(db, tenant: str, actor: str, event: str, detail: Dict[str, Any], at: float) -> None:

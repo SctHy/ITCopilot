@@ -34,8 +34,10 @@ from workflow.adapters import AdapterRegistry
 from workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank
 from core.protocols import SERVICE
 from core.concurrency import LeaseLostError, run_leased
+from core.tenant_context import system_scope, tenant_scope
 from monitor import metrics
 from workflow.states import SETTLED, ActionStatus, ApprovalStatus, GrantStatus
+from workflow.policy import load_policy, overlay_tenants, policy_signature
 from workflow.store import LeaseLost, WorkflowStore
 from workflow.lifecycle import EFFECT
 
@@ -102,6 +104,12 @@ class ExecutionWorker:
                 pass
 
     async def run_once(self, limit: int = 10) -> int:
+        # Expiry, revalidation and claiming span every tenant (system scope); each claimed action then
+        # runs in its own tenant's scope, which the adapters and row-level security read (ADR 0023).
+        with system_scope():
+            return await self._run_once(limit)
+
+    async def _run_once(self, limit: int) -> int:
         await asyncio.to_thread(self.store.expire_pending)
         await self._revalidate_on_policy_change()
         processed = 0
@@ -111,19 +119,22 @@ class ExecutionWorker:
             if not claimed:
                 break
             seen.add(claimed[0]["id"])
-            await self._process_owned(claimed[0])
+            with tenant_scope(claimed[0]["tenant"]):
+                await self._process_owned(claimed[0])
             processed += 1
         return processed
 
     async def _revalidate_on_policy_change(self) -> None:
         """Startup and every policy edit: re-check open approvals and grants (idempotent; several workers may race)."""
-        version = await asyncio.to_thread(lambda: self.store.policy.version)
+        # The base and every tenant overlay (ADR 0025): editing any of them re-checks the open work it governs.
+        version = await asyncio.to_thread(lambda: self.store._policy.version if self.store._policy else policy_signature())
         if version == self._policy_version:
             return
         report = await asyncio.to_thread(self.store.revalidate)
         self._policy_version = version
         changed = {k: len(v) for k, v in report.items() if isinstance(v, list) and v}
-        await asyncio.to_thread(self._record_policy_loaded, version, changed)
+        await asyncio.to_thread(self._record_policy_loaded, self.store.policy.version, changed)
+        await asyncio.to_thread(self._record_overlays_loaded)
         for outcome, count in changed.items():
             metrics.POLICY_REVALIDATIONS.labels(outcome=outcome).inc(count)
         logger.info("access policy %s: revalidated open work %s", version, changed or "(no changes)")
@@ -144,6 +155,23 @@ class ExecutionWorker:
                 "previous": last["subject"] if last else None, "revalidated": changed, "worker": self.worker_id})
         except Exception:
             logger.exception("could not record policy %s in the admin audit", version)
+
+    def _record_overlays_loaded(self) -> None:
+        """Each tenant's effective policy, recorded once per version under that tenant (its admins see it)."""
+        from core import admin_audit
+
+        if self.store._policy:
+            return
+        for tenant in overlay_tenants():
+            try:
+                policy = load_policy(tenant)
+                last = admin_audit.last_tenant_event(self.store.engine, tenant, "policy_loaded")
+                if last and last["subject"] == policy.version:
+                    continue
+                admin_audit.record_as(self.store.engine, tenant, admin_audit.SYSTEM_ACTOR, "policy_loaded", policy.version,
+                                      {"base": self.store.policy.version, "fingerprint": policy.fingerprint, "worker": self.worker_id})
+            except Exception:
+                logger.exception("could not record the policy overlay of tenant %s", tenant)
 
     async def run_until_idle(self, max_rounds: int = 100) -> None:
         for _ in range(max_rounds):
@@ -297,19 +325,66 @@ class ExecutionWorker:
 
 
 def build_registry(store: WorkflowStore) -> AdapterRegistry:
-    """Local sandbox for everything; Gitea for the systems listed in IT_COPILOT_GITEA_REPOS."""
+    """Local sandbox for everything; Gitea for the systems listed in IT_COPILOT_GITEA_REPOS, and per
+    tenant for the tenants in IT_COPILOT_TENANT_ADAPTERS (ADR 0025)."""
+    from core.env import multi_tenant_enabled
     from workflow.adapters.local import LocalDirectoryAdapter
 
     external = {}
     repos = dict(item.split("=", 1) for item in os.getenv("IT_COPILOT_GITEA_REPOS", "").split(",") if "=" in item)
     if repos and os.getenv("IT_COPILOT_GITEA_URL"):
-        from workflow.adapters.gitea import GiteaAdapter
-
         basic = (os.environ["IT_COPILOT_GITEA_USER"], os.getenv("IT_COPILOT_GITEA_PASSWORD", "")) if os.getenv("IT_COPILOT_GITEA_USER") else None
-        gitea = GiteaAdapter(os.environ["IT_COPILOT_GITEA_URL"], os.getenv("IT_COPILOT_GITEA_TOKEN", ""), repos, store.username_of,
-                             basic_auth=basic, timeout_s=float(os.getenv("IT_COPILOT_GITEA_TIMEOUT_S", "10")))
+        gitea = _gitea(store, os.environ["IT_COPILOT_GITEA_URL"], repos, os.getenv("IT_COPILOT_GITEA_TOKEN", ""), basic)
         external = {system: gitea for system in repos}
-    return AdapterRegistry(LocalDirectoryAdapter(store.engine), external)
+    tenants = {tenant: {system: adapter for system, adapter in adapters.items()}
+               for tenant, adapters in load_tenant_adapters(store).items()}
+    # Multi-tenant: the deployment's own credentials act for the operator tenant only.
+    shared = {os.getenv("IT_COPILOT_PLATFORM_TENANT", "default")} if multi_tenant_enabled() else None
+    return AdapterRegistry(LocalDirectoryAdapter(store.engine), external, tenants=tenants, shared_with=shared)
+
+
+def _gitea(store, url, repos, token, basic):
+    from workflow.adapters.gitea import GiteaAdapter
+
+    return GiteaAdapter(url, token, repos, store.username_of, basic_auth=basic, timeout_s=float(os.getenv("IT_COPILOT_GITEA_TIMEOUT_S", "10")))
+
+
+TENANT_ADAPTER_KEYS = {"url", "repos", "token_env", "user_env", "password_env"}
+
+
+def load_tenant_adapters(store, path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """``config/tenant_adapters.yaml``: each tenant's own target systems. Credentials are named by
+    environment variable (``token_env`` ...), never written in the file; a missing variable or an
+    inline secret refuses to start rather than running a tenant's grants with no or the wrong account.
+
+        tenants:
+          acme:
+            gitea: {url: https://git.acme.example, repos: {gitlab: acme/platform}, token_env: ACME_GITEA_TOKEN}
+    """
+    import pathlib
+
+    import yaml
+
+    path = path or os.getenv("IT_COPILOT_TENANT_ADAPTERS", str(pathlib.Path(__file__).resolve().parent.parent / "config/tenant_adapters.yaml"))
+    if not pathlib.Path(path).is_file():
+        return {}
+    data = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8")) or {}
+    result: Dict[str, Dict[str, Any]] = {}
+    for tenant, systems in (data.get("tenants") or {}).items():
+        for kind, conf in (systems or {}).items():
+            if kind != "gitea":
+                raise ValueError(f"tenant {tenant}: unsupported adapter {kind!r}")
+            unknown = set(conf) - TENANT_ADAPTER_KEYS
+            if unknown:
+                raise ValueError(f"tenant {tenant}: unsupported keys {sorted(unknown)} (credentials go in environment variables: token_env, user_env, password_env)")
+            secrets = {k: os.getenv(conf[k], "") for k in ("token_env", "user_env", "password_env") if conf.get(k)}
+            missing = [conf[k] for k in secrets if not secrets[k] and k != "password_env"]
+            if missing or not secrets:
+                raise ValueError(f"tenant {tenant}: credentials not set ({missing or 'token_env or user_env required'})")
+            basic = (secrets["user_env"], secrets.get("password_env", "")) if "user_env" in secrets else None
+            adapter = _gitea(store, conf["url"], dict(conf["repos"]), secrets.get("token_env", ""), basic)
+            result.setdefault(tenant, {}).update({system: adapter for system in conf["repos"]})
+    return result
 
 
 def enabled_channels() -> set:
@@ -326,10 +401,13 @@ def database_url(default_dir: Optional[str] = None) -> str:
 
 async def _main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    from core import tenant_context
     from core.tenancy import ensure_supported
 
+    tenant_context.enter(tenant_context.SYSTEM)  # the standalone worker spans tenants; run_once scopes each action
     ensure_supported(database_url())
     store = WorkflowStore(database_url())
+    ensure_supported(store.url, store.engine)
     channels = enabled_channels()
     if channels:
         # Approvals this process settles still notify the IM conversation that asked for them.

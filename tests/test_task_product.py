@@ -243,7 +243,7 @@ def test_invalid_progress_advice_keeps_known_usage_and_unproven_steps_are_not_do
 
 
 def test_identity_observe_is_cached_and_never_fails_authentication(env, product, monkeypatch):
-    from api.deps import current_principal
+    from api.deps import authenticate
     from core.identity import issue_dev_token
     product.access._observed.clear()
     queries = []
@@ -256,4 +256,4 @@ def test_identity_observe_is_cached_and_never_fails_authentication(env, product,
     def broken(_):
         raise RuntimeError('database is locked')
     monkeypatch.setattr(state, 'task_capabilities', SimpleNamespace(access=SimpleNamespace(observe=broken)))
-    assert current_principal('Bearer ' + issue_dev_token('alice')).subject  # /chat etc. must not 500
+    assert authenticate('Bearer ' + issue_dev_token('alice')).subject  # /chat etc. must not 500

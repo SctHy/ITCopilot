@@ -27,9 +27,11 @@ from core.events import InMemoryEventBus, RedisEventBus
 from core.retention import RetentionPolicy, RetentionSweeper
 from agents.request_recall import RequestRecall
 from core.session_revocation import SessionRevocations
-from core.tenancy import TenantRegistry, ensure_supported, multi_tenant_enabled
+from core import tenant_context
+from core.tenancy import TenantRegistry, bypasses_row_security, ensure_supported, multi_tenant_enabled
 from core.rate_limit import MemoryRateLimiter, RedisRateLimiter, rules_from_env
 from core.protocols import APPLICATION
+from core import identity
 from core.identity import dev_mode_allowed
 from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
 
@@ -55,7 +57,7 @@ async def _start_channels():
     from dataclasses import replace
 
     from intake.base import ChannelError
-    from intake.feishu import FeishuClient, FeishuSettings, resolve_principal
+    from intake.feishu import FeishuClient, FeishuSettings, bind_workspace, resolve_principal
     from intake.im import ChannelService
 
     settings = FeishuSettings.from_env()
@@ -67,7 +69,10 @@ async def _start_channels():
             client.settings = replace(settings, bot_open_id=await client.bot_open_id())
         except ChannelError as exc:
             logger.warning("飞书机器人 open_id 获取失败，群聊中的 @ 将无法识别（可设置 FEISHU_BOT_OPEN_ID）：%s", exc)
-    service = ChannelService(state.workflow.engine, {"feishu": client}, _channel_turn, {"feishu": resolve_principal},
+    resolver = resolve_principal
+    if state.tenants is not None:
+        resolver = bind_workspace(resolve_principal, state.tenants)
+    service = ChannelService(state.workflow.engine, {"feishu": client}, _channel_turn, {"feishu": resolver},
                              poll_s=env_float("IT_COPILOT_CHANNEL_POLL_S", 1))
     state.workflow.notify = service.notify_approval
     service.start()
@@ -103,6 +108,9 @@ async def lifespan(app: FastAPI):
     from agents.task_recall import TaskRecall
 
     state.lifecycle = APPLICATION.start()
+    # Startup and every background loop started here (workers, pumps, sweeps) span tenants: system
+    # scope. Requests do not inherit it; each enters its caller's tenant (api.deps, ADR 0023).
+    tenant_context.enter(tenant_context.SYSTEM)
     state.profile_updater = state.channels = state.feishu = state.mcp_client = state.tasks = state.task_worker = state.task_event_pump = state.task_capabilities = state.task_recall = None
     async with AsyncExitStack() as resources:
         resources.callback(state.lifecycle.send, "close")
@@ -142,6 +150,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
             # 审批与执行状态的唯一来源是应用数据库，不放在 Redis 里。
             state.workflow = await asyncio.to_thread(WorkflowStore, db_url)
+            await asyncio.to_thread(ensure_supported, db_url, state.workflow.engine)
+            if not multi_tenant_enabled() and await asyncio.to_thread(bypasses_row_security, state.workflow.engine):
+                logger.warning("database role bypasses row-level security; tenant isolation rests on application filters only (ADR 0023)")
             state.orchestrator.directory = state.workflow
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)
@@ -167,6 +178,9 @@ async def lifespan(app: FastAPI):
             if multi_tenant_enabled():
                 state.tenants = TenantRegistry(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
                 resources.callback(lambda: setattr(state, "tenants", None))
+                # Each tenant's bound realm is a trusted OIDC issuer; which tenant it may claim is checked per request.
+                identity.extra_issuers = state.tenants.issuers
+                resources.callback(lambda: setattr(identity, "extra_issuers", frozenset))
             state.tasks.effects = CompositeTaskEffects([state.tasks.effects, state.task_capabilities.suggestions, state.task_capabilities.goals])
             state.workflow.shared_access = state.task_capabilities.access.approval_access
             state.workflow.shared_filter = state.task_capabilities.access.approval_filter

@@ -1,6 +1,7 @@
 """Read-only verification port. Observations never execute an approval or trust model prose."""
 from typing import Protocol
 
+from core.tenant_context import SYSTEM, current_tenant, tenant_scope
 from workflow.adapters.base import rank
 from workflow.policy import load_policy
 from workflow.tasks import TaskConflict
@@ -18,8 +19,10 @@ class AccessGoalVerifier:
         self.registry, self.policy = registry, policy
 
     def catalog(self):
-        return [{'system': name, 'roles': list(rule['roles'])}
-                for name, rule in self.policy().data['systems'].items()]
+        # Requestable systems of the tenant in scope (the room's, for goal edits and verification).
+        tenant = current_tenant()
+        policy = self.policy(tenant) if tenant and tenant != SYSTEM else self.policy()
+        return [{'system': name, 'roles': list(rule['roles'])} for name, rule in policy.data['systems'].items()]
 
     def normalize(self, checks):
         if not isinstance(checks, list) or len(checks) > 10:
@@ -36,6 +39,10 @@ class AccessGoalVerifier:
         return normalized
 
     async def verify(self, task, checks):
+        with tenant_scope(task['tenant']):  # adapters read the tenant's own directory (ADR 0023)
+            return await self._verify(task, checks)
+
+    async def _verify(self, task, checks):
         observations = []
         for check in checks:
             observation = {**check, 'status': 'unknown', 'actual': None}

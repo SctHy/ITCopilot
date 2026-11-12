@@ -107,7 +107,7 @@ async def test_existing_gitea_permission_is_never_downgraded(db_url, level):
         if level == "custom-role":
             assert body["execution"] == "manual_review"
         else:
-            assert store.employee("1001")["access_ledger"][0]["status"] == "preexisting"
+            assert store.employee("1001", "default")["access_ledger"][0]["status"] == "preexisting"
     finally:
         await adapter.close()
         store.close()

@@ -116,7 +116,7 @@ def test_audit_tables_refuse_update_and_delete(http, table):
     engine = state.workflow.engine
     with engine.begin() as db:
         if table == "audit":
-            db.execute(text("INSERT INTO audit (approval_id, event, actor, at) VALUES ('a', 'created', 'x', 0)"))
+            db.execute(text("INSERT INTO audit (tenant, approval_id, event, actor, at) VALUES ('default', 'a', 'created', 'x', 0)"))
     for statement in (f"UPDATE {table} SET actor = 'someone else'", f"DELETE FROM {table}"):
         with pytest.raises(DatabaseError, match="append-only"):
             with engine.begin() as db:

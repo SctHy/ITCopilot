@@ -31,6 +31,7 @@ from pydantic_ai.settings import ModelSettings
 from core.env import env_float
 from core.states import Machine
 from core.protocols import CacheState, cache_state
+from core.tenant_context import current_tenant
 from core.jev import JevClient
 from core.llm import build_model
 from monitor import metrics
@@ -495,7 +496,9 @@ class MCPToolManager:
     # ── 缓存 ──────────────────────────────────────────────────────────────────
 
     def _cache_key(self, name: str, params: Dict, context: Optional[Dict] = None) -> str:
-        payload = {"params": params, "context": context or {}, "version": self._cache_versions.get(name, 0)}
+        # The tenant scope is part of the key: tenant-aware handlers (knowledge_search) read it from the
+        # scope, so the same params mean different results for different tenants (ADR 0024).
+        payload = {"params": params, "context": context or {}, "version": self._cache_versions.get(name, 0), "tenant": current_tenant()}
         return f"{name}:{hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()}"
 
     def _get_cache(self, name: str, params: Dict, context: Optional[Dict] = None) -> Optional[Any]:

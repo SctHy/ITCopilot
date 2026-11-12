@@ -14,21 +14,21 @@ class FakeKnowledgeBase:
     def __init__(self):
         self.documents = []
 
-    async def add_documents_async(self, documents):
+    async def add_documents_async(self, documents, tenant=None):
         for doc in documents:
             if not doc["content"].strip():
                 raise ValueError("文档标题和内容不能为空")
         self.documents.extend(documents)
         return len(documents)
 
-    async def doc_count_async(self):
+    async def doc_count_async(self, tenant=None):
         return len(self.documents)
 
-    def list_documents(self, department=None):
+    def list_documents(self, department=None, tenant=None):
         return [{"document_id": d["title"], "title": d["title"], "chunks": 1} for d in self.documents
                 if department is None or d.get("department", "*") == department]
 
-    def delete_document(self, document_id):
+    def delete_document(self, document_id, tenant=None):
         for doc in self.documents:
             if doc["title"] == document_id:
                 self.documents.remove(doc)
@@ -87,7 +87,8 @@ def test_roles_guard_write_endpoints(client):
     assert http.post("/knowledge/add", json=doc).status_code == 200                          # erin is it_admin
     assert http.post("/approvals/a1", json={"decision": "approved", "payload_hash": "0" * 64}, headers=auth("alice")).status_code == 403
     assert http.post("/skills/reload", headers=auth("bob")).status_code == 403
-    assert anonymous.get("/knowledge/stats").status_code == 200          # 只读统计不受影响
+    assert anonymous.get("/knowledge/stats").status_code == 401          # 片段数按租户统计，匿名请求没有租户（ADR 0024）
+    assert http.get("/knowledge/stats").status_code == 200
 
 
 def test_dev_tokens_are_refused_in_production(client, monkeypatch):

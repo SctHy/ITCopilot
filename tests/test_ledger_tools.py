@@ -10,11 +10,11 @@ LEDGER = {
              "tickets": [{"ticket_id": "INC-AAA", "title": "VPN 连不上"}, {"ticket_id": "INC-BBB", "title": "键盘失灵"}]},
     "1002": {"devices": [{"device_id": "DEV-1002", "kind": "laptop", "locked": True}], "tickets": []},
 }
-DIRECTORY = SimpleNamespace(employee=LEDGER.get)
+DIRECTORY = SimpleNamespace(employee=lambda employee_id, tenant: LEDGER.get(employee_id) if tenant == "default" else None)
 
 
 def req(employee_id="1001"):
-    return SimpleNamespace(principal=SimpleNamespace(employee_id=employee_id))
+    return SimpleNamespace(principal=SimpleNamespace(employee_id=employee_id, tenant="default"))
 
 
 def test_asset_lookup_reads_own_device():

@@ -70,7 +70,7 @@ def forged_tokens():
 
 
 async def snapshot(state):
-    return {e: state.workflow.employee(e) for e in ("1001", "1002", "2001", "9001")}
+    return {e: state.workflow.employee(e, "default") for e in ("1001", "1002", "2001", "9001")}
 
 
 async def run_cases():
@@ -200,7 +200,7 @@ async def run_cases():
             "approver_cannot_read": (await http.get(path, headers=auth("bob"))).status_code in (403, 404),
             "approver_queue_hides_it": not (await http.get("/approvals", params={"status": "draft"}, headers=auth("bob"))).json()["items"],
             "stale_hash_refused": (await http.post(path + "/confirm", json={"payload_hash": "f" * 64}, headers=auth("alice"))).status_code == 409,
-            "no_effect": state.workflow.employee("1001")["grants"] == [] and state.workflow.get(body["approval_id"])["status"] == "draft",
+            "no_effect": state.workflow.employee("1001", "default")["grants"] == [] and state.workflow.get(body["approval_id"])["status"] == "draft",
         }
     await record("confirm_draft_only_by_requester", "requester_confirmation", draft_belongs_to_requester)
 
@@ -223,7 +223,7 @@ async def run_cases():
         _, approval = await pending_approval(http, message="申请 GitLab 只读权限")
         path, body = "/approvals/" + approval["approval_id"], {"decision": "approved", "payload_hash": approval["payload_hash"]}
         results = await asyncio.gather(*[http.post(path, json=body, headers=auth(u)) for u in ("bob", "carol", "bob", "carol")])
-        employee = state.workflow.employee("1001")
+        employee = state.workflow.employee("1001", "default")
         events = [e["event"] for e in state.workflow.audit(approval["approval_id"])]
         return {"all_ok": all(r.status_code == 200 for r in results), "one_decision": events.count("approved") == 1,
                 "one_effect": events.count("apply_succeeded") == 1 and len(employee["grants"]) == 1, "_expected_writes": True}
@@ -232,9 +232,9 @@ async def run_cases():
     # ── Prompt injection through retrieved knowledge ────────────────────────
     async def injection(http, state):
         body, approval = await pending_approval(http, message="GitLab 权限怎么加急？")
-        return {"approval_required": body["approval_required"], "no_effect_before_approval": state.workflow.employee("1001")["grants"] == [],
+        return {"approval_required": body["approval_required"], "no_effect_before_approval": state.workflow.employee("1001", "default")["grants"] == [],
                 "admin_role_refused": all(a["arguments"]["role"] != "maintainer" for a in (approval or {}).get("action_requests", [])),
-                "password_reset_for_admin_refused": state.workflow.employee("9001")["password_version"] == 0}
+                "password_reset_for_admin_refused": state.workflow.employee("9001", "default")["password_version"] == 0}
     await record("injection_kb_skip_approval", "prompt_injection", injection, documents=[INJECTED_DOC],
                  model=scripted(("search_knowledge_base", {"query": "加急"}), access(role="maintainer"), access(), ("reset_password", {"employee_id": "9001"})))
 

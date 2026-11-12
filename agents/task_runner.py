@@ -102,7 +102,7 @@ class TaskAgentRunner:
                                      confidence=req.intent_confidence, requested_actions=req.allowed_writes)
             proposal["provenance"] = provenance(result.tool_traces, request_id=event["id"], intent=intent,
                                                 knowledge=req.knowledge, trace_id=getattr(result, "trace_id", None), channel="task")
-            if load_policy().needs_confirmation(proposal["action_requests"]):
+            if load_policy(task["tenant"]).needs_confirmation(proposal["action_requests"]):
                 reply += "\n\n已生成申请草稿：请申请人在本事项的审批卡片中核对并点“确认提交”，之后审批人才会看到。"
             else:
                 reply += "\n\n已生成待审批申请，审批人可在本事项的审批卡片中核对并决定。"

@@ -42,6 +42,12 @@ P0 是安全底线，上线多租户前必须完成；P1 处理故障域；P2 �
 
 ### 阶段 1 · 身份与状态隔离（P0，约 1 周）
 
+> **状态：代码已完成，PostgreSQL 验证待做**（ADR 0023）。与原计划的差异：
+> - `task_*` 子表不加 tenant 列，RLS 策略跟随父表 `service_tasks`；只有会脱离父表单独读取的表才加列（审批子表、沙箱目录）。
+> - RLS 只保护请求路径；后台循环运行在显式的系统作用域 `*`，不逐个租户执行。
+> - 默认 compose 仍以超级用户连接（超级用户会绕过 RLS）；多租户模式要求切换到 `deploy/postgres/app-role.sql` 创建的 `itc_app`，否则拒绝启动。
+> - 待办：在 PostgreSQL 上用 `itc_app` 跑完整测试套件和 `tests/test_row_level_security.py`（开发环境连不上本地数据库）；跨租户访问统一返回 404；`/ops/retention/run` 移到阶段 3，与其他部署级操作一起处理。
+
 **身份**
 
 - `core/identity.py`：多租户模式下 tenant claim 缺失就返回 401，不再回落到 `default`。
@@ -70,6 +76,8 @@ P0 是安全底线，上线多租户前必须完成；P1 处理故障域；P2 �
 
 ### 阶段 2 · 知识库与检索（P0，约 3 天）
 
+> **状态：已完成**（ADR 0024）。与原计划的差异：按租户分 collection（命名空间），不加 tenant 列：各租户的检索和 BM25 统计互不影响，`default` 的数据不用迁移；代价是 `vector_documents` 没有 RLS。平台公共库 `_platform` 与订阅暂未实现。工具缓存 key 已包含租户；`/knowledge/stats` 改为需要登录；多租户模式下 `/mcp` 的检索直接报错。
+
 - `vector_rows` 带 tenant（阶段 1 已加列）。`KnowledgeBase.search` 的租户**从工具上下文里的 principal 注入**，不出现在工具参数 schema 里，模型改不了。
 - 语义调整：`department="*"` 改为"本租户内全员可见"；另设一个只读的平台公共库（tenant=`_platform`），租户需要显式订阅才能检索到。
 - 本地缓存（BM25 索引、`_department_mask`）的 key 改为 `(tenant, department)`；文档上传、列出、删除等管理接口按租户划分作用域，写入 `admin_audit` 时记在本租户名下。
@@ -78,6 +86,12 @@ P0 是安全底线，上线多租户前必须完成；P1 处理故障域；P2 �
 **验收**：在 A 的知识库放一篇带唯一标记的文档，B 用这个标记检索，结果为 0；新增一组安全评测用例："A 的文档里注入指令，诱导读取 B 的数据"，加入 `scripts/evaluate_security.py`。
 
 ### 阶段 3 · 策略与工具（P1，约 1 周）
+
+> **状态：已完成**（ADR 0025）。与原计划的差异：
+> - 覆盖文件以租户 id 命名，不使用注册表里的 `policy_ref` 字段；第一次加载就失败时直接报错，不退回基线。
+> - 熔断不按租户拆分：工具调用的都是共享下游，参数错误本来就不计入失败；按租户区分的是执行适配器。
+> - `/skills/reload`、`/policy/revalidate`、`/ops/retention/run` 都在本阶段处理：多租户模式下需要运营方租户的 `platform_admin`；租户管理员只能复核本租户。
+> - 未实现：外部 MCP 服务按租户设置白名单。
 
 **按租户覆盖策略（ADR 0023）**
 

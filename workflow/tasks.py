@@ -274,7 +274,7 @@ class TaskStore:
                                              version=candidate["version"] + 1, lease_until=now + lease_s)).rowcount
                 if changed:
                     claim = {**candidate, "status": "running", "attempts": candidate["attempts"] + 1,
-                             "version": candidate["version"] + 1, "lease_until": now + lease_s}
+                             "version": candidate["version"] + 1, "lease_until": now + lease_s, "tenant": task["tenant"]}
                     if self.governance and not self.governance.admit(db, task, claim):
                         continue
                     return claim

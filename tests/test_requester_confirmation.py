@@ -60,7 +60,7 @@ def test_a_draft_is_invisible_to_approvers_and_cannot_be_decided(env):
     assert store.list(BOB) == [] and not store.can_read(body, BOB)
     assert [a["approval_id"] for a in store.list(ALICE)] == ["a"] and store.can_read(body, GRACE)  # requester, auditor
     run(worker)
-    assert store.employee("1001")["grants"] == [] and notices == []
+    assert store.employee("1001", "default")["grants"] == [] and notices == []
 
 
 def test_only_the_requester_confirms_what_they_were_shown(env):
@@ -82,7 +82,7 @@ def test_only_the_requester_confirms_what_they_were_shown(env):
     assert events(store, "a") == ["created", "confirmed"]
     store.decide("a", "approved", BOB, body["payload_hash"])
     run(worker)
-    assert store.employee("1001")["grants"][0]["role"] == "readonly"
+    assert store.employee("1001", "default")["grants"][0]["role"] == "readonly"
     assert policy.confirmation_ttl_hours < policy.approval_ttl_hours
 
 
