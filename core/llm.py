@@ -18,7 +18,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-flash"
 
 
 def _thinking_settings() -> Optional[ModelSettings]:
@@ -29,26 +29,6 @@ def _thinking_settings() -> Optional[ModelSettings]:
     if thinking not in {"enabled", "disabled"}:
         raise ValueError("OPENAI_THINKING_TYPE must be enabled or disabled")
     return ModelSettings(extra_body={"thinking": {"type": thinking}})
-
-
-AGENT_THINKING_LEVELS = ("disabled", "low", "high", "max")
-
-
-def agent_thinking_settings(profile) -> dict:
-    """Agent 这一路的思考档位（IT_COPILOT_AGENT_THINKING）：disabled / low / high / max，默认 disabled。
-
-    只用于 Agent：意图识别等结构化输出依赖指定函数的 tool_choice，DeepSeek 思考模式会拒绝，模型级默认仍是关闭。
-    思考 token 计入输出上限，开启时把 max_tokens 提到 IT_COPILOT_AGENT_THINKING_MAX_TOKENS（默认 16000），
-    只按实际用量计费；思考模式不支持 temperature（不报错但无效），不再传。
-    """
-    level = (os.getenv("IT_COPILOT_AGENT_THINKING") or "disabled").strip().lower()
-    if level not in AGENT_THINKING_LEVELS:
-        raise ValueError(f"IT_COPILOT_AGENT_THINKING must be one of {AGENT_THINKING_LEVELS}")
-    if level == "disabled":
-        return {"max_tokens": profile.max_tokens, "temperature": profile.temperature,
-                **({"extra_body": {"thinking": {"type": "disabled"}}} if os.getenv("OPENAI_THINKING_TYPE") else {})}
-    return {"max_tokens": int(os.getenv("IT_COPILOT_AGENT_THINKING_MAX_TOKENS") or 16000),
-            "extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": level}}
 
 
 def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = "") -> Model:
@@ -94,7 +74,7 @@ async def complete_text(model: Model, prompt: str, *, max_tokens: int, temperatu
     """单轮纯文本补全（无工具、无重试循环），用于摘要、评测裁判等场景。"""
     settings = ModelSettings(max_tokens=max_tokens, temperature=temperature)
     if request_timeout is not None:
-        settings["request_timeout"] = request_timeout
+        settings["timeout"] = request_timeout
     if max_retries is not None:
         settings["max_retries"] = max_retries
     response = await model_request(model, [ModelRequest.user_text_prompt(prompt)], model_settings=settings)

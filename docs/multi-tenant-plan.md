@@ -118,7 +118,7 @@ P0 是安全底线，上线多租户前必须完成；P1 处理故障域；P2 �
 **配额（扩展 `core/rate_limit.py`，GCRA 本身已支持多个 bucket）**
 
 - 每轮请求检查两层限流：`agent_turn:tenant:{t}`，再检查 `agent_turn:user:{scope_key}`。租户级速率从 `tenants.quotas` 读取，按 tier 设默认值。
-- 新建 token 用量表 `tenant_usage(tenant, day, model, input_tokens, output_tokens, cost)`，在 `core/llm.py` 统一记账。超出日预算时**降级而不是报错**：只走检索和模板回答，并停止起草新的写操作申请。
+- 复用 `turn_records` 的 token、模型、路由与成本字段，不新增 `tenant_usage`。按租户当天 `cost_usd` 汇总并缓存60秒，超过 `tenants.quotas.daily_cost_usd` 后隐藏新写操作工具并说明预算，`agent_read` 继续运行（ADR 0030）。
 
 **舱壁**
 
@@ -127,8 +127,8 @@ P0 是安全底线，上线多租户前必须完成；P1 处理故障域；P2 �
 
 **模型路由**
 
-- 租户配置可以指定 `provider/model/key_ref`，支持自带 key（BYOK）。client 池按 `(provider, key_ref)` 缓存。
-- 供应商故障时，按租户配置的备选模型切换；没有配置就沿用平台默认。
+- 已由 `config/model_routes.yaml` 和 `ModelRouter` 实现按角色、数据等级与地域过滤候选，按配置偏好排序、熔断与五分钟P95调整；候选质量由离线报告门禁约束。当前仅有一个已配置凭据的模型，BYOK尚未实现。
+- 模型不可用且尚未推送answer_delta时最多切换一次到合规健康备选；流式输出后保持失败边界，不拼接不同模型输出。
 
 **执行队列公平调度**
 

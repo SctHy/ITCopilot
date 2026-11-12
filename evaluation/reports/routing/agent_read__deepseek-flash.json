@@ -1,0 +1,36 @@
+{
+  "route": "agent_read",
+  "model": "deepseek-flash",
+  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "status": "invalid",
+  "kind": "real_model",
+  "evaluation_kind": "application_business_oracle",
+  "repeats": 3,
+  "trials": 330,
+  "passed": 247,
+  "success_rate": 0.7484848484848485,
+  "wilson": [
+    0.6989951331384648,
+    0.7922560151740766
+  ],
+  "p95_s": 10.617017292010132,
+  "cost_per_success_usd": 0.000794821991902834,
+  "route_calls": 226,
+  "source_reports": [
+    {
+      "path": "evaluation/reports/latency_cost_baseline_application_strata_v3_2026-11-12.json",
+      "sha256": "dcd12c0e4967617d1c2addb862ed6b14524a7d340aac369030a953979572f3bb",
+      "dataset_sha256": "3aa0b5e507f123427d81f54b48b6a1fc5c8f6f6c7bb28d9b41b40a643ad844b1",
+      "code_sha256": "35d7a6063de6abba724e4a3798b6d1a2b6fd17ffea68ccb7e5ca5257003dcae6"
+    },
+    {
+      "path": "evaluation/reports/latency_cost_baseline_application_hard_v4_2026-11-12.json",
+      "sha256": "988634b571e3d20ef890798f23df49836ed8fbe641e26b83e55410307b82c658",
+      "dataset_sha256": "93bb76abf495d95c8ad7a0139364f600b96920da90e433dd9eb5c80aa8cd489f",
+      "code_sha256": "35d7a6063de6abba724e4a3798b6d1a2b6fd17ffea68ccb7e5ca5257003dcae6"
+    }
+  ],
+  "dataset_sha256": "e6c34e7c9ad08af4eb5f63dfc0ef89b665791c18ca486a4e7768d3b208d945ba",
+  "limitations": "Reuses complete real application trials and their original business oracle; every failed case remains in the denominator. Role candidate identity is verified in actual turn traces; latency/cost cover the complete case, not this role alone.",
+  "invalid_reason": "Application trial directory was reset between cases while ACTIVE grants/actions remained. Cross-case ledger contamination invalidates business success/latency/cost qualification; retained solely as evidence."
+}

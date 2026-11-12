@@ -3,15 +3,25 @@ import asyncio
 import json
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage, UsageLimits
 from workflow.task_suggestions import ProgressSuggestion
+from core.model_router import ModelRouter
 
 
 class TaskProgressAdvisor:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, model=None, *, router=None):
+        self.router = ModelRouter() if router is None else router
+        if model is not None:
+            self.router.replace_models(model)
         self.agent = Agent(output_type=ToolOutput(ProgressSuggestion, name='draft_progress'), retries=1)
+
+    @property
+    def model(self):
+        return self.router.models[self.router.config.routes["summary"].candidates[0]]
+
+    @model.setter
+    def model(self, model):
+        self.router.replace_models(model)
 
     async def suggest(self, progress, task, event, response, evidence_id):
         prompt = ('为共享IT事项整理进度建议，调用draft_progress提交结构化草稿。字段goal、steps、blocker、next_action。'
@@ -22,8 +32,9 @@ class TaskProgressAdvisor:
                       'latest_response': response[:5000], 'response_evidence_id': evidence_id}, ensure_ascii=False))
         measured = RunUsage()
         try:
-            result = await asyncio.wait_for(self.agent.run(prompt, model=self.model, usage=measured,
-                usage_limits=UsageLimits(request_limit=2), model_settings=ModelSettings(max_tokens=1800, temperature=0, timeout=20)), 20)
+            routed = self.router.pick("summary", task["tenant"])
+            result = await self.router.run(routed, asyncio.wait_for(self.agent.run(prompt, model=routed.model, usage=measured,
+                usage_limits=UsageLimits(request_limit=2), model_settings={**routed.settings, "max_tokens": 1800, "temperature": 0, "timeout": 20}), 20))
             payload = result.output.model_dump()
         except Exception:
             return None, {'input_tokens': measured.input_tokens, 'output_tokens': measured.output_tokens}

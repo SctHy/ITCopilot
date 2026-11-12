@@ -57,6 +57,7 @@ def fake_orchestrator(calls):
 
     async def execute(req):
         calls['agent'] += 1
+        req.route_metadata = {"model": "deepseek-flash", "route": "agent_write", "route_reason": "primary", "cost_usd": 0.0}
         return AgentResponse('结果', True, token_usage={'input_tokens': 7, 'output_tokens': 3}, observability=orchestrator.agent._observability(req))
 
     orchestrator.recognize_intent, orchestrator._execute = recognize, execute

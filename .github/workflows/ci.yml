@@ -28,6 +28,7 @@ jobs:
           activate-environment: true
       - run: uv pip install -r requirements-dev.txt
       - run: ruff check .
+      - run: python scripts/check_model_routes.py
       # Includes the 21-case security regression suite and real-socket streaming test.
       - run: pytest -q -p no:warnings
 

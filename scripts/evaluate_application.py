@@ -211,15 +211,21 @@ async def trial(http, state, case, repeat):
 async def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--redis-url", default="redis://127.0.0.1:16379/0")
-    p.add_argument("--limit", type=int, default=24)
+    p.add_argument("--limit", type=int, default=None)
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--dataset", default=str(DATASETS_DIR / "application_v2.json"))
     p.add_argument("--output", default="application_live.json")
     p.add_argument("--cases", default="", help="comma-separated case ids to run (debugging subset)")
+    p.add_argument("--model-route", choices=("intent_fallback", "agent_read", "agent_write", "summary", "profile", "rewrite_rerank", "judge"))
+    p.add_argument("--model", help="configured candidate name; with no --model-route force it on every role")
     args = p.parse_args()
     load_dotenv(ROOT / ".env")
     source = pathlib.Path(args.dataset)
+    if not source.exists():
+        source = DATASETS_DIR / (args.dataset if args.dataset.endswith(".json") else args.dataset + ".json")
     cases = json.loads(source.read_text())[: args.limit]
+    if args.model_route and not args.model:
+        p.error("--model-route requires --model")
     if args.cases:
         wanted = set(args.cases.split(","))
         cases = [c for c in cases if c["id"] in wanted]
@@ -234,17 +240,35 @@ async def main():
     rows = []
     from evaluation.token_audit import TokenAudit, summarize
     audit = TokenAudit().__enter__()
-    async with application(redis_url=args.redis_url, documents=documents) as (http, state):
-        for repeat in range(args.repeats):
-            for case in cases:
-                state.tool_manager.invalidate_cache("knowledge_search")
-                before = len(audit.records)
+    source_calls = []
+    route_calls = {}
+    for repeat in range(args.repeats):
+        for case in cases:
+            before = len(audit.records)
+            # Each oracle starts with its own business ledger as well as its own directory.
+            async with application(redis_url=args.redis_url, documents=documents) as (http, state):
+                if args.model:
+                    router = state.orchestrator.router
+                    for route in ([args.model_route] if args.model_route else router.config.routes):
+                        router.force(route, args.model)
+                if args.agent_spec:
+                    state.orchestrator.forced_spec = state.agent_registry.get(args.agent_spec, args.agent_version)
+                route_settings = state.orchestrator.router.config.model_dump()
                 row = await trial(http, state, case, repeat)
                 row["model_usage"] = summarize(audit.records[before:])
-                rows.append(row)
-                print(f"{case['id']}: {row['passed']}", flush=True)
-                write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
-        source_calls = state.orchestrator._intent_recognizer.metrics()
+                from sqlalchemy import select
+                from core.db import read, turn_records
+                from core.tenant_context import system_scope
+                request_ids = [turn["response"]["request_id"] for turn in row["turns"]]
+                with system_scope(), read(state.workflow.engine) as db:
+                    costs = db.execute(select(turn_records.c.cost_usd).where(turn_records.c.request_id.in_(request_ids))).scalars().all()
+                row["cost_usd"] = sum(cost for cost in costs if cost is not None)
+                source_calls.append({"case_id": case["id"], "repeat": repeat, **state.orchestrator._intent_recognizer.metrics()})
+                for route, count in state.orchestrator.router.calls.items():
+                    route_calls[route] = route_calls.get(route, 0) + count
+            rows.append(row)
+            print(f"{case['id']}: {row['passed']}", flush=True)
+            write_report(args.output.replace(".json", "_partial.json"), {"status": "running", "trials": rows}, echo=False)
     summary = {
         "trials": len(rows),
         "passed": sum(r["passed"] for r in rows),
@@ -253,10 +277,13 @@ async def main():
         "latency_p95_s": percentile([r["latency_s"] for r in rows], 0.95) if rows else 0,
         "agent_tokens_median": statistics.median(r["agent_tokens"] for r in rows) if rows else 0,
         "turn_stage_ms": stage_summary(rows),
+        "cost_usd": sum(row["cost_usd"] for row in rows),
+        "cost_per_success_usd": (sum(row["cost_usd"] for row in rows) / sum(row["passed"] for row in rows)) if any(row["passed"] for row in rows) else None,
     }
     report = {
         "suite": "application-v2",
         "status": "complete",
+        "isolation": "fresh_application_database_and_ledger_per_case",
         "model": os.getenv("OPENAI_MODEL"),
         "upstream": upstream_model(),
         "started_at": started_at,
@@ -266,7 +293,10 @@ async def main():
         "dataset_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "source_calls": source_calls,
         "summary": summary,
-        "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"),
+        "route_settings": route_settings,
+        "route_calls": route_calls,
+        "forced_route": args.model_route,
+        "forced_candidate": args.model,
         "token_audit": audit.summary(),
         "trials": rows,
         "limitations": "Authored local sandbox tasks; real model/Redis/SQLite and ASGI HTTP handlers; no enterprise identity integration. Token totals cover agent runs only, excluding intent/rewrite/rerank. Not a user study.",

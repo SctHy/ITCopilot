@@ -31,8 +31,9 @@ from redis.exceptions import WatchError
 
 from core.concurrency import KeyedLocks, redis_lease
 from memory.states import profile_phase, COMPRESSION, MAINTENANCE
-from core.llm import build_model, close_model, complete_text
-from pydantic_ai.settings import ModelSettings
+from core.llm import close_model, complete_text
+from core.model_router import ModelRouter
+from core.tenant_context import current_tenant
 from core.vector_store import VectorStore
 from core.redaction import redact, redact_text
 
@@ -171,8 +172,9 @@ class MemoryManager:
         api_key:      str = "",
         base_url:     Optional[str] = None,
         model:        str = "",
+        router=None,
     ):
-        self._llm = build_model(api_key, base_url, model)
+        self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
 
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._request_locks = KeyedLocks()
@@ -186,6 +188,18 @@ class MemoryManager:
         self._episodic = store.collection("episodic")
         # 用户画像：存储提炼出的偏好和实体
         self._profile  = store.collection("user_profile")
+
+    @property
+    def _llm(self):
+        return self.router.models[self.router.config.routes["summary"].candidates[0]]
+
+    @_llm.setter
+    def _llm(self, model):
+        self.router.replace_models(model)
+
+    def _route(self, role):
+        tenant = current_tenant()
+        return self.router.pick(role, "default" if tenant in {None, "*"} else tenant)
 
     @asynccontextmanager
     async def conversation(self, user_id: str, conv_id: str):
@@ -314,9 +328,10 @@ class MemoryManager:
         prompt = self._safe_text(prompt)
 
         try:
-            result = await asyncio.wait_for(_PROFILE_AGENT.run(
-                prompt, model=self._llm, model_settings=ModelSettings(max_tokens=400, temperature=0.0),
-            ), timeout=15)
+            routed = self._route("profile")
+            result = await self.router.run(routed, asyncio.wait_for(_PROFILE_AGENT.run(
+                prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 400, "temperature": 0.0},
+            ), timeout=15))
             source_request_id = messages[-1].metadata["request_id"]
             profile_data = self._merge_profile(current_profile, self._normalize_profile(
                 result.output.model_dump(), source_request_id=source_request_id))
@@ -449,7 +464,9 @@ class MemoryManager:
         text = redact_text(self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress)))
         prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
         try:
-            resp = await complete_text(self._llm, prompt, max_tokens=1024, temperature=0.0)
+            routed = self._route("summary")
+            resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=1024, temperature=0.0,
+                                       request_timeout=routed.settings["timeout"]))
             summary = redact_text(self._safe_text(resp.text)).strip()
             if not summary or resp.truncated:
                 logger.warning("摘要为空或被截断，保留原始会话消息")
@@ -800,7 +817,9 @@ class MemoryManager:
 """
         )
         try:
-            resp = await complete_text(self._llm, prompt, max_tokens=256, temperature=0.0)
+            routed = self._route("summary")
+            resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=256, temperature=0.0,
+                                       request_timeout=routed.settings["timeout"]))
             merged = redact_text(self._safe_text(resp.text)).strip()
             if merged:
                 return merged[: self.SUMMARY_MAX_CHARS]

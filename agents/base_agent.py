@@ -18,8 +18,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ToolCallPart,
 )
-from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 from agents.agent_stats import AgentStats
 from agents.states import OnceState, once_state, MODEL_RUN, TOOL_CALL, SlotState, slot_state
@@ -43,18 +42,16 @@ from agents.types import (
     ModelUnavailableError,
     Request,
 )
-from core.env import env_float
 from core.protocols import CacheState, cache_state
-from core.llm import agent_thinking_settings, is_model_unavailable
+from core.llm import is_model_unavailable
+from core.model_router import MODEL_ERRORS, ModelRouter
+from core.tenant_context import current_tenant
 from core.redaction import redact
 from monitor import metrics
 from tooling.executor import ToolExecutor, ToolInputInvalid, WriteGuardBlocked, error_class
 
 logger = logging.getLogger(__name__)
 
-# Default model requests per agent run (each tool round + the final answer); override with
-# IT_COPILOT_MAX_MODEL_ROUNDS. 3 cut off "diagnose, then file a ticket" (needs 4) on deepseek-flash.
-MAX_MODEL_ROUNDS = 5
 ESCALATION_MARKERS = ("转人工", "人工客服", "人工坐席", "无法处理", "escalate")
 
 
@@ -62,8 +59,12 @@ class BaseAgent:
     system_prompt = "你是 IT-Copilot 的 IT 服务 Agent：设备、网络与软件、账号权限、工单。一条消息含多个问题时逐个处理。"
     name = "it_copilot"
 
-    def __init__(self, llm, model, skill_manager=None, profile=None):
-        self._llm = llm
+    def __init__(self, llm, model, skill_manager=None, profile=None, *, router=None,
+                 read_route="agent_read", write_route="agent_write"):
+        self.router = ModelRouter(model=model) if router is None else router
+        if llm is not None:
+            self.router.replace_models(llm)
+        self.read_route, self.write_route = read_route, write_route
         self.profile = profile or AgentProfile()
         self._model = model
         self._skill_manager = skill_manager
@@ -72,6 +73,14 @@ class BaseAgent:
         self._agent = None
         self.executor = ToolExecutor()
         self._fingerprints = {}
+
+    @property
+    def _llm(self):
+        return self.router.models[self.router.config.routes[self.write_route].candidates[0]]
+
+    @_llm.setter
+    def _llm(self, model):
+        self.router.replace_models(model)
 
     def get_tools(self):
         return dict(self._shared_tools)
@@ -101,7 +110,7 @@ class BaseAgent:
         from core.turn_records import build_sha
         sha = build_sha()
         return {**self.fingerprints(), "agent_spec": self.name, "agent_version": "build:" + sha,
-                "build_sha": sha, "model": self._model, "route": "agent", "route_reason": "primary",
+                "build_sha": sha, **req.route_metadata,
                 "signals": list(req.signals), "first_token_ms": req.first_token_ms}
 
     def _instructions(self, ctx: RunContext[AgentRunDeps]) -> str:
@@ -136,6 +145,8 @@ class BaseAgent:
                 response = AgentResponse("抱歉，模型暂时无法处理该请求，请稍后重试。", False, latency_ms=ms, tools_used=tools_used, tool_traces=tool_traces, status="failed", error_code="agent_failed")
             if isinstance(ex, AgentCallError) and ex.reason in {"round_limit", "bad_output", "empty_output"}:
                 response.error_code = ex.reason
+            if isinstance(ex, AgentCallError):
+                response.token_usage = ex.token_usage
             response.observability = self._observability(req)
             return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
@@ -155,7 +166,7 @@ class BaseAgent:
         for direction in ("input", "output", "cache_read"):
             tokens = response.token_usage.get(f"{direction}_tokens", 0)
             if tokens:
-                metrics.LLM_TOKENS.labels(model=self._model or "unknown", direction=direction).inc(tokens)
+                metrics.LLM_TOKENS.labels(model=response.observability["model"], direction=direction).inc(tokens)
         return response
 
     def _record(self, success: bool, started: float, req: Request) -> float:
@@ -170,18 +181,57 @@ class BaseAgent:
         deps = AgentRunDeps(req)
         if self._skill_manager and self._skill_manager.disclosure() == "progressive":
             req.skill_text = self._skill_manager.selected_prompt(req.message, req.intent_group, req.allowed_writes or ())
-        settings = ModelSettings(**agent_thinking_settings(self.profile), request_timeout=max(1, env_float("IT_COPILOT_LLM_TIMEOUT_S", 90)))
-        rounds = max(1, int(env_float("IT_COPILOT_MAX_MODEL_ROUNDS", MAX_MODEL_ROUNDS)))
-        kwargs = dict(deps=deps, model=self._llm, message_history=history_messages(req.history), model_settings=settings, usage_limits=UsageLimits(request_limit=rounds))
+        tenant = req.principal.tenant if req.principal is not None else current_tenant()
+        if tenant is None or tenant == "*":
+            tenant = "default"
+        route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
+        measured = RunUsage()
+        failed_over = False
+        req.route_metadata = {"model": self.router.config.routes[route].candidates[0],
+                              "route": route, "route_reason": "primary", "cost_usd": 0.0}
+        kwargs = dict(deps=deps, message_history=history_messages(req.history), usage=measured)
 
         async def run(prompt, **overrides):
-            if req.stream_answer and req.emit is not None:
-                return await self._run_streaming(prompt, req, {**kwargs, **overrides})
-            return await self._runtime().run(prompt, **{**kwargs, **overrides})
+            nonlocal failed_over
+            routed = self.router.pick(route, tenant)
+            if routed.reason == "budget":
+                req.hidden_tools = req.hidden_tools | frozenset(name for name, tool in self.get_tools().items() if not tool.retry_safe)
+                prompt += "\n本租户当日模型预算已用完，不能起草新的写操作申请；请明确告知用户，仍可回答只读问题。"
+            async def invoke(selection):
+                req.route_metadata.update(model=selection.name, route=selection.route, route_reason=selection.reason)
+                options = {**kwargs, **overrides, "model": selection.model, "model_settings": selection.settings,
+                           "usage_limits": UsageLimits(request_limit=selection.max_rounds)}
+                started = time.monotonic()
+                before_usage = {key: int(getattr(measured, key)) for key in ("input_tokens", "output_tokens", "cache_read_tokens")}
+                try:
+                    response = (await self._run_streaming(prompt, req, options)
+                                if req.stream_answer and req.emit is not None else
+                                await self._runtime().run(prompt, **options))
+                except asyncio.CancelledError:
+                    self.router.breakers[selection.name].abandon_probe(selection.generation)
+                    raise
+                except MODEL_ERRORS as exc:
+                    self.router.record(selection, time.monotonic() - started, success=not is_model_unavailable(exc))
+                    raise
+                finally:
+                    delta_usage = {key: int(getattr(measured, key)) - before_usage[key] for key in before_usage}
+                    req.route_metadata["cost_usd"] += self.router.cost(selection.name, delta_usage)
+                self.router.record(selection, time.monotonic() - started, success=True)
+                return response
+            try:
+                return await invoke(routed)
+            except MODEL_ERRORS as exc:
+                if not is_model_unavailable(exc) or req.first_token_ms is not None or failed_over:
+                    raise
+                failed_over = True
+                alternative = self.router.pick(route, tenant, excluding=frozenset({routed.name}), reason="failover")
+                return await invoke(alternative)
+
+        def known_usage():
+            return {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")}
 
         try:
             result = await run(turn_prompt(req))
-            usages = [result.usage]
             problems = claim_problems(result.output or "", deps, req)
             if problems:
                 flow.send("correct")
@@ -192,26 +242,25 @@ class BaseAgent:
                 req.signals.append("claim_corrected")
                 await req.publish("answer_reset", {})
                 result = await run(correction_prompt(problems), message_history=result.all_messages())
-                usages.append(result.usage)
         except asyncio.CancelledError:
             flow.send("cancel")
             raise
         except UsageLimitExceeded:
             flow.send("fail")
-            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit") from None
+            raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit", token_usage=known_usage()) from None
         except UnexpectedModelBehavior as exc:
             flow.send("fail")
-            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output") from exc
+            raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output", token_usage=known_usage()) from exc
         except Exception as exc:
             flow.send("fail")
             if is_model_unavailable(exc):
                 base_url = os.getenv("OPENAI_BASE_URL", "")
-                raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url) from exc
+                raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url, token_usage=known_usage()) from exc
             raise
         content = strip_execution_notes(result.output or "")
         if not content:
             flow.send("fail")
-            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output")
+            raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output", token_usage=known_usage())
         remaining = claim_problems(content, deps, req)
         if remaining:
             # 纠正一次后仍不一致：不再请求模型，追加以审批记录为准的确定性说明。
@@ -222,8 +271,7 @@ class BaseAgent:
         content = redact_user_secrets(content, req.message)
         status = "partial" if result.response.finish_reason == "length" else "success"
         flow.send("truncate" if status == "partial" else "complete")
-        return AgentCallResult(content, deps.used, deps.traces, status, {key: sum(int(getattr(u, key) or 0) for u in usages)
-                                                                          for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")})
+        return AgentCallResult(content, deps.used, deps.traces, status, {key: int(getattr(measured, key)) for key in ("requests", "input_tokens", "output_tokens", "cache_read_tokens")})
 
 
     async def _run_streaming(self, prompt: str, req: Request, kwargs: Dict[str, Any]):

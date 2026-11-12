@@ -19,7 +19,6 @@ from typing import Any, Dict, FrozenSet, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
-from pydantic_ai.settings import ModelSettings
 
 from agents.intent.entities import clean_entities, extract_entities, merge_entities
 from agents.intent.taxonomy import (
@@ -38,7 +37,8 @@ from agents.intent.taxonomy import (
 from core.env import env_float
 from core.protocols import CacheState, cache_state
 from core.jev import JevClient, top_choice
-from core.llm import build_model
+from core.model_router import ModelRouter
+from core.tenant_context import current_tenant
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -106,8 +106,8 @@ def _fallback_vote(source: str) -> Dict[str, Any]:
 
 
 class IntentRecognizer:
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None):
-        self.llm = build_model(api_key, base_url, model)
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None, router=None):
+        self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
         self.model = model
         # IT_INTENT_BACKEND：auto（有 TYPESAFE_API_KEY 时用 Jev）/ jev / llm。
         backend = os.getenv("IT_INTENT_BACKEND", "auto").lower()
@@ -119,6 +119,14 @@ class IntentRecognizer:
         self._cache_limit = max(100, int(os.getenv("IT_INTENT_CACHE_SIZE", "2048")))
         self._clarify_threshold = env_float("IT_INTENT_CLARIFY_THRESHOLD", 0.60)
         self._metrics = _fresh_metrics()
+
+    @property
+    def llm(self):
+        return self.router.models[self.router.config.routes["intent_fallback"].candidates[0]]
+
+    @llm.setter
+    def llm(self, model):
+        self.router.replace_models(model)
 
     def metrics(self) -> Dict[str, Any]:
         return dict(self._metrics)
@@ -278,9 +286,12 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
 历史：{json.dumps(history[-4:] if history else [], ensure_ascii=False)}"""
         self._metrics["llm_calls"] += 1
         try:
-            settings = ModelSettings(max_tokens=max(1024, int(os.getenv("IT_INTENT_MAX_TOKENS", "1024"))), temperature=0.)
-            run = self._classifier.run(prompt, model=self.llm, model_settings=settings)
-            data: IntentClassification = (await asyncio.wait_for(run, timeout=env_float("IT_INTENT_TIMEOUT_S", 45))).output
+            tenant = current_tenant()
+            routed = self.router.pick("intent_fallback", "default" if tenant in {None, "*"} else tenant)
+            settings = {**routed.settings, "max_tokens": max(1024, int(os.getenv("IT_INTENT_MAX_TOKENS", "1024"))), "temperature": 0.}
+            run = self._classifier.run(prompt, model=routed.model, model_settings=settings)
+            data: IntentClassification = (await self.router.run(routed, asyncio.wait_for(
+                run, timeout=self.router.config.routes["intent_fallback"].timeout_s))).output
         except Exception as exc:
             self._metrics["fallback_calls"] += 1
             self._metrics["fallback_errors"] += 1

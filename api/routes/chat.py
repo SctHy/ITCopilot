@@ -244,7 +244,8 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
                 from agents.types import OrchestratorResult, Request
                 from core.turn_records import build_record, record_turn
                 from monitor.telemetry import turn_attributes
-                req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation")
+                req = Request(payload.message, principal=principal, conv_id=conv_id, request_id=rid, intent_source="confirmation",
+                    route_metadata={"model": "none", "route": "confirmation", "route_reason": "deterministic", "cost_usd": 0.0})
                 result = OrchestratorResult(rid, answered.response, None,
                     latency_ms=answered.latency_ms, observability=state.orchestrator.agent._observability(req))
                 record = build_record(req, result, channel=channel,

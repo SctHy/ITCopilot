@@ -1,0 +1,524 @@
+{
+  "route": "intent_fallback",
+  "model": "deepseek-flash",
+  "status": "complete",
+  "kind": "real_model",
+  "evaluation_kind": "frozen_role_contracts",
+  "repeats": 3,
+  "trials": 15,
+  "passed": 15,
+  "success_rate": 1.0,
+  "wilson": [
+    0.7961166989641515,
+    1.0
+  ],
+  "p95_s": 1.5995764170074835,
+  "cost_per_success_usd": 0.0002666912,
+  "route_calls": 15,
+  "cases": [
+    {
+      "id": "intent-password",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.0005901,
+      "output": {
+        "intent": "password_reset",
+        "confidence": 0.95,
+        "urgency": "normal",
+        "reasoning": "用户明确表示忘记密码并要求重置密码，属于密码重置诉求；同时提供了工号1001作为身份信息，并明确要求执行重置操作。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": [
+          "reset_password"
+        ]
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 162,
+        "cache_read_tokens": 0,
+        "requests": 1
+      },
+      "latency_s": 1.5852232089964673
+    },
+    {
+      "id": "intent-access",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000279012,
+      "output": {
+        "intent": "permission_request",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户以工号1001申请 GitLab developer 权限，并限定24小时，属于为特定系统新增/提升访问权限的请求，归入 permission_request；未明确要求建单等写操作。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [
+            "GitLab"
+          ],
+          "role": [
+            "developer"
+          ],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 185,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.5276588329579681
+    },
+    {
+      "id": "intent-vpn",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.00024331199999999998,
+      "output": {
+        "intent": "vpn_issue",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户报告 VPN 客户端连接时报错 691，属于 VPN 连接/使用问题，需要排查。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [
+            "691"
+          ],
+          "system": [
+            "VPN"
+          ],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1316,
+        "output_tokens": 156,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.4682498750044033
+    },
+    {
+      "id": "intent-ticket",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000248412,
+      "output": {
+        "intent": "ticket_status",
+        "confidence": 0.95,
+        "urgency": "normal",
+        "reasoning": "用户明确查询已有工单 INC-1001 的当前状态，属于工单进度查询，无故障描述也无写操作诉求。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [
+            "INC-1001"
+          ],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1317,
+        "output_tokens": 160,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.1600801669992507
+    },
+    {
+      "id": "intent-greeting",
+      "repeat": 0,
+      "passed": true,
+      "cost_usd": 0.000202812,
+      "output": {
+        "intent": "greeting",
+        "confidence": 0.95,
+        "urgency": "low",
+        "reasoning": "用户仅发送“你好”打招呼，未提出任何IT任务或诉求，属于问候类。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1309,
+        "output_tokens": 124,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.3982403749832883
+    },
+    {
+      "id": "intent-password",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000240612,
+      "output": {
+        "intent": "password_reset",
+        "confidence": 0.96,
+        "urgency": "normal",
+        "reasoning": "用户明确表示忘记密码并请求重置，属于密码重置诉求，且提供了工号 1001。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": [
+          "reset_password"
+        ]
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 153,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.1745535000227392
+    },
+    {
+      "id": "intent-access",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000276612,
+      "output": {
+        "intent": "permission_request",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户以工号1001申请 GitLab developer 权限，属于为特定系统新增/提升访问权限，归为 permission_request；24小时为权限时长说明，非紧急故障。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [
+            "GitLab"
+          ],
+          "role": [
+            "developer"
+          ],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": [
+          "request_access"
+        ]
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 183,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.5995764170074835
+    },
+    {
+      "id": "intent-vpn",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000236112,
+      "output": {
+        "intent": "vpn_issue",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户报告 VPN 客户端连接时报错 691，属于 VPN 连接/使用问题，需要排查。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [
+            "691"
+          ],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1316,
+        "output_tokens": 150,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.3863304580445401
+    },
+    {
+      "id": "intent-ticket",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.000248412,
+      "output": {
+        "intent": "ticket_status",
+        "confidence": 0.95,
+        "urgency": "normal",
+        "reasoning": "用户明确查询已有工单 INC-1001 的当前状态，属于工单进度查询，无故障描述或写操作诉求。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [
+            "INC-1001"
+          ],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1317,
+        "output_tokens": 160,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.252972290967591
+    },
+    {
+      "id": "intent-greeting",
+      "repeat": 1,
+      "passed": true,
+      "cost_usd": 0.00019681199999999999,
+      "output": {
+        "intent": "greeting",
+        "confidence": 0.95,
+        "urgency": "low",
+        "reasoning": "用户仅发送“你好”，属于打招呼，无具体IT任务诉求。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1309,
+        "output_tokens": 119,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.373204083996825
+    },
+    {
+      "id": "intent-password",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.00023941200000000002,
+      "output": {
+        "intent": "password_reset",
+        "confidence": 0.96,
+        "urgency": "normal",
+        "reasoning": "用户明确表示忘记密码并请求重置，属于密码重置诉求，且明确要求办理重置操作。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": [
+          "reset_password"
+        ]
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 152,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.329436958010774
+    },
+    {
+      "id": "intent-access",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000276612,
+      "output": {
+        "intent": "permission_request",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户以工号1001申请 GitLab developer 权限，属于为特定系统新增/提升访问权限，归为 permission_request；含临时时长（24小时）但不改变类别。",
+        "entities": {
+          "employee_id": [
+            "1001"
+          ],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [
+            "gitlab"
+          ],
+          "role": [
+            "developer"
+          ],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": [
+          "request_access"
+        ]
+      },
+      "usage": {
+        "input_tokens": 1319,
+        "output_tokens": 183,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.07522091595456
+    },
+    {
+      "id": "intent-vpn",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000258912,
+      "output": {
+        "intent": "vpn_issue",
+        "confidence": 0.93,
+        "urgency": "normal",
+        "reasoning": "用户报告 VPN 客户端连接时报错误 691，属于 VPN 连接/使用问题，需要排查。未明确要求建单，故 requested_actions 为空。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [
+            "691"
+          ],
+          "system": [
+            "VPN"
+          ],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1316,
+        "output_tokens": 169,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.374141917040106
+    },
+    {
+      "id": "intent-ticket",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000248412,
+      "output": {
+        "intent": "ticket_status",
+        "confidence": 0.95,
+        "urgency": "normal",
+        "reasoning": "用户明确查询已有工单 INC-1001 的当前状态，属于工单进度查询，无故障描述或写操作诉求。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [
+            "INC-1001"
+          ],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1317,
+        "output_tokens": 160,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.2963047090452164
+    },
+    {
+      "id": "intent-greeting",
+      "repeat": 2,
+      "passed": true,
+      "cost_usd": 0.000214812,
+      "output": {
+        "intent": "greeting",
+        "confidence": 0.95,
+        "urgency": "low",
+        "reasoning": "用户仅发送“你好”，属于打招呼，不含任何IT任务诉求。",
+        "entities": {
+          "employee_id": [],
+          "device_id": [],
+          "ticket_id": [],
+          "error_code": [],
+          "system": [],
+          "role": [],
+          "department": [],
+          "location": []
+        },
+        "requested_actions": []
+      },
+      "usage": {
+        "input_tokens": 1309,
+        "output_tokens": 134,
+        "cache_read_tokens": 1152,
+        "requests": 1
+      },
+      "latency_s": 1.0749645410105586
+    }
+  ],
+  "dataset_sha256": "2a395aa14163b66a759b72c6da498b85b1b1d3260d355d53af6ed5c1fc7c29a9",
+  "limitations": "Frozen authored role contracts, not application end-to-end success or production quality. Judge predictions are compared with fixed human labels and never replace a business assertion.",
+  "model_config_sha256": "6ecc3b8c07d513042b4608968b7cfe148e5900dc5701192db4357d6f3d2d6f45",
+  "code_sha256": "6f79189e056baf114c2bc71f13fc689f8045a12566b631e4839d0946f19de888"
+}

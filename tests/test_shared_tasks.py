@@ -514,5 +514,6 @@ def test_stopping_agent_keeps_formal_votes_and_business_results_visible(env):
 def _recorded_result(req, text, traces=()):
     from agents.base_agent import BaseAgent
     from agents.types import OrchestratorResult
+    req.route_metadata = {"model": "deepseek-flash", "route": "agent_write", "route_reason": "primary", "cost_usd": 0.0}
     return OrchestratorResult(req.request_id, text, req.intent, tool_traces=list(traces),
                               observability=BaseAgent(None, "test")._observability(req))

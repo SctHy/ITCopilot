@@ -1,0 +1,21 @@
+# Official prices checked 2026-11-12: https://api-docs.deepseek.com/quick_start/pricing/
+# Peak USD/1M tokens; off-peak is half. Cost is a conservative estimate, not an invoice.
+models:
+  deepseek-flash:
+    base_url_env: OPENAI_BASE_URL
+    key_env: OPENAI_API_KEY
+    name: deepseek-flash
+    price_per_mtok: {input: 0.30, output: 1.20, cache_read: 0.006}
+    regions: [cn]
+    data_classes: [public, internal]
+    supports: [tools, tool_choice_required]
+routes:
+  intent_fallback: {candidates: [deepseek-flash], timeout_s: 3}
+  agent_read: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 3, latency_slo_s: 6}
+  agent_write: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 5, latency_slo_s: 10}
+  summary: {candidates: [deepseek-flash]}
+  profile: {candidates: [deepseek-flash]}
+  rewrite_rerank: {candidates: [deepseek-flash]}
+  judge: {candidates: [deepseek-flash]}
+tenants:
+  default: {data_class: internal, regions: [cn]}

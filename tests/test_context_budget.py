@@ -115,19 +115,3 @@ def test_prefetched_knowledge_is_compact_text_with_citations():
     hits = [{"title": "常见错误码速查", "content": "- 401 认证失败\n- 403 权限不足", "updated_at": "2026-11-12", "citation": "常见错误码速查 · 3c963d59:0"}]
     text = knowledge_text(hits)
     assert text == "【1】citation: 常见错误码速查 · 3c963d59:0（更新 2026-11-12）\n- 401 认证失败\n- 403 权限不足"
-
-
-def test_agent_thinking_levels_map_to_deepseek_parameters(monkeypatch):
-    """Agent 单独设思考档位：关闭时保留 temperature；开启时传 thinking + reasoning_effort，并放宽输出上限。"""
-    import pytest
-    from agents.types import AgentProfile
-    from core.llm import agent_thinking_settings
-    profile = AgentProfile()
-    monkeypatch.delenv("IT_COPILOT_AGENT_THINKING", raising=False)
-    monkeypatch.setenv("OPENAI_THINKING_TYPE", "disabled")
-    assert agent_thinking_settings(profile) == {"max_tokens": 3000, "temperature": .2, "extra_body": {"thinking": {"type": "disabled"}}}
-    monkeypatch.setenv("IT_COPILOT_AGENT_THINKING", "max")
-    assert agent_thinking_settings(profile) == {"max_tokens": 16000, "extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}}
-    monkeypatch.setenv("IT_COPILOT_AGENT_THINKING", "medium")
-    with pytest.raises(ValueError):
-        agent_thinking_settings(profile)

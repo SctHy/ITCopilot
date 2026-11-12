@@ -41,6 +41,7 @@ class Request:
     skill_text: str = ""                               # progressive skill disclosure: bodies selected for this turn
     intent_source: str = "unknown"
     signals: List[str] = field(default_factory=list)
+    route_metadata: Dict[str, Any] = field(default_factory=dict)
     first_token_ms: Optional[float] = None
     started_at: float = 0.0
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
@@ -85,16 +86,17 @@ class AgentCallResult:
 
 class AgentCallError(RuntimeError):
     """reason 为低基数失败分类，进入 it_copilot_agent_failures_total 指标。"""
-    def __init__(self, message, tools_used, tool_traces, reason="exception"):
+    def __init__(self, message, tools_used, tool_traces, reason="exception", token_usage=None):
         super().__init__(message)
         self.tools_used = list(tools_used)
         self.tool_traces = list(tool_traces)
         self.reason = reason
+        self.token_usage = {} if token_usage is None else dict(token_usage)
 
 
 class ModelUnavailableError(AgentCallError):
-    def __init__(self, message, tools_used, tool_traces, base_url):
-        super().__init__(message, tools_used, tool_traces, reason="model")
+    def __init__(self, message, tools_used, tool_traces, base_url, token_usage=None):
+        super().__init__(message, tools_used, tool_traces, reason="model", token_usage=token_usage)
         self.base_url = base_url
 
 

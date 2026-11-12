@@ -37,7 +37,7 @@ IT-Copilot 定位为面向企业 IT 服务场景的 Agent 平台，覆盖员工�
 
 ## 为什么用 PydanticAI，以及哪些逻辑不交给框架
 
-模型调用层统一基于 PydanticAI：Agent 是一个 `pydantic_ai.Agent`，模型/工具多轮循环、消息拼装、usage 累计由框架负责；`UsageLimits` 限制每次运行的模型请求数（默认 5，`IT_COPILOT_MAX_MODEL_ROUNDS`；原为 3，会截断“诊断后建单”这类需要 4 轮的流程）。意图识别、查询改写、重排和画像提炼都用 `ToolOutput` 结构化输出，Pydantic 模型校验代替手写 JSON 截取。离线测试用 `FunctionModel` 构造确定性模型响应，不访问网络。
+模型调用层统一基于 PydanticAI：Agent 是一个 `pydantic_ai.Agent`，模型/工具多轮循环、消息拼装、usage 累计由框架负责；`UsageLimits` 限制每次运行的模型请求数（按 `config/model_routes.yaml` 的 `max_rounds`：只读 3、写操作 5；原为 3，会截断“诊断后建单”这类需要 4 轮的流程）。意图识别、查询改写、重排和画像提炼都用 `ToolOutput` 结构化输出，Pydantic 模型校验代替手写 JSON 截取。离线测试用 `FunctionModel` 构造确定性模型响应，不访问网络。
 
 业务治理留在项目代码里而不交给框架：JSON Schema 校验、缺槽位时禁止写操作、同请求写操作去重、审批存储可用性守卫和 trace 都在 `BaseAgent._invoke_tool` 中完成；写工具以 `sequential=True` 注册为屏障，不与其他工具并发。熔断/TTL 缓存和混合 RAG 同样是自有逻辑。
 

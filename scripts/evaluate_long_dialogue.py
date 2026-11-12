@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import pathlib
 import sys
 import time
@@ -24,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from core.model_router import ModelRouter
 from evaluation.application import application, auth  # noqa: E402
 from evaluation.reporting import write_report  # noqa: E402
 
@@ -234,7 +234,7 @@ async def run(output: str, only: set):
             sessions.append(row)
             write_report(output.replace(".json", "_partial.json"), {"sessions": sessions}, echo=False)
     audit.__exit__()
-    write_report(output, {"suite": "long-dialogue", "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"),
+    write_report(output, {"suite": "long-dialogue", "agent_thinking": ModelRouter().config.routes["agent_write"].thinking,
                           "sessions": sessions, "token_audit": audit.summary(),
                           "limitations": "Scripted user turns (no simulator), product KB, one run; maintenance drained between turns."}, echo=False)
 

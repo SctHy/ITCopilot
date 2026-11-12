@@ -26,14 +26,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
-from pydantic_ai.settings import ModelSettings
 
 from core.env import env_float
 from core.states import Machine
 from core.protocols import CacheState, cache_state
 from core.tenant_context import current_tenant
 from core.jev import JevClient
-from core.llm import build_model
+from core.model_router import ModelRouter
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -175,8 +174,16 @@ class MCPToolManager:
       用户查询 → 查询改写（多角度子查询）→ 并行召回 → 结果重排 → 返回 Top-K
     """
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None):
-        self._llm   = build_model(api_key, base_url, model)
+    @property
+    def _llm(self):
+        return self.router.models[self.router.config.routes["rewrite_rerank"].candidates[0]]
+
+    @_llm.setter
+    def _llm(self, model):
+        self.router.replace_models(model)
+
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None, router=None):
+        self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
         # IT_COPILOT_RERANK_BACKEND：llm / jev（需 TYPESAFE_API_KEY，失败时退回 LLM 重排）。
         backend = os.getenv("IT_COPILOT_RERANK_BACKEND", "llm").lower()
         self._jev = jev or (JevClient.from_env(timeout_s=env_float("IT_COPILOT_RERANK_JEV_TIMEOUT_S", 3)) if backend == "jev" else None)
@@ -342,9 +349,11 @@ class MCPToolManager:
 通过 return_sub_queries 返回子查询列表，例如: ["子查询1", "子查询2", "子查询3"]"""
         prompt = self._clean_text(prompt)
         try:
-            result = await asyncio.wait_for(_REWRITE_AGENT.run(
-                prompt, model=self._llm, model_settings=ModelSettings(max_tokens=512, temperature=0.3),
-            ), timeout=10)
+            tenant = current_tenant()
+            routed = self.router.pick("rewrite_rerank", "default" if tenant in {None, "*"} else tenant)
+            result = await self.router.run(routed, asyncio.wait_for(_REWRITE_AGENT.run(
+                prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 512, "temperature": 0.3},
+            ), timeout=10))
             queries = result.output
             # 原始查询也保留，去重
             return list(dict.fromkeys([query] + [q[:2000] for q in queries if isinstance(q, str) and q.strip()][:n]))
@@ -465,9 +474,11 @@ class MCPToolManager:
         prompt = self._clean_text(prompt)
 
         try:
-            result = await asyncio.wait_for(_RERANK_AGENT.run(
-                prompt, model=self._llm, model_settings=ModelSettings(max_tokens=2048, temperature=0.0),
-            ), timeout=30)
+            tenant = current_tenant()
+            routed = self.router.pick("rewrite_rerank", "default" if tenant in {None, "*"} else tenant)
+            result = await self.router.run(routed, asyncio.wait_for(_RERANK_AGENT.run(
+                prompt, model=routed.model, model_settings={**routed.settings, "max_tokens": 2048, "temperature": 0.0},
+            ), timeout=30))
             if result.response.finish_reason == "length":
                 raise ValueError("重排输出被截断")
             order = result.output

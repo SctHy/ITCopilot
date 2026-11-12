@@ -120,10 +120,12 @@ async def lifespan(app: FastAPI):
         try:
             state.tracing = setup_tracing()
             resources.callback(shutdown_tracing, state.tracing)
-            llm = {"api_key": os.getenv("OPENAI_API_KEY", "sk-local"), "base_url": os.getenv("OPENAI_BASE_URL") or None, "model": os.getenv("OPENAI_MODEL", "deepseek-chat")}
+            llm = {"api_key": os.getenv("OPENAI_API_KEY", "sk-local"), "base_url": os.getenv("OPENAI_BASE_URL") or None, "model": os.getenv("OPENAI_MODEL", "deepseek-flash")}
             state.skills = SkillManager(os.getenv("IT_COPILOT_SKILLS_DIR", str(pathlib.Path(_ROOT) / "skills")))
             state.skills.load()
-            state.tool_manager = MCPToolManager(**llm)
+            from core.model_router import ModelRouter
+            model_router = ModelRouter()
+            state.tool_manager = MCPToolManager(**llm, router=model_router)
             # 审批、执行与向量（知识库、记忆）同库：本地 SQLite，部署 PostgreSQL + pgvector。
             db_url = database_url(os.getenv("IT_COPILOT_DATA_DIR", str(pathlib.Path(_ROOT) / "data")))
             ensure_supported(db_url)
@@ -136,11 +138,11 @@ async def lifespan(app: FastAPI):
                 name="knowledge_search", description="IT 知识库混合检索", handler=knowledge, schema=KNOWLEDGE_SEARCH_SCHEMA,
                 cache_ttl=60, timeout_s=8, fallback=lambda p, c, e: {"items": [], "fallback": True, "error": e},
             ))
-            state.orchestrator = AgentOrchestrator(**llm, skill_manager=state.skills, rag_tool_manager=state.tool_manager)
+            state.orchestrator = AgentOrchestrator(**llm, skill_manager=state.skills, rag_tool_manager=state.tool_manager, router=model_router)
             resources.push_async_callback(state.orchestrator.aclose)
             state.orchestrator.start()
             try:
-                state.memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=db_url, **llm)
+                state.memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=db_url, **llm, router=model_router)
                 resources.push_async_callback(state.memory.close)
                 # Redis 属于正确性边界：锁和幂等不可省略，仅构造惰性客户端不足以证明可用。
                 await state.memory.ping()
@@ -158,6 +160,7 @@ async def lifespan(app: FastAPI):
             from core.change_log import record_deploy
             await asyncio.to_thread(record_deploy, state.workflow.engine, sha)
             state.skills.change_engine = state.orchestrator.change_engine = state.workflow.engine
+            model_router.engine = state.workflow.engine
             state.orchestrator.knowledge_version = state.kb.collection_version
             state.orchestrator.directory = state.workflow
             resources.callback(state.workflow.close)
@@ -190,7 +193,7 @@ async def lifespan(app: FastAPI):
             state.tasks.effects = CompositeTaskEffects([state.tasks.effects, state.task_capabilities.suggestions, state.task_capabilities.goals])
             state.workflow.shared_access = state.task_capabilities.access.approval_access
             state.workflow.shared_filter = state.task_capabilities.access.approval_filter
-            state.task_worker = TaskWorker(state.tasks, TaskAgentRunner(state.orchestrator, state.workflow.get, state.task_capabilities.progress.context, TaskProgressAdvisor(state.orchestrator._llm), state.task_capabilities.plan_store, read_task_state=state.task_capabilities.history.runtime_context))
+            state.task_worker = TaskWorker(state.tasks, TaskAgentRunner(state.orchestrator, state.workflow.get, state.task_capabilities.progress.context, TaskProgressAdvisor(router=model_router), state.task_capabilities.plan_store, read_task_state=state.task_capabilities.history.runtime_context))
             services.push_async_callback(state.task_worker.stop)
             state.task_worker.start()
             verification_worker = TaskVerificationWorker(state.task_capabilities.goals)

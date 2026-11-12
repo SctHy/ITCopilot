@@ -1,5 +1,6 @@
 """请求串行化与有界后台画像更新。"""
 import asyncio
+import contextvars
 import logging
 from contextlib import asynccontextmanager
 from core.protocols import JOB, LEASE, SERVICE
@@ -171,7 +172,7 @@ class ProfileUpdater:
                 return False
             self._jobs[user_id] = JOB.start()
         self._jobs[user_id].send("submit")
-        self._pending[user_id] = conv_id
+        self._pending[user_id] = (conv_id, contextvars.copy_context())
         return True
 
     async def _archive_loop(self):
@@ -188,9 +189,9 @@ class ProfileUpdater:
             try:
                 while user_id in self._pending and not self._closed:
                     self._jobs[user_id].send("take")
-                    conv_id = self._pending.pop(user_id)
+                    conv_id, context = self._pending.pop(user_id)
                     try:
-                        await (self._memory.maintain(user_id, conv_id) if hasattr(self._memory, "maintain") else self._memory.update_profile(user_id, conv_id))
+                        await asyncio.create_task(self._memory.maintain(user_id, conv_id), context=context)
                     except Exception as ex:
                         logger.warning("后台画像更新失败: %s", type(ex).__name__)
             finally:

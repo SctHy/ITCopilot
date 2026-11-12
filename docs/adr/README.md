@@ -31,3 +31,4 @@
 | [0034](0034-success-drop-attribution.md) | 成功率波动的切片 rate/mix 分解与变更时间线归因 | 已采纳 |
 | [0032](0032-long-term-memory-governance.md) | 长期记忆写入脱敏、准入、近重复合并及字段时效和本人删除 | 已采纳 |
 | [0029](0029-online-badcase-feedback-loop.md) | 反馈、脱敏快照、双人标注与线上回归闭环 | 已采纳 |
+| [0030](0030-deterministic-model-routing.md) | 按角色和租户合规确定性选择模型，健康/延迟/预算调整与候选评测门禁 | 已采纳 |

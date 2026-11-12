@@ -11,15 +11,15 @@ from agents.intent.taxonomy import IntentCategory
 from agents.tools import agent_tools, build_shared_rag_tools
 from agents.types import OrchestratorResult, Request
 from core.env import env_float
-from core.llm import build_model
+from core.model_router import ModelRouter
 from tooling.executor import ToolExecutor
 
 
 class AgentOrchestrator:
-    def __init__(self, api_key="", base_url=None, model="deepseek-chat", skill_manager=None, recognizer=None, rag_tool_manager=None, **kwargs):
-        self._llm = build_model(api_key, base_url, model)
+    def __init__(self, api_key="", base_url=None, model="", skill_manager=None, recognizer=None, rag_tool_manager=None, router=None, **kwargs):
+        self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
         self._model = model
-        self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model)
+        self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model, router=self.router)
         self.tool_executor = ToolExecutor(timeout_s=env_float("IT_COPILOT_TOOL_TIMEOUT_S", 10))
         # 工具分三层，每次变更都从这三层重新组装，保证下线的外部工具会真正从 Agent 移除。
         self._shared_tools = build_shared_rag_tools(rag_tool_manager) if rag_tool_manager else {}
@@ -28,9 +28,17 @@ class AgentOrchestrator:
         self.knowledge_version = lambda tenant: 0.0
         self.directory = None   # 台账读模型（WorkflowStore），由 API 装配时注入
         self._local_tools = agent_tools(lambda: self.directory)
-        self.agent = BaseAgent(self._llm, model, skill_manager)
+        self.agent = BaseAgent(None, model, skill_manager, router=self.router)
         self.agent.executor = self.tool_executor
         self._rebuild_tools()
+
+    @property
+    def _llm(self):
+        return self.router.models[self.router.config.routes["agent_write"].candidates[0]]
+
+    @_llm.setter
+    def _llm(self, model):
+        self.router.replace_models(model)
 
     def start(self) -> None:
         """在事件循环内启动后台连接保活（意图识别的 Jev）。"""
@@ -69,6 +77,7 @@ class AgentOrchestrator:
         if req.intent is None:
             ir = await self._intent_recognizer.recognize(req.message, history=req.history)
             req.intent, req.intent_group, req.urgency, req.intent_confidence, req.entities = ir.intent, ir.intent_group, ir.urgency, ir.confidence, ir.entities
+            req.allowed_writes = ir.requested_actions
         req.stream_answer = True
         response = await execute_step(self._execute, req, "agent")
         return OrchestratorResult(

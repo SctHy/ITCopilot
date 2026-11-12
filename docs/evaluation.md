@@ -70,7 +70,7 @@ Compose 全栈手工验收（2026-10-29）：Keycloak 登录（授权码 + PKCE�
 
 调优中发现并修复的问题：
 
-- **复合“诊断 + 建单”**：诊断 → 建单 → 回复需要 4 次模型请求，原 `UsageLimits(request_limit=3)` 把它截断成 `agent_failed`。默认改为 5（`IT_COPILOT_MAX_MODEL_ROUNDS`）。
+- **复合“诊断 + 建单”**：诊断 → 建单 → 回复需要 4 次模型请求，原 `UsageLimits(request_limit=3)` 把它截断成 `agent_failed`。写操作路由改为 5（`config/model_routes.yaml` 的 `agent_write.max_rounds`）。
 - **建单前追问**：模型按 endpoint 技能先追问系统版本而不建单。修改 ticket/endpoint 技能（诊断字段不是建单前提；待审批即确认，不在聊天里二次确认）后两次完整重跑均 64/64。
 
 ### 为什么只保留一个 Agent
@@ -136,3 +136,31 @@ Compose 全栈手工验收（2026-10-29）：Keycloak 登录（授权码 + PKCE�
 
 - 未重跑的部分：τ-bench 式评测的 T3 后 9 个任务和 P 层。复现命令见 README，并发不要超过模型服务商的并发上限。
 - 范围更窄的新申请不会替代范围更宽的待审批单（例如先“建单 + 权限”、后“只建单”），这种情况仍可能出现重复工单。
+
+
+## 模型路由候选门禁（ADR 0030）
+
+调用角色、合规和地域能力由 `config/model_routes.yaml` 声明。优先级是静态候选顺序，启动校验拒绝缺少合规候选或结构化工具能力的配置；运行时使用健康、五分钟 P95 和日预算调整选择。
+
+候选均为 `deepseek-flash`，2026-11-12实跑，每题重复3次。
+
+| 角色 | 通过数/总数 | P95 | 每个成功样本成本估算 |
+|---|---|---|---|
+| agent_read | 旧报告无效，待隔离修复后重跑 | — | — |
+| agent_write | 旧报告无效，待隔离修复后重跑 | — | — |
+| intent_fallback | 15/15 | 1.600s | $0.000267 |
+| summary | 12/12 | 1.349s | $0.000050 |
+| profile | 3/9 | 1.475s | $0.000517 |
+| rewrite_rerank | 12/12 | 1.403s | $0.000137 |
+| judge | 12/12 | 1.459s | $0.000200 |
+
+读/写旧报告发现跨用例台账污染：清理沙箱时未隔离ACTIVE授权和动作，导致覆盖判断进入错误路径。报告已标invalid并保留证据，其成功率、P95和成本不作为有效资格数据，待隔离修复后重跑。其他角色是各自冻结小题集的角色契约通过率，不能与端到端成功率直接比较。**profile仅3/9**：英文部门落入work而background为空，部门变更输出仍保留旧部门。该烟测prompt比生产画像prompt简短，结果不能外推生产失败率；不足已保留在报告，未放宽oracle。当前仅一个现有模型，门禁证明报告完整与相对首选不劣，不证明已达到某个绝对质量目标。
+
+价格核验于 2026-11-12，[DeepSeek 官方价格页](https://api-docs.deepseek.com/quick_start/pricing/)；非高峰时段减半。峰值每百万输入/输出/缓存命中为0.30/1.20/0.006美元；平台使用峰值作保守估算，token 缓存部分从普通输入扣除；不是供应商账单。当前只配一个已有凭据的候选，尚无第二模型质量比较，不宣称偏好顺序最优。
+
+```sh
+.venv/bin/python scripts/evaluate_model_route.py --route agent_read --model deepseek-flash --repeats 3
+.venv/bin/python scripts/check_model_routes.py
+```
+
+每个 `(route,candidate)` 都需要真实模型报告，比较 Wilson 成功率下界，低于首选下界3个百分点即拒绝。CI缺报告会失败，未运行不能视为通过。应用级报告使用原有业务断言判分；只覆盖被该数据集实际触发的角色。未触发某个角色的报告不能证明该角色质量，脚本会记录调用次数并拒绝作为门禁依据。

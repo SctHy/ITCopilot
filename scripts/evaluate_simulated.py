@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv  # noqa: E402
 
-from core.llm import build_model, complete_text  # noqa: E402
+from core.llm import complete_text
+from core.model_router import ModelRouter  # noqa: E402
 from evaluation.application import application, auth  # noqa: E402
 from evaluation.reporting import DATASETS_DIR, ROOT, billable_tokens, write_report  # noqa: E402
 from evaluation.states import TRIAL  # noqa: E402
@@ -106,7 +107,7 @@ async def main():
         wanted = set(args.tasks.split(","))
         tasks = [t for t in tasks if t["id"] in wanted]
     user_model = args.user_model or os.getenv("OPENAI_MODEL", "deepseek-chat")
-    user_llm = build_model(os.getenv("OPENAI_API_KEY", "sk-local"), os.getenv("OPENAI_BASE_URL"), user_model)
+    user_llm = ModelRouter(model=user_model).pick("judge", "default").model
     from scripts.evaluate_application import upstream_model
 
     rows = []
@@ -127,7 +128,7 @@ async def main():
         "upstream": upstream_model(), "user_model": user_model, "dataset": DATASET.name, "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest()[:16], "max_turns": args.max_turns,
         # Identifies the simulator instructions: runs are only comparable under the same prompt.
         "simulator_prompt_sha256": hashlib.sha256(user_prompt(json.loads(DATASET.read_text())[0], []).encode()).hexdigest()[:16],
-        "summary": summary, "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"),
+        "summary": summary, "agent_thinking": ModelRouter().config.routes["agent_write"].thinking,
         "token_audit": audit.summary(), "trials": rows,
         "limitations": "Authored compositional tasks and simulator prompts in the style of τ-bench; " + ("same model plays the user" if user_model == os.getenv("OPENAI_MODEL") else f"user simulated by {user_model}") + "; local sandbox state.",
     }, echo=False)

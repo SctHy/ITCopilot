@@ -38,7 +38,8 @@ from dotenv import load_dotenv
 
 from agents.base_agent import BaseAgent
 from agents.types import Request
-from core.llm import build_model, close_model
+from core.llm import close_model
+from core.model_router import ModelRouter
 from evaluation.reporting import ROOT, billable_tokens, write_report
 from tooling.tool_spec import AgentToolSpec
 
@@ -86,7 +87,7 @@ class ITCopilotPipeline(BasePipelineElement):
         }
 
         async def run():
-            model = build_model()
+            model = ModelRouter().pick("judge", "default").model
             agent = AssistantAgent(model, "")
             agent.set_shared_tools(specs)
             try:
@@ -215,7 +216,7 @@ def main():
             "model": os.getenv("OPENAI_MODEL", ""),
             "runtime": "BaseAgent (PydanticAI) with AgentDojo tools; write tools executed directly, no approval",
             "injection_tasks": args.injection_tasks or "all",
-            "max_model_rounds": int(os.getenv("IT_COPILOT_MAX_MODEL_ROUNDS", "5")),
+            "max_model_rounds": ModelRouter().config.routes["agent_write"].max_rounds,
             "write_tools": sorted(WRITE_TOOLS & {f.name for f in suite.tools}),
             "injection_goal_writes": None if args.no_attack else goals,
             "summary": summarize(rows, goals),

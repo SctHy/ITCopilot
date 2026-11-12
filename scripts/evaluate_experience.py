@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import pathlib
 import sys
 import time
@@ -26,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from core.model_router import ModelRouter
 from evaluation.application import application, auth  # noqa: E402
 from evaluation.reporting import write_report  # noqa: E402
 
@@ -149,7 +149,7 @@ async def run(output: str):
             rows.append(row)
             write_report(output.replace(".json", "_partial.json"), {"rows": rows}, echo=False)
     write_report(output, {"suite": "experience", "knowledge": "knowledge/it_helpdesk (product KB)", "rows": rows,
-                          "agent_thinking": os.getenv("IT_COPILOT_AGENT_THINKING", "disabled"), "token_audit": audit.summary(),
+                          "agent_thinking": ModelRouter().config.routes["agent_write"].thinking, "token_audit": audit.summary(),
                           "timing": "server-side SSE emission time from Redis Stream IDs minus request send time; excludes network"}, echo=False)
 
 

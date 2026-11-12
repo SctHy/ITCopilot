@@ -330,6 +330,7 @@ def test_continuation_is_idempotent_readonly_and_uses_original_task(env, caps):
         with pytest.raises(ValueError):
             await req.before_unsafe_tool('request_access')
         from agents.base_agent import BaseAgent
+        req.route_metadata = {"model": "deepseek-flash", "route": "agent_write", "route_reason": "primary", "cost_usd": 0.0}
         return OrchestratorResult(req.request_id, '只读跟进', req.intent, observability=BaseAgent(None, 'test')._observability(req))
 
     runner = TaskAgentRunner(SimpleNamespace(recognize_intent=recognize, run=run, knowledge_version=lambda tenant: 0.), lambda _: {}, read_task_state=caps.history.runtime_context)
