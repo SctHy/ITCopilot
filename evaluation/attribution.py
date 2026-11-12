@@ -106,12 +106,14 @@ def attribute(before: list[dict], after: list[dict], events: list[dict], *, snap
                           "mix": sum(row["mix"] for row in group)}
                     for dim, group in decomposition.items()}
     btools, atools = tool_rates(before), tool_rates(after)
+    btotals = Counter(tool["name"] for row in before for tool in row["tools"])
+    atotals = Counter(tool["name"] for row in after for tool in row["tools"])
     tools = []
     for key in btools.keys() | atools.keys():
         if key[1] == "success":
             continue
-        b = btools.get(key, {"calls": 0, "total": 0, "rate": 0.})
-        a = atools.get(key, {"calls": 0, "total": 0, "rate": 0.})
+        b = btools.get(key, {"calls": 0, "total": btotals[key[0]], "rate": 0.})
+        a = atools.get(key, {"calls": 0, "total": atotals[key[0]], "rate": 0.})
         tools.append({"tool": key[0], "error_class": key[1], "baseline": b, "current": a,
                       "delta": a["rate"] - b["rate"]})
     timeline = []
@@ -138,7 +140,7 @@ def attribute(before: list[dict], after: list[dict], events: list[dict], *, snap
     return {"baseline": summary(before), "current": summary(after), "top_slices": top,
             "dimensions": decomposition, "contributions": by_dimension,
             "dominant_dimension": dominant,
-            "diagnosis": "mix" if abs(contribution["mix"]) > abs(contribution["rate"]) else "rate",
+            "diagnosis": ("mix" if abs(contribution["mix"]) > abs(contribution["rate"]) else "rate") if before and after else "insufficient_data",
             "tool_errors": sorted(tools, key=lambda row: abs(row["delta"]), reverse=True)[:10],
             "tokens": {"baseline": token_summary(before), "current": token_summary(after)},
             "timeline": timeline, "hourly": hourly, "samples": samples,

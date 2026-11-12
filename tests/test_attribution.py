@@ -36,6 +36,7 @@ def test_pure_traffic_mix_has_no_rate_contribution():
 def test_empty_windows_are_unknown_and_new_slice_is_not_rate_regression():
     assert wilson(0, 0) is None
     assert attribute([], [], [])["baseline"]["success_rate"] is None
+    assert attribute([], [], [])["diagnosis"] == "insufficient_data"
     result = slices(rows(10, 0, model="X"), rows(10, 8, model="Y"), "model")
     assert all(row["rate"] == 0 for row in result)
     assert not any(row["comparable"] for row in result)
@@ -47,6 +48,9 @@ def test_tool_rates_use_tool_calls_as_denominator():
     after[0]["tools"] = [{"name": "search", "error_class": "success"}, {"name": "search", "error_class": "timeout"}]
     report = attribute(before, after, [])
     assert report["tool_errors"][0]["delta"] == .4
+    after[0]["tools"] = [{"name": "search", "error_class": "success"}] * 10
+    resolved = attribute(before, after, [])["tool_errors"][0]
+    assert resolved["current"] == {"calls": 0, "total": 10, "rate": 0.}
 
 
 def test_cli_reads_durable_rows_and_snapshots_with_tenant_filter(db_url):
