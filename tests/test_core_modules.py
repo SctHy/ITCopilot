@@ -2,6 +2,8 @@ import asyncio
 import os
 import tempfile
 
+import pytest
+
 from agents.intent.recognizer import IntentRecognizer
 from tooling.knowledge_base import KnowledgeBase
 from tooling.tool_manager import MCPToolManager, Tool
@@ -52,6 +54,7 @@ def test_intent_metrics_expose_disabled_fallback():
     asyncio.run(run())
 
 
+@pytest.mark.usefixtures("default_tenant")
 def test_rag_hybrid_returns_citations_and_department_scope():
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:

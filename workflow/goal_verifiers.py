@@ -1,21 +1,14 @@
 """Read-only verification port. Observations never execute an approval or trust model prose."""
-from typing import Protocol
 import asyncio
 
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from core.db import directory_devices, directory_tickets, read
-from core.tenant_context import SYSTEM, current_tenant, tenant_scope
+from core.tenant_context import tenant_scope
 from workflow.adapters.base import rank
 from workflow.policy import load_policy
 from workflow.tasks import TaskConflict
-
-
-class GoalVerifier(Protocol):
-    def normalize(self, checks: list[dict]) -> list[dict]: ...
-    def catalog(self) -> list[dict]: ...
-    async def verify(self, task: dict, checks: list[dict]) -> list[dict]: ...
 
 
 class AccessGoalVerifier:
@@ -24,10 +17,8 @@ class AccessGoalVerifier:
         self.registry, self.policy = registry, policy
 
     def catalog(self):
-        # Requestable systems of the tenant in scope (the room's, for goal edits and verification).
-        tenant = current_tenant()
-        policy = self.policy(tenant) if tenant and tenant != SYSTEM else self.policy()
-        return [{'system': name, 'roles': list(rule['roles'])} for name, rule in policy.data['systems'].items()]
+        return [{'system': name, 'roles': list(rule['roles'])}
+                for name, rule in self.policy().data['systems'].items()]
 
     def normalize(self, checks):
         if not isinstance(checks, list) or len(checks) > 10:

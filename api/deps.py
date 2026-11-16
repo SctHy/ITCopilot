@@ -11,7 +11,6 @@ from fastapi import Depends, Header, HTTPException
 
 from api import state
 from core import tenant_context
-from core.env import multi_tenant_enabled
 from core.identity import ROLE_IT_ADMIN, ROLE_PLATFORM_ADMIN, AuthError, Principal, principal_from_token
 from monitor import metrics
 
@@ -30,13 +29,35 @@ def _on_background_done(task: asyncio.Task) -> None:
         logger.warning("background task failed: %s", type(task.exception()).__name__)
 
 
+def tenant_turn_rule(tenant: str):
+    """The tenant's own turn rate (core.quotas), or None when there is none: no registry wired (unit
+    tests), its quota is ``off``, or the registry cannot be read - the request was already admitted, so the tenant limit fails open."""
+    from core import quotas
+
+    if state.tenants is None:
+        return None
+    try:
+        return quotas.turn_rule(state.tenants.get(tenant))
+    except Exception:
+        logger.warning("tenant quota lookup failed open", exc_info=True)
+        return None
+
+
 async def rate_limit_decision(principal: Principal, bucket: str, channel: str):
-    """Shared check for every entry that starts model work; returns the decision, never raises."""
-    from core.rate_limit import Decision
+    """Shared check for every entry that starts model work; returns the decision, never raises.
+
+    Two layers (ADR 0035): the identity's own budget first, then the tenant's. A refused identity
+    does not spend its tenant's budget, so one noisy user cannot exhaust the limit for colleagues."""
+    from core.rate_limit import TENANT_AGENT_TURN, Decision
 
     if state.rate_limiter is None:
         return Decision(True)
     decision = await state.rate_limiter.check(bucket, principal.scope_key)
+    if decision.allowed and state.tenants is not None:
+        rule = await asyncio.to_thread(tenant_turn_rule, principal.tenant)
+        if rule is not None:
+            bucket = TENANT_AGENT_TURN
+            decision = await state.rate_limiter.check(bucket, principal.tenant, rule)
     if not decision.allowed:
         metrics.RATE_LIMITED.labels(bucket=bucket, channel=channel).inc()
     return decision
@@ -81,7 +102,7 @@ async def admin_change(principal: Principal, event: str, subject: Optional[str] 
 
 
 def check_tenant(principal: Principal) -> None:
-    """Multi-tenant mode (ADR 0022/0023): the token's tenant must be registered and active, and the
+    """ADR 0022/0023: the token's tenant must be registered and active, and the
     token must come from that tenant's issuer. Fails closed."""
     from core.tenancy import TenantUnavailable
 
@@ -168,11 +189,8 @@ def platform_tenant() -> str:
 
 
 def is_platform_admin(principal: Principal) -> bool:
-    """Who may act on the deployment as a whole (ADR 0025). One organisation per deployment: its IT
-    admins, as before. Multi-tenant: the ``platform_admin`` role, and only in the operator tenant
-    (IT_COPILOT_PLATFORM_TENANT) - a tenant's own IdP can grant itself any role, not this authority."""
-    if not multi_tenant_enabled():
-        return principal.is_admin
+    """Who may act on the deployment as a whole (ADR 0025): the ``platform_admin`` role, and only in the
+    operator tenant (IT_COPILOT_PLATFORM_TENANT) - a tenant's own IdP can grant itself any role, not this authority."""
     return ROLE_PLATFORM_ADMIN in principal.roles and principal.tenant == platform_tenant()
 
 

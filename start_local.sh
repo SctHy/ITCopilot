@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IT-Copilot 一键开发启动器：Redis + API(8001) + Vue(5173)；模型由 PydanticAI 直连 OPENAI_BASE_URL。
+# IT-Copilot 一键开发启动器：Redis + API(8001) + 前端(5173)；模型由 PydanticAI 直连 OPENAI_BASE_URL。
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,12 +70,41 @@ ensure_python_deps() {
   fi
 }
 
+redis_ping() {
+  command -v redis-cli >/dev/null 2>&1 &&
+    redis-cli -h 127.0.0.1 -p 6379 -a "$1" --no-auth-warning PING 2>/dev/null | grep -qx PONG
+}
+
+# Docker 不可用时，退回本机 Homebrew redis-server（数据在 data/redis）。
+ensure_local_redis() {
+  local password="$1"
+  command -v redis-server >/dev/null 2>&1 || return 1
+  echo "Docker 不可用，改用本机 redis-server ..."
+  mkdir -p "$HERE/data/redis" "$HERE/logs"
+  redis-server --port 6379 --bind 127.0.0.1 --requirepass "$password" --appendonly yes \
+    --dir "$HERE/data/redis" --logfile "$HERE/logs/redis.log" --daemonize yes >/dev/null
+  local i
+  for i in {1..20}; do
+    redis_ping "$password" && { echo "Redis 已就绪：本机 redis-server (127.0.0.1:6379)"; return 0; }
+    sleep 0.5
+  done
+  echo "本机 redis-server 启动失败，见 $HERE/logs/redis.log" >&2
+  return 1
+}
+
 ensure_redis() {
-  command -v docker >/dev/null 2>&1 || { echo "未找到 Docker，无法启动必需的 Redis 容器。" >&2; return 1; }
-  docker info >/dev/null 2>&1 || { echo "Docker 未运行，无法启动 it-copilot-redis。" >&2; return 1; }
+  local password="${REDIS_PASSWORD:-it-copilot123}"
+  if redis_ping "$password"; then
+    echo "Redis 已在 127.0.0.1:6379 运行，直接复用。"
+    return 0
+  fi
+  if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    ensure_local_redis "$password" && return 0
+    echo "Docker 未运行且本机没有可用的 redis-server，无法启动 Redis。" >&2
+    return 1
+  fi
   local container="${IT_COPILOT_REDIS_CONTAINER:-it-copilot-redis}"
   local image="${IT_COPILOT_REDIS_IMAGE:-redis:8-alpine}"
-  local password="${REDIS_PASSWORD:-it-copilot123}"
   if docker container inspect "$container" >/dev/null 2>&1; then
     local state
     state="$(docker inspect -f '{{.State.Running}}' "$container")"

@@ -161,27 +161,27 @@ export function normalizeChatResponse(type: string, raw: any): ChatResponse {
     taskReferences: raw.task_references || [],
     relatedApprovals: raw.related_approvals || [],
     backend: type,
-    conversationId: raw.conversation_id || raw.conversationId || raw.conv_id || '',
-    requestId: raw.request_id || raw.requestId || '',
+    conversationId: raw.conversation_id || '',
+    requestId: raw.request_id || '',
     response: raw.response || '',
     intent: raw.intent || 'other',
-    intentGroup: raw.intent_group || raw.intentGroup || 'other',
-    toolsUsed: raw.tools_used || raw.toolsUsed || [],
+    intentGroup: raw.intent_group || 'other',
+    toolsUsed: raw.tools_used || [],
     entities: raw.entities || {},
-    intentConfidence: Number(raw.intent_confidence ?? raw.intentConfidence ?? raw.confidence ?? 0),
-    intentSourceScores: raw.intent_source_scores || raw.intentSourceScores || {},
-    clarificationNeeded: Boolean(raw.clarification_needed ?? raw.clarificationNeeded),
-    missingSlots: raw.missing_slots || raw.missingSlots || [],
-    inheritedFromPrevious: Boolean(raw.inherited_from_previous ?? raw.inheritedFromPrevious),
+    intentConfidence: Number(raw.intent_confidence ?? 0),
+    intentSourceScores: raw.intent_source_scores || {},
+    clarificationNeeded: Boolean(raw.clarification_needed),
+    missingSlots: raw.missing_slots || [],
+    inheritedFromPrevious: Boolean(raw.inherited_from_previous),
     escalated: Boolean(raw.escalated),
-    latencyMs: Number(raw.latency_ms ?? raw.latencyMs ?? 0),
-    knowledgeUsed: Boolean(raw.knowledge_used ?? raw.knowledgeUsed),
+    latencyMs: Number(raw.latency_ms ?? 0),
+    knowledgeUsed: Boolean(raw.knowledge_used),
     verified: raw.verified,
     grounded: raw.grounded,
-    approvalRequired: Boolean(raw.approval_required ?? raw.approvalRequired),
-    awaitingConfirmation: Boolean(raw.awaiting_confirmation ?? raw.awaitingConfirmation),
-    approvalId: raw.approval_id || raw.approvalId || null,
-    tokenUsage: raw.token_usage || raw.tokenUsage || {},
+    approvalRequired: Boolean(raw.approval_required),
+    awaitingConfirmation: Boolean(raw.awaiting_confirmation),
+    approvalId: raw.approval_id || null,
+    tokenUsage: raw.token_usage || {},
     raw
   }
 }
@@ -195,12 +195,12 @@ export async function requestToolTrace(type: string, settings: Settings, request
 export function normalizeToolTraceResponse(raw: any) {
   const trace = raw?.trace || {}
   return {
-    requestId: raw?.request_id || raw?.requestId || '',
+    requestId: raw?.request_id || '',
     found: Boolean(raw?.found),
     trace: {
       ...trace,
-      toolsUsed: trace.tools_used || trace.toolsUsed || [],
-      toolCalls: trace.tool_traces || trace.tool_calls || trace.toolCalls || []
+      toolsUsed: trace.tools_used || [],
+      toolCalls: trace.tool_traces || []
     },
     raw
   }

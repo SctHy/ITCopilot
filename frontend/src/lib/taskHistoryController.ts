@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive } from './store.ts'
 import type { TaskClient } from './taskClient.ts'
 
 export type TaskHistoryTransport = Pick<TaskClient, 'history' | 'linked' | 'capability' | 'continue'>

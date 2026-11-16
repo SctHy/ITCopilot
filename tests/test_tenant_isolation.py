@@ -8,7 +8,7 @@ no ``MARK`` (list routes), and the owner's data is unchanged afterwards.
 
 Every (method, path) in the OpenAPI schema must be classified below; a new route fails
 ``test_every_route_is_classified`` until someone decides how it is isolated. Known leaks are listed
-in ``GAPS`` with the plan phase that closes them (docs/multi-tenant-plan.md) and run as strict
+in ``GAPS`` with the violated isolation contract and run as strict
 xfails: they fail loudly once fixed, so the entry moves to ``PROBES``.
 """
 from __future__ import annotations
@@ -130,9 +130,14 @@ OWN_SCOPE = {
 
 # Isolation tested elsewhere with a same-subject, other-tenant caller.
 COVERED = {
+    ("POST", "/speech/transcribe"): "test_tenant_isolation::test_speech_transcribes_only_each_callers_upload",
     ("POST", "/chat"): "test_isolation_and_history::test_private_working_and_cross_conversation_memory_are_scoped",
     ("POST", "/chat/stream"): "test_isolation_and_history::test_same_subject_other_tenant_cannot_resume_stream_or_read_trace",
     ("GET", "/chat/stream/{request_id}"): "test_isolation_and_history::test_same_subject_other_tenant_cannot_resume_stream_or_read_trace",
+    ("GET", "/conversations"): "test_conversation_history::test_same_subject_in_another_tenant_sees_nothing",
+    ("GET", "/conversations/{conv_id}"): "test_conversation_history::test_same_subject_in_another_tenant_sees_nothing",
+    ("PATCH", "/conversations/{conv_id}"): "test_conversation_history::test_same_subject_in_another_tenant_sees_nothing",
+    ("DELETE", "/conversations/{conv_id}"): "test_conversation_history::test_same_subject_in_another_tenant_sees_nothing",
     ("GET", "/trace/{request_id}"): "test_isolation_and_history::test_same_subject_other_tenant_cannot_resume_stream_or_read_trace",
     ("GET", "/trace/tool/{request_id}"): "ops._owns_trace (same check as /trace/{request_id})",
     ("GET", "/trace/tools"): "ops._owns_trace filters every row by tenant",
@@ -141,14 +146,11 @@ COVERED = {
 # Platform-wide by design today: no tenant data, or deployment-wide state. The note says which
 # plan phase makes them per tenant.
 PLATFORM = {
-    ("GET", "/admin/agents"): "Global version configuration; operator platform admin only in multi-tenant mode",
-    ("POST", "/admin/agents/{name}/canary"): "Same global platform-admin boundary",
-    ("POST", "/admin/agents/{name}/promote"): "Same global platform-admin boundary",
-    ("POST", "/admin/agents/{name}/rollback"): "Same global platform-admin boundary",
+    ("GET", "/admin/agents"): "Global version configuration; operator platform admin only",
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
     ("POST", "/channels/feishu/events"): "signed by Feishu; tenant mapping in 阶段 1",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",
-    ("GET", "/skills"): "", ("POST", "/skills/reload"): "多租户模式下仅运营方租户的平台管理员（ADR 0025）",
+    ("GET", "/skills"): "", ("POST", "/skills/reload"): "仅运营方租户的平台管理员（ADR 0025）",
     ("POST", "/ops/retention/run"): "同上",
 }
 
@@ -177,12 +179,12 @@ def world(env, caps, db_url, monkeypatch):  # noqa: F811
     private = workflow.create("ap-tenant-a", request_id="r-tenant-a", conv_id="conv-tenant-a", principal=ALICE,
                               action_requests=[access(role="reporter", reason=MARK)])
     kb.add_documents([{"title": f"{MARK} VPN SOP", "content": f"{MARK} VPN 证书排障"},
-                      {"title": f"{MARK} 研发 SOP", "content": f"{MARK} 研发专用", "department": "engineering"}])
+                      {"title": f"{MARK} 研发 SOP", "content": f"{MARK} 研发专用", "department": "engineering"}], tenant="default")
     sessions.revoke("default", f"dev:{MARK}", actor=ERIN.subject, reason=MARK)
     admin_audit.record(workflow.engine, ERIN, "knowledge_added", MARK, {"titles": [MARK]})
     ids = {"task": room["id"], "other_task": other["id"], "room_approval": draft["approval_id"], "room_hash": draft["payload_hash"],
            "private": private["approval_id"], "private_hash": private["payload_hash"],
-           "doc": next(d["document_id"] for d in kb.list_documents() if d["title"] == f"{MARK} VPN SOP")}
+           "doc": next(d["document_id"] for d in kb.list_documents(tenant="default") if d["title"] == f"{MARK} VPN SOP")}
     return TestClient(api.app), ids, workflow, tasks, kb, sessions
 
 
@@ -199,7 +201,7 @@ def snapshot(workflow, tasks, kb, sessions, ids):
     return {
         "approvals": approval_rows(workflow),
         "room": (room["status"], len(room["events"]), room.get("archived")),
-        "documents": sorted(d["document_id"] for d in kb.list_documents()),
+        "documents": sorted(d["document_id"] for d in kb.list_documents(tenant="default")),
         "revocations": [r["subject"] for r in sessions.list("default")],
     }
 
@@ -230,6 +232,32 @@ def test_every_route_is_classified():
     assert sum(map(len, groups)) == len(classified), "a route is classified twice"
     assert routes() - classified == set(), "new route: decide how it is tenant-isolated and classify it here"
     assert classified - routes() == set(), "classified route no longer exists"
+
+
+def test_speech_transcribes_only_each_callers_upload(world, monkeypatch):
+    """Same subject in two tenants gets only its request's transcript, without stored writes."""
+    from core import speech
+
+    client, ids, workflow, tasks, kb, sessions = world
+    before = snapshot(workflow, tasks, kb, sessions, ids)
+    received = []
+
+    async def transcribe(audio, key):
+        received.append(audio)
+        return {"text": audio.decode()}
+
+    monkeypatch.setattr(speech, "api_key", lambda: "test-only")
+    monkeypatch.setattr(speech, "transcribe", transcribe)
+    for tenant, audio in (("default", MARK), ("intruder", "B-ONLY-VOICE"), ("default", "A-SECOND")):
+        response = client.post("/speech/transcribe", content=audio.encode(),
+                               headers={**auth("alice", tenant=tenant), "Content-Type": "audio/wav"})
+        assert response.status_code == 200
+        assert response.json() == {"text": audio}
+    assert received == [MARK.encode(), b"B-ONLY-VOICE", b"A-SECOND"]
+    assert client.post("/speech/transcribe", content=b"unauthenticated",
+                       headers={"Content-Type": "audio/wav"}).status_code == 401
+    assert len(received) == 3
+    assert snapshot(workflow, tasks, kb, sessions, ids) == before
 
 
 def test_no_route_reaches_another_tenants_objects(world):

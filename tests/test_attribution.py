@@ -74,7 +74,7 @@ def test_cli_reads_durable_rows_and_snapshots_with_tenant_filter(db_url):
                                                detail={}, actor="test"))
         db.execute(insert(badcases).values(id="snapshot", request_id="X-read-4000-0", tenant="default",
             source="signal", signals=["tool_error"], status="new", snapshot={"snapshot_partial": True},
-            label={}, labeler=None, labeled_at=None, second_label=None, dataset_case_id=None))
+            label={}, labeler=None, labeled_at=None, dataset_case_id=None))
     root = Path(__file__).resolve().parents[1]
     run = subprocess.run([sys.executable, str(root / "scripts/attribute_success_drop.py"),
         "--baseline", "1970-01-01T00:00+00:00/1970-01-01T00:50+00:00",

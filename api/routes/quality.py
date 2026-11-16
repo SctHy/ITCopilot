@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from api import state
 from api.deps import current_principal, require_roles
-from api.routes.tasks import call as task_call
+from api.task_dependencies import invoke as task_call
 from core.db import task_events, turn_records, read
 from core.identity import Principal, ROLE_IT_ADMIN
 from core.states import IllegalTransition

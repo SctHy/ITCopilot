@@ -166,9 +166,9 @@ def test_chat_drafts_then_a_typed_confirm_submits_without_the_model():
             assert state.workflow.get(approval_id)["status"] == "pending"
             assert [e["event"] for e in state.workflow.audit(approval_id)][-1] == "confirmed"
 
-            # Without a draft, the same word is just a message for the Agent.
+            # Repeating confirmation reports the existing pending request without a new model call.
             await http.post("/chat", json={"message": "确认", "conv_id": "c1", "client_request_id": "again"})
-            assert len(calls) > model_calls
+            assert len(calls) == model_calls
 
             # Why the Agent proposed it is frozen into the immutable "created" entry.
             created = next(e for e in state.workflow.audit(approval_id) if e["event"] == "created")
@@ -205,3 +205,99 @@ def test_im_reply_asks_for_confirmation():
     text = format_reply({"response": "已生成申请草稿。", "approval_required": True, "awaiting_confirmation": True, "approval_id": "abcdef1234:approval"})
     assert "回复“确认”" in text and "已提交审批" not in text
     assert "已提交审批" in format_reply({"response": "好的", "approval_required": True, "approval_id": "abcdef1234:approval"})
+
+
+def test_conversation_approval_states_include_terminal_and_isolate_owner(env):
+    store, _, _, _ = env
+    draft(store)
+    draft(store, "other", conv_id="other")
+    assert store.conversation_approvals(ALICE, "c")[0]["status"] == "draft"
+    store.confirm("a", ALICE)
+    current = store.conversation_approvals(ALICE, "c")
+    assert len(current) == 1 and current[0]["status"] == "pending"
+    assert current[0]["confirmed_at"] is not None
+    assert store.conversation_approvals(BOB, "c") == []
+    assert store.conversation_approvals(dataclasses.replace(ALICE, tenant="other"), "c") == []
+    store.withdraw("a", ALICE)
+    assert store.conversation_approvals(ALICE, "c")[0]["status"] == "withdrawn"
+
+
+def test_chat_reads_card_confirmation_before_followup():
+    prompts = []
+
+    async def reply(messages, info):
+        if info.output_tools:
+            return ModelResponse(parts=[ToolCallPart("classify_it_request", {
+                "intent": "permission_request", "confidence": .9})])
+        prompts.append(str(messages))
+        return ModelResponse(parts=[TextPart("申请已提交，等待审批。")])
+
+    async def go():
+        async with application(model=scripted_model(reply)) as (http, state):
+            body = draft(state.workflow, "card-confirm", conv_id="card-conversation")
+            response = await http.post("/approvals/card-confirm/confirm",
+                                       json={"payload_hash": body["payload_hash"]})
+            assert response.status_code == 200, response.text
+            for i, message in enumerate(("好了吗", "我提交了")):
+                response = await http.post("/chat", json={
+                    "message": message, "conv_id": "card-conversation",
+                    "client_request_id": f"followup-{i}"})
+                assert response.status_code == 200, response.text
+            assert state.workflow.get("card-confirm")["status"] == "pending"
+
+    asyncio.run(go())
+    assert len(prompts) == 2
+    for prompt in prompts:
+        assert "本会话本人申请的最新数据库状态" in prompt
+        assert "card-confirm" in prompt and '"status": "pending"' in prompt
+        assert "不要求重复确认" in prompt
+
+
+def test_persisted_submission_does_not_excuse_new_or_failed_writes():
+    from types import SimpleNamespace
+    from agents.prompting import claim_problems
+    from agents.types import Request
+    from agents.intent.taxonomy import IntentCategory
+
+    item = {"status": "pending", "confirmed_at": 123, "actions": ["request_access"]}
+    req = Request("好了吗", intent=IntentCategory.PERMISSION_REQUEST,
+                  allowed_writes=frozenset(), conversation_approvals=[item])
+    deps = SimpleNamespace(traces=[])
+    assert claim_problems("权限申请已提交。", deps, req) == []
+    req.allowed_writes = frozenset({"request_access"})
+    assert claim_problems("权限申请已提交。", deps, req)
+    req.allowed_writes = frozenset()
+    item["status"], item["confirmed_at"] = "draft", None
+    assert claim_problems("权限申请已提交。", deps, req)
+
+
+@pytest.mark.parametrize("message", ["对，就这样提交吧", "确认，提交", "确认锁定"])
+def test_natural_confirmation_is_not_a_new_application(message):
+    from api.routes.chat import _confirmation_verb
+    assert _confirmation_verb(message) == "confirm"
+
+
+def test_action_specific_confirmation_leaves_other_drafts_untouched():
+    async def go():
+        async with application(model=counting_access_model([])) as (http, state):
+            draft(state.workflow, "access", conv_id="two")
+            draft(state.workflow, "lock", conv_id="two", actions=[
+                {"tool_name": "lock_device", "arguments": {"employee_id": "1001", "device_id": "DEV-1001", "reason": "设备丢失"}}])
+            response = await http.post("/chat", json={"message": "确认锁定", "conv_id": "two",
+                                                      "client_request_id": "lock-confirm"})
+            assert response.status_code == 200, response.text
+            assert state.workflow.get("lock")["status"] == "pending"
+            assert state.workflow.get("access")["status"] == "draft"
+    asyncio.run(go())
+
+
+def test_card_withdrawal_overrides_old_typed_confirmation_history():
+    from types import SimpleNamespace
+    from agents.prompting import claim_problems
+    from agents.types import Request
+
+    req = Request("我撤回了，现在怎么样", allowed_writes=frozenset(),
+        history=[{"role": "assistant", "content": "已生成待审批 a"}],
+        conversation_approvals=[{"approval_id": "a", "status": "withdrawn",
+                                 "confirmed_at": 123, "actions": ["request_access"]}])
+    assert claim_problems("这条权限申请已撤回。", SimpleNamespace(traces=[]), req) == []

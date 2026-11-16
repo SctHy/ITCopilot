@@ -1,13 +1,15 @@
 """将本地 IT 知识库以标准 MCP Tools / Resources 暴露给其他客户端（Claude Desktop、Cursor、其他 Agent）。
 
 API 在 /mcp 挂载 Streamable HTTP 端点；检索经过 MCPToolManager 的 Schema 校验、缓存、超时与熔断，
-与 Agent 内部检索共用同一条治理链路。此端点没有员工身份，只允许检索公共（*）文档。
+与 Agent 内部检索共用同一条治理链路。此端点没有员工身份，只检索 ``tenant``（运营方租户）的公共（*）文档，
+不会触及其他租户的知识库（ADR 0024）。
 只读工具，带 readOnlyHint 注解。
 """
 import json
 import os
 from typing import Annotated, Any, Dict, List
 
+from core.tenant_context import tenant_scope
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
@@ -27,7 +29,7 @@ def _csv(name: str, default: str) -> List[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
-def create_server(knowledge_base, tool_manager=None) -> MCPServer:
+def create_server(knowledge_base, tool_manager=None, *, tenant: str = "default") -> MCPServer:
     server = MCPServer("IT-Copilot Knowledge", instructions="企业 IT 服务台知识库：VPN、账号、权限、设备与工单 SOP。")
 
     @server.tool(annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True))
@@ -36,17 +38,19 @@ def create_server(knowledge_base, tool_manager=None) -> MCPServer:
         query = query.strip()
         if not query:
             raise ToolError("query 不能为空")
-        if tool_manager is not None:
-            result = await tool_manager.call("knowledge_search", {"query": query, "top_k": top_k, "department": "*"})
-            if not result.success:
-                raise ToolError("知识库检索失败，请稍后重试")
-            return KnowledgeSearchResult(results=result.data)
-        return KnowledgeSearchResult(results=await knowledge_base.search_async(query, top_k, department="*"))
+        with tenant_scope(tenant):
+            if tool_manager is not None:
+                result = await tool_manager.call("knowledge_search", {"query": query, "top_k": top_k, "department": "*"})
+                if not result.success:
+                    raise ToolError("知识库检索失败，请稍后重试")
+                return KnowledgeSearchResult(results=result.data)
+            return KnowledgeSearchResult(results=await knowledge_base.search_async(query, top_k, department="*"))
 
     @server.resource("it-copilot://knowledge/stats")
     async def knowledge_stats() -> str:
         """读取知识库片段数量。"""
-        return json.dumps({"total_chunks": await knowledge_base.doc_count_async()})
+        with tenant_scope(tenant):
+            return json.dumps({"total_chunks": await knowledge_base.doc_count_async()})
 
     return server
 

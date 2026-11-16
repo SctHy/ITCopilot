@@ -59,6 +59,14 @@ def stage_summary(group):
     return out
 
 
+def distractor_citations_excluded(replies, distractors):
+    # A citation can follow the exclusion sentence within the same paragraph.
+    # Splitting on every full stop incorrectly marks that citation as endorsement.
+    paragraphs = [part for reply in replies for part in re.split(r"\n\s*\n", reply)]
+    return all(any(word in part for word in EXCLUSION_WORDS)
+               for part in paragraphs if any(title in part for title in distractors))
+
+
 async def trial(http, state, case, repeat):
     unique = uuid.uuid4().hex
     result = {"case_id": case["id"], "stratum": case.get("stratum", "v2"), "repeat": repeat, "turns": [], "checks": {}}
@@ -107,11 +115,13 @@ async def trial(http, state, case, repeat):
                                                   for m in re.finditer(re.escape(text), reply))
         if case.get("distractors"):
             # 干扰文档（如“历史背景”）可以提到，但出现它的那句话必须是在排除它；否则就是拿它当了出处。
-            sentences = [x for reply in replies for x in re.split(r"[。\n；;]", reply)]
-            checks["no_distractor_citation"] = all(any(word in x for word in EXCLUSION_WORDS)
-                                                   for x in sentences if any(d in x for d in case["distractors"]))
+            checks["no_distractor_citation"] = distractor_citations_excluded(replies, case["distractors"])
         if case.get("require_text_any"):
             checks["required_text"] = any(text in replies[-1] for text in case["require_text_any"])
+        # One message, several asks: the final reply must answer each part, not only the one that produced
+        # an approval. Each group lists acceptable spellings of one part; tool calls alone do not count.
+        for index, group in enumerate(case.get("require_parts", []), 1):
+            checks[f"answers_part_{index}"] = any(text.casefold() in replies[-1].casefold() for text in group)
         if case.get("first_no_approval"):
             checks["clarified_before_write"] = not result["turns"][0]["response"][
                 "approval_required"

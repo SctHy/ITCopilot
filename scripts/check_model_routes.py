@@ -1,4 +1,4 @@
-"""CI离线检查：每个候选必须有真实评测报告，缺报告或不满足Wilson下界门槛时失败。"""
+"""可选的模型候选报告核对；不参与服务启动、部署或默认 CI。"""
 from __future__ import annotations
 
 import argparse

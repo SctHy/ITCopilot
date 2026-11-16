@@ -31,6 +31,8 @@ def test_items_are_only_the_callers_own_and_still_actionable(env):  # noqa: F811
     store.decide("by-erin", "approved", BOB, for_alice["payload_hash"])
     create(store, "dave", DAVE, [access(employee="1002")])
     run(worker)
+    snapshot = next(a for a in store.conversation_approvals(ALICE, "c") if a["approval_id"] == "granted")
+    assert snapshot["grants"][0]["status"] == "active"
     items = {(i["approval_id"], i["kind"]) for i in store.requester_items(ALICE)}
     assert items == {("pending", "withdraw"), ("granted", "release"), ("by-erin", "release")}
     assert {i["approval_id"] for i in store.requester_items(ERIN)} == {"by-erin"}            # requester sees it too
@@ -42,6 +44,8 @@ def test_items_are_only_the_callers_own_and_still_actionable(env):  # noqa: F811
     store.release("granted", ALICE)
     run(worker)
     assert {i["approval_id"] for i in store.requester_items(ALICE)} == {"by-erin"}           # nothing left to take back there
+    snapshot = next(a for a in store.conversation_approvals(ALICE, "c") if a["approval_id"] == "granted")
+    assert snapshot["execution"] == "succeeded" and snapshot["grants"][0]["status"] == "revoked"
     clock.t += 9 * 3600
     run(worker)
     assert store.requester_items(ALICE) == []                                               # expired grants are gone too

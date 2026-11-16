@@ -7,6 +7,7 @@ from sqlalchemy import select, insert, update, or_, and_
 from core.db import task_goals, task_verifications as jobs, task_progress, task_events, task_runs
 from core.concurrency import LeaseLostError
 from workflow.tasks import TaskConflict, TaskForbidden, key
+from workflow.states import RUN, UNFINISHED_RUNS
 
 logger = logging.getLogger(__name__)
 FRESH_SECONDS = 300
@@ -28,7 +29,7 @@ class TaskGoalService:
     @staticmethod
     def _busy(db, task):
         return db.execute(select(task_runs.c.id).where(task_runs.c.task_id == task['id'],
-            task_runs.c.status.in_(['queued', 'running', 'held']))).first() is not None
+            task_runs.c.status.in_(UNFINISHED_RUNS))).first() is not None
 
     def read(self, task_id, principal):
         with self.tasks.read(task_id, principal) as (db, task):
@@ -58,7 +59,7 @@ class TaskGoalService:
             # Superseded follow-ups cannot consume resources or commit against a new goal.
             followups = [r['id'] for r in db.execute(select(task_events).where(task_events.c.task_id == task_id,
                 task_events.c.kind == 'verification')).mappings() if r['data'].get('replan')]
-            db.execute(update(task_runs).where(task_runs.c.id.in_(followups), task_runs.c.status.in_(['queued', 'running', 'held']))
+            db.execute(update(task_runs).where(task_runs.c.id.in_(followups), task_runs.c.status.in_(UNFINISHED_RUNS), task_runs.c.status.in_(RUN.sources('cancelled')))
                 .values(status='cancelled', version=task_runs.c.version + 1, lease_until=None))
             if self.tasks.governance:
                 self.tasks.governance.interrupt(db, followups, 'goal_changed_usage_unknown')

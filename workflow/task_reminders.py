@@ -1,6 +1,6 @@
 """Durable timers and overdue-question sources; delivery is a shared-room event."""
 from sqlalchemy import insert, select, update
-from core.db import task_timers, task_todos
+from core.db import service_tasks, task_timers, task_todos
 from workflow.tasks import TaskConflict, TaskForbidden, key
 
 
@@ -39,9 +39,15 @@ class TaskReminderService:
             db.execute(update(task_timers).where(task_timers.c.id == timer_id, task_timers.c.task_id == task_id,
                 task_timers.c.status == 'pending').values(status='cancelled'))
 
+    def cancel_pending(self, db, task):
+        """Close-time cleanup in the same transaction as the task transition."""
+        db.execute(update(task_timers).where(
+            task_timers.c.task_id == task['id'], task_timers.c.status == 'pending',
+        ).values(status='cancelled'))
+
     def poll(self):
         with self.tasks.engine.connect() as db:
-            due = db.execute(select(task_timers).where(task_timers.c.status == 'pending', task_timers.c.due_at <= self.tasks.clock()).limit(100)).mappings().all()
+            due = db.execute(select(task_timers).where(task_timers.c.status == 'pending', task_timers.c.due_at <= self.tasks.clock()).order_by(task_timers.c.due_at).limit(100)).mappings().all()
         for candidate in due:
             with self.tasks.transaction(candidate['task_id']) as (db, task):
                 row = db.execute(select(task_timers).where(task_timers.c.id == candidate['id'])).mappings().one()
@@ -59,8 +65,12 @@ class TodoDeadlineSource:
 
     def poll(self):
         with self.tasks.engine.connect() as db:
-            due = db.execute(select(task_todos).where(task_todos.c.status == 'open', task_todos.c.reminded_at.is_(None),
-                task_todos.c.due_at <= self.tasks.clock()).limit(100)).mappings().all()
+            # Only open tasks: a closed task's overdue todos are skipped without being marked, so
+            # selecting them would fill every page and starve the reminders of open tasks.
+            # They remain unreminded and fire once the task is reopened.
+            due = db.execute(select(task_todos).join(service_tasks, service_tasks.c.id == task_todos.c.task_id)
+                .where(task_todos.c.status == 'open', task_todos.c.reminded_at.is_(None), task_todos.c.due_at <= self.tasks.clock(),
+                       service_tasks.c.status == 'open').order_by(task_todos.c.due_at).limit(100)).mappings().all()
         for candidate in due:
             with self.tasks.transaction(candidate['task_id']) as (db, task):
                 row = db.execute(select(task_todos).where(task_todos.c.id == candidate['id'])).mappings().one()

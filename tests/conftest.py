@@ -9,6 +9,8 @@ os.environ.setdefault("IT_COPILOT_AUTH_MODE", "dev")
 os.environ.setdefault("IT_COPILOT_ENV", "development")
 # 测试不连外部 Jev；需要时显式注入 JevClient。
 os.environ["IT_INTENT_BACKEND"] = "llm"
+# 普通离线单测不下载/启动本地模型；真实本地模型测试显式开启。
+os.environ.setdefault("IT_COPILOT_MASK_MODEL", "off")
 
 
 def pytest_addoption(parser):
@@ -77,3 +79,12 @@ def run_in_tenant(coro, tenant: str = "default"):
         with tenant_scope(tenant):
             return await coro
     return asyncio.run(scoped())
+
+
+@pytest.fixture
+def default_tenant():
+    """Run a unit test inside the ``default`` tenant's scope, as a request from that tenant would."""
+    from core.tenant_context import tenant_scope
+
+    with tenant_scope("default"):
+        yield "default"

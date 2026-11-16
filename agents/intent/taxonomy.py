@@ -141,7 +141,7 @@ JEV_ROLES = {"readonly": "只读", "reporter": "reporter 报告者", "developer"
 
 
 def jev_state(message: str, history: Optional[List[Dict[str, str]]]) -> str:
-    lines = [f"{item.get('role', 'user')}: {item.get('content', '')}" for item in (history or [])[-4:]]
+    lines = [f"{item.get('role', 'user')}: {item.get('content', '')}" for item in (history or [])[-20:]]
     return ("历史对话：\n" + "\n".join(lines) + "\n\n" if lines else "") + f"用户最新消息：{message}"
 
 

@@ -38,7 +38,6 @@ CHECKS = [{'kind': 'access_level', 'system': 'gitlab', 'role': 'readonly'}]
 def caps(env):
     tasks, workflow, _ = env
     result = TaskCapabilities(tasks, tasks.effects.view, AccessGoalVerifier(AdapterRegistry(LocalDirectoryAdapter(workflow.engine))))
-    tasks.governance = result.governance
     tasks.effects = CompositeTaskEffects([tasks.effects, result.goals])
     return result
 
@@ -102,6 +101,46 @@ def test_restart_reuses_completed_agent_step_frozen_input_and_known_cost(env, ca
     assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 10
     assert len([e for e in tasks.get(task['id'], ALICE)['events'] if e['kind'] == 'assistant']) == 1
     assert tasks.get(task['id'], ALICE)['runs'][0]['status'] == 'done'
+
+
+@pytest.mark.parametrize('interrupted_at', ['input', 'agent', 'result'])
+def test_restored_input_returns_the_state_updated_by_execution(env, caps, monkeypatch, interrupted_at):
+    tasks, _, clock = env
+    task = room(tasks)
+    first, calls = tasks.claim(5), Counter()
+    def orchestrator():
+        runtime = fake_orchestrator(calls)
+        execute = runtime._execute
+
+        async def update_state(req):
+            assert req.principal == ALICE and isinstance(req.allowed_writes, frozenset)
+            req.conversation_state['resumed'] = True
+            return await execute(req)
+
+        runtime._execute = update_state
+        return runtime
+
+    save = caps.plan_store.save
+    def save_then_crash(claim, name, inputs, payload, usage):
+        save(claim, name, inputs, payload, usage)
+        if name == interrupted_at:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(caps.plan_store, 'save', save_then_crash)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(run_claim(tasks, caps, first, orchestrator()))
+    monkeypatch.setattr(caps.plan_store, 'save', save)
+    frozen = caps.plan_store.read(first, 'input', {'event_id': first['id']})
+    assert 'slots' not in frozen
+    clock.t += 6
+    current = tasks.claim(5)
+    result = asyncio.run(run_claim(tasks, caps, current, orchestrator()))
+    assert result['conversation_state'].get('resumed') is True
+    assert caps.plan_store.read(current, 'input', {'event_id': current['id']}) == frozen
+    tasks.finish(current, result)
+    assert tasks.get(task['id'], ALICE)['events'][-1]['data']['conversation_state']['resumed'] is True
+    assert calls == {'intent': 1, 'agent': 1}
+    assert caps.governance.read(task['id'], ALICE)['budget']['used_tokens'] == 10
 
 
 def test_lease_and_input_fences_prevent_stale_checkpoint_writes(env, caps):

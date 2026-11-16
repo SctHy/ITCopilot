@@ -1,7 +1,7 @@
-"""Conversation readiness and the transient agent protocols."""
+"""Conversation readiness derived from the collected slots."""
 from enum import StrEnum
 
-from core.states import Machine, Protocol
+from core.states import Machine
 
 
 class SlotState(StrEnum):
@@ -21,32 +21,3 @@ def slot_state(state):
     if not state:
         return SlotState.EMPTY
     return SlotState.CLARIFYING if state.get("missing_fields") else SlotState.READY
-
-
-TURN = Protocol("chat_turn", "new", {
-    "new": {"run": "running", "replay": "replayed"},
-    "running": {"propose": "approval", "respond": "responding", "fail": "failed", "cancel": "cancelled"},
-    "approval": {"respond": "responding", "fail": "failed", "cancel": "cancelled"},
-    "responding": {"commit": "committed", "finish": "finished", "fail": "failed", "cancel": "cancelled"},
-    "committed": {"finish": "finished", "fail": "failed", "cancel": "cancelled"},
-})
-
-MODEL_RUN = Protocol("model_run", "new", {
-    "new": {"run": "generating"},
-    "generating": {"correct": "correcting", "complete": "completed", "truncate": "partial", "deadline": "partial", "fail": "failed", "cancel": "cancelled"},
-    "correcting": {"complete": "completed", "truncate": "partial", "deadline": "partial", "fail": "failed", "cancel": "cancelled"},
-})
-
-TOOL_CALL = Protocol("tool_call", "new", {
-    "new": {"validate": "validating"},
-    "validating": {"execute": "executing", "fail": "failed", "cancel": "cancelled"},
-    "executing": {"complete": "completed", "fail": "failed", "cancel": "cancelled"},
-})
-
-class OnceState(StrEnum):
-    AVAILABLE = "available"
-    CONSUMED = "consumed"
-
-
-def once_state(key, claimed):
-    return OnceState.CONSUMED if key in claimed else OnceState.AVAILABLE

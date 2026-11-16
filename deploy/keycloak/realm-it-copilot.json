@@ -21,6 +21,10 @@
       {
         "name": "auditor",
         "description": "Reads traces and audit logs"
+      },
+      {
+        "name": "platform_admin",
+        "description": "Operates the whole deployment (operator tenant only)"
       }
     ]
   },
@@ -75,6 +79,19 @@
           "config": {
             "user.attribute": "department",
             "claim.name": "department",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "claim.value": "default",
             "jsonType.label": "String",
             "access.token.claim": "true",
             "id.token.claim": "true",
@@ -253,7 +270,8 @@
       ],
       "realmRoles": [
         "employee",
-        "it_admin"
+        "it_admin",
+        "platform_admin"
       ]
     },
     {

@@ -26,7 +26,7 @@ class TaskApprovalEffects:
             ids = db.execute(select(approvals.c.id).where(approvals.c.conv_id == "task:" + task["id"],
                 approvals.c.requester == task["requester"], approvals.c.tenant == task["tenant"],
                 approvals.c.department == task["department"])).scalars().all()
-        items = [self.workflow.get(i) for i in ids]
+        items = self.workflow.get_many(ids)
         phase = ("awaiting_confirmation" if any(a["status"] == "draft" for a in items) else
                  "awaiting_approval" if any(a["status"] == "pending" for a in items) else
                  "executing" if any(a["status"] == "approved" and a["execution"] in {"queued", "executing"} for a in items) else

@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
-from agents.states import TURN
 from agents.types import OrchestratorResult, Request
 from api import state
 from core import tenant_context
@@ -48,7 +47,7 @@ class _Stages:
 
 
 # 有草稿待确认时，这两类短回复由代码直接处理，不交给模型：确认与否是申请人的决定，模型只会再起草一遍。
-CONFIRM_REPLY = re.compile(r"^\s*(?:好的?[，,\s]*)?(?:确认|确认提交|确认申请|提交|提交审批|确定|确定提交|没问题[，,\s]*提交|confirm)\s*[。.!！]*\s*$", re.I)
+CONFIRM_REPLY = re.compile(r"^\s*(?:好的?[，,\s]*)?(?:确认|确认[，,\s]*提交|确认申请|确认锁定|提交|提交审批|确定|确定提交|对[，,\s]*就这样提交吧|没问题[，,\s]*提交|confirm)\s*[。.!！]*\s*$", re.I)
 CANCEL_REPLY = re.compile(r"^\s*(?:取消|取消申请|不提交了?|不用提交了?|放弃申请|cancel)\s*[。.!！]*\s*$", re.I)
 
 
@@ -59,7 +58,19 @@ def _confirmation_verb(message: str) -> Optional[str]:
 async def _answer_drafts(payload: ChatRequest, principal: Principal, rid: str, conv_id: str, verb: str, emit=None) -> Optional[ChatResponse]:
     """申请人回复“确认/取消”且本会话有待确认的草稿：直接确认或取消，返回确定性的回答；没有草稿时返回 None，照常走 Agent。"""
     drafts = await asyncio.to_thread(state.workflow.drafts, principal, conv_id)
+    if payload.message.strip() == "确认锁定":
+        drafts = [d for d in drafts if any(a["tool_name"] == "lock_device" for a in d["action_requests"])]
     if not drafts:
+        if verb == "confirm":
+            current = await asyncio.to_thread(state.workflow.conversation_approvals, principal, conv_id)
+            if payload.message.strip() == "确认锁定":
+                current = [a for a in current if "lock_device" in a["actions"]]
+            pending = [a for a in current if a["status"] == "pending"]
+            if pending:
+                text = "\n".join(f"申请已提交，等待审批，无需重复提交：{a['summary']}。" for a in pending)
+                return ChatResponse(request_id=rid, response=text, status="success", intent="other",
+                                    intent_group="other", approval_required=True,
+                                    approval_id=pending[0]["approval_id"], tools_used=[])
         return None
     started = time.monotonic()
     lines, last = [], None
@@ -101,7 +112,22 @@ async def _prefetch_knowledge(message: str, department):
     if not state.tool_manager:
         return None
     try:
-        return await state.tool_manager.search("knowledge_search", message, top_k=3, department=department)
+        # Explicitly separated questions need separate recall windows; otherwise the
+        # first topic can crowd the second topic's current SOP out of the top three.
+        queries = [part.strip(" ，,。；;？?") for part in re.split(r"(?:另外|顺便|同时)", message)]
+        queries = [part for part in queries if part][:3] or [message]
+        results = await asyncio.gather(*(state.tool_manager.search(
+            "knowledge_search", query, top_k=3, department=department) for query in queries))
+        good = [result for result in results if result.success]
+        if not good:
+            return results[0]
+        from dataclasses import replace
+        hits = {}
+        for result in good:
+            for hit in result.data:
+                key = (hit.get("document_id"), hit.get("chunk"), hit.get("content"))
+                hits.setdefault(key, hit)
+        return replace(good[0], data=list(hits.values()))
     except Exception as exc:
         logger.warning("knowledge prefetch failed: %s", type(exc).__name__)
         return None
@@ -117,10 +143,13 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
         mem_ctx = await state.memory.get_context(principal.scope_key, conv_id, query=payload.message) if state.memory else None
     history = mem_ctx.history_turns() if mem_ctx and mem_ctx.recent_messages else None
     conv_state = (getattr(mem_ctx, "state", {}) or {}) if mem_ctx else {}
+    intent_history = list(history or [])
+    if mem_ctx and mem_ctx.summary:
+        intent_history.insert(0, {"role": "user", "content": "[较早会话摘要，仅用于解析指代，不代表本轮授权]\n" + mem_ctx.summary})
     with stages("intent"):
         # 知识库预取与意图识别并行：本地检索几十毫秒，用不用由意图识别（Jev）判断，省掉 Agent 专门检索的那一轮。
         intent_result, prefetched = await asyncio.gather(
-            state.orchestrator.recognize_intent(payload.message, history=history[-5:] if history else None, previous_intent_group=conv_state.get("intent_group")),
+            state.orchestrator.recognize_intent(payload.message, history=intent_history, previous_intent_group=conv_state.get("intent_group")),
             _prefetch_knowledge(payload.message, principal.department),
         )
     if emit:
@@ -136,18 +165,43 @@ async def _run_turn(payload: ChatRequest, principal: Principal, rid: str, conv_i
         knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge is not False and prefetched and prefetched.success else [],
     )
     req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
-    if state.task_recall:
-        try:
-            req.task_references = await asyncio.wait_for(state.task_recall.recall(principal, payload.message), 3)
-            req.context += state.task_recall.prompt(req.task_references)
-        except Exception:
-            logger.warning('task recall unavailable; continuing without task references')
-    if state.request_recall:
-        try:
-            req.related_approvals = await asyncio.wait_for(state.request_recall.recall(principal, payload.message, intent_result.intent.value), 3)
-            req.context += state.request_recall.prompt(req.related_approvals)
-        except Exception:
-            logger.warning('request recall unavailable; continuing without it')
+    async def read_task_context():
+        context = ""
+        if state.task_recall:
+            try:
+                req.task_references = await asyncio.wait_for(state.task_recall.recall(principal, payload.message), 3)
+                context += state.task_recall.prompt(req.task_references)
+            except Exception:
+                logger.warning('task recall unavailable; continuing without task references')
+        return context
+
+    async def read_request_context():
+        context = ""
+        if state.request_recall:
+            try:
+                req.related_approvals = await asyncio.wait_for(state.request_recall.recall(principal, payload.message, intent_result.intent.value), 3)
+                context += state.request_recall.prompt(req.related_approvals)
+            except Exception:
+                logger.warning('request recall unavailable; continuing without it')
+        return context
+
+    async def read_approval_context():
+        context = ""
+        # Card actions bypass chat memory. Re-read persisted state on every turn, including
+        # short follow-ups such as "好了吗", and retain terminal states as well as drafts.
+        if state.workflow:
+            try:
+                current = await asyncio.wait_for(
+                    asyncio.to_thread(state.workflow.conversation_approvals, principal, conv_id), 3)
+                req.conversation_approvals = current
+                from agents.request_recall import approval_state_prompt
+                context += approval_state_prompt(current)
+            except Exception:
+                logger.warning("conversation approval state unavailable")
+                context += "\n[申请状态查询失败]无法核实最新状态；不得声称已查询、尚未提交或要求重复提交。"
+        return context
+
+    req.context += "".join(await asyncio.gather(read_task_context(), read_request_context(), read_approval_context()))
     # 缺失字段按跨轮累积的实体计算：上一轮已给出的工号等不应再次阻断写操作。
     entities = with_login_employee(intent_result.entities, conv_state, principal.employee_id, intent_result.intent.value)
     req.conversation_state = merge_state(conv_state, intent_result.intent_group, entities, payload.message, intent_result.missing_slots, intent=intent_result.intent.value)
@@ -213,32 +267,16 @@ async def _chat(payload: ChatRequest, principal: Principal, rid: str, emit=None,
             if receipt:
                 if receipt["message_hash"] != hashlib.sha256(payload.message.encode()).hexdigest():
                     raise HTTPException(409, "同一 client_request_id 不能用于不同消息")
-                flow = TURN.start()
-                flow.send("replay")
                 return receipt.get("response")
             return await _complete_turn(payload, principal, rid, conv_id, request_started, emit, channel)
     return await _complete_turn(payload, principal, rid, conv_id, request_started, emit, channel)
-
-
-async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None, channel="web"):
-    # The caller holds the conversation lease through approval creation AND commit.
-    flow = TURN.start()
-    flow.send("run")
-    try:
-        return await _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow, channel)
-    except asyncio.CancelledError:
-        flow.send("cancel")
-        raise
-    except Exception:
-        flow.send("fail")
-        raise
 
 
 async def _record_turn(req, result, principal, channel, *, approval_id, stage_ms=None):
     from core.turn_records import build_record, record_turn
     from monitor.telemetry import turn_attributes
     record = build_record(req, result, channel=channel,
-        policy_version=state.workflow.policy_for(principal.tenant).version,
+        policy_version=state.workflow.policy.version,
         kb_version=await asyncio.to_thread(state.kb.collection_version, principal.tenant) if state.kb else 0,
         approval_id=approval_id, stage_ms=stage_ms)
 
@@ -249,7 +287,31 @@ async def _record_turn(req, result, principal, channel, *, approval_id, stage_ms
     turn_attributes(record)
 
 
-async def _complete_turn_run(payload, principal, rid, conv_id, request_started, emit, flow, channel):
+async def _record_history(principal: Principal, conv_id, rid, channel, message: str, response: ChatResponse) -> None:
+    """Append the settled turn to the user's own web chat history (core/conversation_history.py).
+    History is a convenience copy: failing to write it is logged and never fails the turn."""
+    if channel != "web" or not conv_id or not state.workflow:
+        return
+    from core.conversation_history import record_exchange
+
+    def persist():
+        with state.workflow.engine.begin() as db:
+            record_exchange(db, principal, conv_id, rid, channel, message, response.model_dump())
+    try:
+        await asyncio.to_thread(persist)
+    except Exception:
+        logger.exception("chat history not recorded for %s", rid)
+
+
+async def _complete_turn(payload, principal: Principal, rid, conv_id, request_started, emit=None, channel="web"):
+    from core.model_masking import masking_scope
+
+    with masking_scope(principal.scope_key, conv_id):
+        return await _complete_turn_scoped(payload, principal, rid, conv_id, request_started, emit, channel)
+
+
+async def _complete_turn_scoped(payload, principal: Principal, rid, conv_id, request_started, emit=None, channel="web"):
+    # The caller holds the conversation lease through approval creation AND commit.
     stages = _Stages()
     verb = _confirmation_verb(payload.message) if state.workflow else None
     if verb:
@@ -263,9 +325,7 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
             result = OrchestratorResult(rid, answered.response, None,
                 latency_ms=answered.latency_ms, observability=state.orchestrator.agent_for(req)._observability(req))
             await _record_turn(req, result, principal, channel, approval_id=answered.approval_id)
-            flow.send("respond")
-            flow.send("commit")
-            flow.send("finish")
+            await _record_history(principal, conv_id, rid, channel, payload.message, answered)
             return answered
     result, req, intent_result, mem_ctx = await _run_turn(payload, principal, rid, conv_id, stages, emit)
 
@@ -275,7 +335,6 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     reply = result.response
     awaiting = False
     if approval and state.workflow:
-        flow.send("propose")
         summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
         try:
             with stages("approval"):
@@ -308,7 +367,6 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
                 await emit("approval_required", {"approval_id": approval_id, "approvals_required": created["approvals_required"],
                                                  "policy_version": created["policy_version"], "actions": approval["actions"]})
 
-    flow.send("respond")
     response = ChatResponse(
         task_references=req.task_references, related_approvals=req.related_approvals,
         request_id=rid, response=reply, status=result.status, error_code=result.error_code,
@@ -323,13 +381,13 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     )
     if state.workflow:
         await _record_turn(req, result, principal, channel, approval_id=approval_id, stage_ms=stages.ms)
+        await _record_history(principal, conv_id, rid, channel, payload.message, response)
     if state.memory:
         # commit 的耗时在写回之后才知道，只进入指标，不出现在本次响应和 trace 里。
         trace = _build_trace(result, intent_result, mem_ctx, approval, approval_id, principal, stages.ms)
         trace["turn"] = {"user": payload.message, "assistant": response.response, "missing_slots": response.missing_slots}
         with stages("commit"):
             await state.memory.commit_turn(principal.scope_key, conv_id, rid, payload.message, response.model_dump(), trace, state=req.conversation_state)
-        flow.send("commit")
         if state.profile_updater:
             state.profile_updater.submit(principal.scope_key, conv_id)
         from memory.admission import admit_turn
@@ -341,7 +399,6 @@ async def _complete_turn_run(payload, principal, rid, conv_id, request_started, 
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
     if state.monitor:
         state.monitor.record_chat(response.status, time.monotonic() - request_started)
-    flow.send("finish")
     return response
 
 

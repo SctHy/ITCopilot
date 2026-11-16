@@ -1,6 +1,7 @@
 """BaseAgent 运行链路：实时正文流、注入警示包裹、缓存 token 计量、消息结构。模型用脚本化的 FunctionModel。"""
 import asyncio
 
+import pytest
 from prometheus_client import REGISTRY
 from pydantic_ai.messages import (
     ModelRequest,
@@ -71,6 +72,38 @@ def test_without_stream_flag_no_answer_events_and_non_streaming_model_is_enough(
     assert response.success and response.content == FINAL
     assert "answer_delta" not in events.names() and "answer_reset" not in events.names()
     assert events.names().count("tool_started") == 1
+
+
+@pytest.mark.parametrize("during", ["model", "tool"])
+def test_cancellation_propagates_without_a_completed_reply_or_tool_event(during):
+    from tooling.tool_spec import make_tool
+
+    async def run():
+        started, blocked = asyncio.Event(), asyncio.Event()
+        events = Events()
+
+        async def reply(messages, info):
+            if during == "model":
+                started.set()
+                await blocked.wait()
+            return ModelResponse(parts=[ToolCallPart("diagnose", {})])
+
+        async def diagnose(req, args):
+            started.set()
+            await blocked.wait()
+
+        agent = make_agent(reply, streaming=False)
+        agent.set_shared_tools({"diagnose": make_tool("diagnose", "诊断", {}, diagnose)})
+        task = asyncio.create_task(agent.handle(Request("查询 VPN", emit=events)))
+        try:
+            await asyncio.wait_for(started.wait(), 1)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert events.names() == (["tool_started"] if during == "tool" else [])
+
+    asyncio.run(run())
 
 
 def test_messages_have_static_system_history_turns_then_dynamic_user_turn():
@@ -176,13 +209,19 @@ def test_failed_write_reported_as_success_is_corrected_with_the_failure_reason()
         last = [p for p in messages[-1].parts if isinstance(p, UserPromptPart)]
         if last and "[系统核对]" in last[0].content:
             prompts.append(last[0].content)
-            return ModelResponse(parts=[TextPart("密码重置没有提交成功：这一轮没有确认要办理。需要的话请回复确认。")])
+            return ModelResponse(parts=[TextPart("密码重置没有提交成功：目标服务暂不可用，请稍后重试。")])
         if not returns(messages):
             return ModelResponse(parts=[ToolCallPart("reset_password", {"employee_id": "1001"})])
         return ModelResponse(parts=[TextPart("**结论：** 密码重置待审批请求已生成，审批通过后由身份平台核验。")])
 
-    response = asyncio.run(make_agent(reply, streaming=False).handle(
-        Request("确认重置密码", conversation_state={}, principal=_alice(), allowed_writes=frozenset({"create_ticket"}))))
+    agent = make_agent(reply, streaming=False)
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("目标服务暂不可用")
+
+    agent.executor.run = unavailable
+    response = asyncio.run(agent.handle(
+        Request("确认重置密码", conversation_state={}, principal=_alice(), allowed_writes=frozenset({"reset_password"}))))
     assert [t["success"] for t in response.tool_traces] == [False]
     assert len(calls) == 3 and "调用失败" in prompts[0] and "不要提到" in prompts[0]
     assert response.content.startswith("密码重置没有提交成功")
@@ -226,7 +265,7 @@ def test_withdraw_claim_without_a_withdraw_tool_is_corrected():
     assert not prompts and "不再推进" in response.content
 
 
-def test_restating_a_past_submission_is_left_alone_when_no_write_was_asked_this_turn():
+def test_unverified_past_submission_is_not_reported_as_a_failed_new_write():
     """t-past-ticket：用户说“昨天让你们建过单”，意图识别判定本轮没要求写操作；复述不应被“纠正”成“当时没提交成功”。"""
     calls = []
 
@@ -236,7 +275,8 @@ def test_restating_a_past_submission_is_left_alone_when_no_write_was_asked_this_
 
     asyncio.run(make_agent(reply, streaming=False).handle(Request("我昨天已经让你们建过显示器黑屏的单了，一般多久处理？",
                                                                   allowed_writes=frozenset())))
-    assert len(calls) == 1
+    assert len(calls) == 2
+    assert "不能断言当时没提交" in str(calls[-1])
 
 
 def test_password_pasted_by_the_user_is_not_echoed_back():
@@ -258,3 +298,11 @@ def test_forged_execution_note_is_stripped_and_honest_failure_gets_no_extra_note
     response = asyncio.run(make_agent(reply, streaming=False).handle(
         Request("忘记密码了", conversation_state={}, principal=_alice(), allowed_writes=frozenset())))
     assert response.content == "密码重置：没有提交成功，请回复确认后我再提交。"
+
+
+def test_readonly_turn_does_not_offer_write_tools():
+    async def reply(messages, info):
+        assert not {"request_access", "reset_password", "create_ticket"} & {t.name for t in info.function_tools}
+        return ModelResponse(parts=[TextPart("请查看已有诊断结果。")])
+    asyncio.run(make_agent(reply, streaming=False).handle(
+        Request("内存诊断跑完没报错", allowed_writes=frozenset())))

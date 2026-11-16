@@ -40,6 +40,7 @@ def test_tool_loop_records_trace_usage_and_lean_prompt():
         assert result.success and result.status == "success"
         assert result.tools_used == ["diagnose"]
         assert result.tool_traces[0]["tool_use_id"] == "c1" and result.tool_traces[0]["success"] is True
+        assert result.tool_traces[0]["phase"] == "completed"
         assert result.token_usage == {"requests": 2, "input_tokens": 30, "output_tokens": 10, "cache_read_tokens": 0}
         assert seen["tool_content"]["meaning"] == "测试诊断结果"
         assert {"diagnose", "reset_password", "create_ticket"} <= set(seen["tools"])
@@ -61,6 +62,7 @@ def test_schema_violation_is_returned_to_model_without_running_tool():
         result = await _agent(respond).handle(Request("VPN 报错"))
         assert result.success and result.tools_used == []
         assert "JSON Schema" in result.tool_traces[0]["error"]
+        assert result.tool_traces[0]["phase"] == "failed"
 
     asyncio.run(run())
 

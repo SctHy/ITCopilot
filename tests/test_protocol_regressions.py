@@ -207,7 +207,7 @@ async def test_archive_outbox_survives_compression_failure_and_replays_without_n
 
 
 @pytest.mark.asyncio
-async def test_archives_written_before_the_pending_index_are_migrated_once(db_url):
+async def test_pending_archive_replay_uses_the_committed_index_without_scanning(db_url):
     import json
     from memory.conversation_memory import MemoryManager
     manager = MemoryManager(redis_url="redis://localhost:1/0", database_url=db_url, api_key="sk-local")
@@ -225,12 +225,15 @@ async def test_archives_written_before_the_pending_index_are_migrated_once(db_ur
 
     manager._redis.scan, manager._store_episodic = scan, store
     try:
-        legacy = manager._archive_key("u", "old")  # unindexed: written by the previous release
-        await manager._redis.hset(legacy, "a1", json.dumps({"text": "t", "summary": "s", "user_id": "u", "conv_id": "old"}))
+        pending = manager._archive_key("u", "current")
+        async with manager._redis.pipeline(transaction=True) as pipe:
+            pipe.hset(pending, "a1", json.dumps({"text": "t", "summary": "s", "user_id": "u", "conv_id": "current"}))
+            pipe.sadd(manager.ARCHIVE_INDEX, pending)
+            await pipe.execute()
         for _ in range(3):
             await manager.flush_pending_archives()
-        assert len(stored) == 1 and not await manager._redis.exists(legacy)
-        assert len(scans) == 1  # keyspace is scanned once for migration, never per tick afterwards
+        assert len(stored) == 1 and not await manager._redis.exists(pending)
+        assert not scans
     finally:
         await manager.close()
 

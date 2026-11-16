@@ -44,14 +44,16 @@ def _binding(raw):
         return None
     try:
         value = json.loads(raw)
-        return value if isinstance(value, dict) else {"owner": raw}
-    except (ValueError, TypeError):
-        return {"owner": raw}  # streams created by an older deployment
+    except (ValueError, TypeError) as exc:
+        raise StreamConflict("无效事件流绑定，请使用新请求 ID") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("owner"), str) or "fingerprint" not in value:
+        raise StreamConflict("无效事件流绑定，请使用新请求 ID")
+    return value
 
 
 def _check_binding(binding, owner, fingerprint):
     if binding and binding["owner"] == owner and fingerprint is not None and binding.get("fingerprint") != fingerprint:
-        raise StreamConflict("同一 client_request_id 不能用于不同消息或会话；旧版流请使用新请求 ID")
+        raise StreamConflict("同一 client_request_id 不能用于不同消息或会话")
 
 
 def _next_state(previous, event):

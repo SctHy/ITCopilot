@@ -5,6 +5,8 @@
     python scripts/tenants.py suspend acme --reason "合同到期"
     python scripts/tenants.py activate acme
     python scripts/tenants.py offboard acme --reason "客户退出"
+    python scripts/tenants.py set default --feishu-tenant-key 2ed263bf32cf1651
+    python scripts/tenants.py quotas acme '{"agent_turn": "300/60", "daily_cost_usd": 50}'
 
 Uses the same database as the API (``IT_COPILOT_DATABASE_URL`` or the local data directory).
 Every change is recorded in ``admin_audit`` under the tenant, with actor ``cli:<OS user>``.
@@ -35,12 +37,18 @@ def main(argv=None) -> int:
     add.add_argument("--tier", default="standard")
     add.add_argument("--issuer", help="OIDC issuer bound to this tenant")
     add.add_argument("--feishu-tenant-key")
-    add.add_argument("--policy-ref", help="policy overlay name")
-    add.add_argument("--quotas", default="{}", help="JSON, e.g. '{\"agent_turn\": \"600/m\"}'")
+    add.add_argument("--quotas", default="{}", help="JSON, e.g. '{\"agent_turn\": \"600/60\"}' (core/quotas.py)")
     for name in ("suspend", "activate", "offboard"):
         command = commands.add_parser(name)
         command.add_argument("tenant")
         command.add_argument("--reason", default="")
+    bind = commands.add_parser("set", help="bind an OIDC issuer or a Feishu workspace to a tenant ('' unbinds)")
+    bind.add_argument("tenant")
+    bind.add_argument("--issuer")
+    bind.add_argument("--feishu-tenant-key")
+    quota = commands.add_parser("quotas", help="replace a tenant's own quotas (core/quotas.py)")
+    quota.add_argument("tenant")
+    quota.add_argument("quotas", help="JSON object, '{}' for the defaults")
     args = parser.parse_args(argv)
 
     registry = TenantRegistry(shared_engine(database_url(os.getenv("IT_COPILOT_DATA_DIR", str(_ROOT / "data")))), cache_ttl_s=0)
@@ -52,7 +60,12 @@ def main(argv=None) -> int:
             return 0
         if args.command == "add":
             row = registry.create(args.tenant, actor=actor, tier=args.tier, issuer=args.issuer,
-                                  feishu_tenant_key=args.feishu_tenant_key, policy_ref=args.policy_ref, quotas=json.loads(args.quotas))
+                                  feishu_tenant_key=args.feishu_tenant_key, quotas=json.loads(args.quotas))
+        elif args.command == "set":
+            bindings = {k: v for k, v in (("issuer", args.issuer), ("feishu_tenant_key", args.feishu_tenant_key)) if v is not None}
+            row = registry.set_bindings(args.tenant, actor=actor, **bindings)
+        elif args.command == "quotas":
+            row = registry.set_quotas(args.tenant, json.loads(args.quotas), actor=actor)
         else:
             status = {"suspend": TenantStatus.SUSPENDED, "activate": TenantStatus.ACTIVE, "offboard": TenantStatus.OFFBOARDING}[args.command]
             row = registry.set_status(args.tenant, status, actor=actor, reason=args.reason)

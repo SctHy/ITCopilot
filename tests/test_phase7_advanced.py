@@ -41,6 +41,7 @@ def test_memory_sensitive_profile_is_redacted():
     assert profile["work"] == "password=[REDACTED]" and profile["environment"] == "token [REDACTED]"
 
 
+@pytest.mark.usefixtures("default_tenant")
 def test_rag_vector_bm25_hybrid_and_citation():
     os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:

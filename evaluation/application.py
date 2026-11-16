@@ -63,7 +63,6 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                             name: getattr(state, name)
                             for name in (
                                 "agent_registry",
-                                "agent_rollouts",
                                 "orchestrator",
                                 "memory",
                                 "tool_manager",
@@ -101,6 +100,8 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                         patch("memory.conversation_memory.redis.from_url", return_value=fake)
                     )
                 async with api.lifespan(api.app):
+                    # Same reason as the per-identity limit above: the demo tenant's own limit is off too (ADR 0035).
+                    await asyncio.to_thread(state.tenants.set_quotas, "default", {"agent_turn": "off"}, actor="evaluation")
                     if agent_spec is not None:
                         state.orchestrator.forced_spec = state.agent_registry.get(*agent_spec)
                     # Async summarization introduces unrelated model calls into measured trials;
@@ -109,13 +110,9 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                         await state.profile_updater.close()
                         state.profile_updater = None
                     if documents:
-                        await state.kb.add_documents_async(list(documents))
+                        await state.kb.add_documents_async(list(documents), tenant="default")
                     if model is not None:
-                        state.orchestrator._llm = state.orchestrator.agent._llm = model
-                        state.orchestrator._intent_recognizer.llm = model
-                        state.tool_manager._llm = model
-                        state.task_worker.handle.advisor.model = model
-                        state.memory._llm = model
+                        state.orchestrator.router.replace_models(model)
                     async with httpx2.AsyncClient(
                         transport=httpx2.ASGITransport(app=api.app),
                         base_url="http://evaluation",

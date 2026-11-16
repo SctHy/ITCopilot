@@ -40,9 +40,11 @@ CORRECTION_TAIL = ("如果用户这一轮确实要求办理且信息齐全，现
                    "直接输出给用户的完整回答，不要提到“核对”“更正”或之前的回答。")
 # 所有 Agent 共用的规则；每条都对应一个评测或安全回归里出现过的失败方式。
 AGENT_RULES = """规则：
-- 排障、流程类问题依据知识库 SOP 回答并写出 citation；没附检索结果或不够用时调用 search_knowledge_base，不凭历史转述；查不到就直说。
-- 其他事实只来自工具返回，不凭经验补充。
+- 排障、流程类问题依据知识库 SOP 回答并写出 citation；缺当前处理文档（仅历史记录也算缺失）时调用 search_knowledge_base，不凭历史转述；查不到就直说。
+- 区分用户报告、工具观测与推测；一次检查未报错不能排除整类故障，不补造用户已做的排查。其他事实只来自工具返回，不凭经验补充。
 - 写操作只生成待审批请求；没有执行证据不说已完成，工具失败如实说明原因。用户明确要求才建单或提交申请，不主动提议。
+- 用户明确要求办理且必填参数齐全时直接调用工具；只追问工具必填字段，SOP 的项目空间、审批人等不阻塞办理。已有信息直接用，可选参数缺省；不编造必填值，遵守工具校验、本人确认和审批。
+- 多个诉求逐项处理并回复，不只报告申请结果。
 - 不索取、不回显密码、OTP、恢复码、私钥；用用户的语言回复。
 - 要调用工具就直接调用，不写过渡语。
 - 先结论后步骤，每个问题一般不超过 200 字，不复述工具原始数据。"""
@@ -139,7 +141,8 @@ def claim_problems(content: str, deps: AgentRunDeps, req: Request) -> List[Tuple
     succeeded = {t["tool_name"] for t in deps.traces if not t.get("retry_safe", True) and t.get("success")}
     failed = {t["tool_name"]: t.get("error") or "未知原因" for t in deps.traces
               if not t.get("retry_safe", True) and not t.get("success") and t["tool_name"] not in succeeded}
-    requested = set(req.allowed_writes or ()) | ({INTENT_WRITE_ACTION[req.intent]} if req.intent in INTENT_WRITE_ACTION else set())
+    requested = (set(req.allowed_writes) if req.allowed_writes is not None else
+                 {INTENT_WRITE_ACTION[req.intent]} if req.intent in INTENT_WRITE_ACTION else set())
     earlier = [str(t.get("content", "")) for t in (req.history or []) if t.get("role") == "assistant"]
     # 记忆里的执行标记（“已生成待审批 <id>”）只在真实建了审批时写入，是“之前确实提交过”的可靠证据。
     submitted_before = any("已生成待审批" in turn for turn in earlier)
@@ -148,15 +151,30 @@ def claim_problems(content: str, deps: AgentRunDeps, req: Request) -> List[Tuple
         cats = _categories(sentence)
         if (succeeded & cats) if cats else succeeded:
             continue
+        # A follow-up may describe an existing submission despite retaining a write
+        # intent. Only trust freshly read records, never a model's historical claim.
+        existing = {action for item in req.conversation_approvals
+                    if item.get("status") != "draft" and item.get("confirmed_at") is not None
+                    for action in item.get("actions", [])}
+        if (not req.allowed_writes and not failed
+                and (bool(existing & cats) if cats else bool(existing))):
+            continue
+        matching = [a for a in req.conversation_approvals if not cats or cats & set(a.get("actions", []))]
+        if matching and all(a["status"] == "draft" for a in matching):
+            problems.append(("最新记录只有未确认草稿，不能说已经提交审批。",
+                             "申请仍是草稿，确认后才会提交审批。"))
+            continue
         asked_now = bool(requested & cats or set(failed) & cats) if cats else bool(requested or failed)
         # 意图识别已判定本轮没要求这类写操作、也没有失败的写操作：这句多半在复述过去（“你昨天让建的单”），
         # 纠正反而会让模型把“本轮没提交”说成“当时没提交”。不判定时（allowed_writes=None）照常核对。
-        if not asked_now and req.allowed_writes is not None:
-            continue
         restated = submitted_before or any(not cats or _categories(s) & cats for turn in earlier for s in _claims(turn, WRITE_CLAIM))
         if restated and not asked_now:
             continue
         what = "、".join(WRITE_LABELS[c] for c in sorted(cats)) or "申请"
+        if not asked_now:
+            problems.append(("没有查到支持此前提交成功的记录；可以转述用户所述，但不能当作已经核实，也不能断言当时没提交。",
+                             "此前申请的提交状态尚未核实，请以申请记录为准。"))
+            continue
         problems.append((f"你说“{sentence}”，但本轮{what}没有提交成功。", f"本轮{what}实际没有提交成功。"))
     for tool, error in failed.items():
         if not FAILURE_ACK.search(content):
@@ -164,7 +182,11 @@ def claim_problems(content: str, deps: AgentRunDeps, req: Request) -> List[Tuple
             problems.append((f"{label}（{tool}）本轮调用失败：{error}。回答里必须告诉用户没有提交成功及原因。",
                              f"{label}没有提交成功（{error}）。"))
     # 只有之前或本轮确实建过审批，“已撤回/不再推进”才可能与事实不符；从没提交过时“不再推进”是实话。
-    if (submitted_before or succeeded) and _claims(content, WITHDRAW_CLAIM):
+    # Card actions can change state after the last message; a prior submission is
+    # not evidence that an application is still pending.
+    still_pending = (any(a["status"] in {"draft", "pending"} for a in req.conversation_approvals)
+                     if req.conversation_approvals else bool(submitted_before or succeeded))
+    if still_pending and _claims(content, WITHDRAW_CLAIM):
         problems.append(("你说已撤回/不再推进，但你没有撤回待审批申请的工具，本会话已提交的待审批申请仍然有效。"
                          "应如实告诉用户哪条申请仍在待审批，可在审批卡片上点“撤回”，或等待其过期；不要提及没有提交过的申请。",
                          "本会话已提交的申请仍在待审批，如需撤回请在审批卡片上点“撤回”。"))
@@ -178,10 +200,6 @@ def correction_prompt(problems: List[Tuple[str, str]]) -> str:
 def fallback_note(problems: List[Tuple[str, str]]) -> str:
     """纠正一次后仍不一致时追加到回答末尾的确定性说明。"""
     return "【以审批记录为准】" + "".join(user for _, user in problems)
-
-
-def unbacked_write_claim(content: str, deps: AgentRunDeps, req: Request) -> bool:
-    return bool(claim_problems(content, deps, req))
 
 
 def redact_user_secrets(content: str, message: str) -> str:

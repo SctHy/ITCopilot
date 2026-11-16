@@ -239,7 +239,14 @@ class MemoryManager:
             pipe.set(self.receipt_key(user_id, conv_id, request_id),
                      json.dumps({"message_hash": hashlib.sha256(message.encode()).hexdigest(), "response": redact(response)}), ex=86400)
             if trace:
-                encoded_trace = json.dumps(redact(trace))
+                safe_trace = redact(trace)
+                # These verified identity fields authorize trace reads; text masking must
+                # not change their identity (e.g. an OIDC subject that resembles a phone).
+                scope = trace.get("observability", {})
+                for field in ("owner", "tenant"):
+                    if field in scope:
+                        safe_trace["observability"][field] = scope[field]
+                encoded_trace = json.dumps(safe_trace)
                 pipe.set("trace:" + response["request_id"], encoded_trace, ex=7 * 86400)
                 pipe.lpush("trace:recent", response["request_id"])
                 pipe.ltrim("trace:recent", 0, 199)
@@ -382,22 +389,14 @@ class MemoryManager:
                 merged["field_meta"][key] = previous["field_meta"][key]
         return merged
 
-    @classmethod
-    def _upgrade_profile(cls, stored: Any, *, updated_at: Optional[float] = None) -> Dict[str, Any]:
-        """旧画像的读取迁移集中于此；没有来源时间的字段按过期处理。"""
-        if not stored:
+    @staticmethod
+    def _read_profile(stored: Any) -> Dict[str, Any]:
+        """Only the current profile schema is accepted; no implicit data conversion."""
+        if stored == {}:
             return {}
-        version = stored["schema_version"]
-        if version == PROFILE_SCHEMA_VERSION:
-            return stored
-        at = 0.0 if updated_at is None else updated_at
-        if version == 4:
-            return cls._normalize_profile(stored, updated_at=at)
-        def join(*keys):
-            return "、".join(str(v) for k in keys for v in (stored.get(k) if isinstance(stored.get(k), list) else [stored.get(k)]) if v)
-        return cls._normalize_profile({"background": join("department"), "work": join("systems"),
-                                       "environment": join("devices", "recurring_issues"),
-                                       "communication": join("preferences")}, updated_at=at)
+        if not isinstance(stored, dict) or stored.get("schema_version") != PROFILE_SCHEMA_VERSION:
+            raise ValueError(f"Profile schema must be {PROFILE_SCHEMA_VERSION}")
+        return stored
 
     # ── 读取 ──────────────────────────────────────────────────────────────────
 
@@ -552,18 +551,7 @@ class MemoryManager:
     ARCHIVE_INDEX = "memory:archives:pending"  # set of archive hashes that still hold unflushed items
 
     async def flush_pending_archives(self, batch=64):
-        """Replay archives whose vector write failed, including conversations with no new messages.
-
-        Reads the pending index instead of SCANning the keyspace. Archives written before the
-        index existed are migrated by one SCAN pass that stops for good once it wraps around.
-        """
-        if not getattr(self, "_archive_scan_done", False):
-            cursor, keys = await self._redis.scan(getattr(self, "_archive_cursor", 0), match="memory:archives:*", count=1000)
-            self._archive_cursor = cursor
-            keys = [k for k in keys if k != self.ARCHIVE_INDEX]
-            if keys:
-                await self._redis.sadd(self.ARCHIVE_INDEX, *keys)
-            self._archive_scan_done = cursor == 0
+        """Replay failed vector writes from the index committed with each archive."""
         for key in await self._redis.srandmember(self.ARCHIVE_INDEX, batch) or []:
             pending = await self._redis.hgetall(key)
             if not pending:
@@ -645,9 +633,8 @@ class MemoryManager:
         doc_id = self._profile_doc_id(user_id)
         direct = await asyncio.to_thread(self._profile.get, ids=[doc_id])
         if direct["documents"]:
-            return self._upgrade_profile(json.loads(direct["documents"][0]))
-        results = await asyncio.to_thread(self._profile.get, where={"user_id": user_id})
-        return self._upgrade_profile(self._latest_profile_from_results(results))
+            return self._read_profile(json.loads(direct["documents"][0]))
+        return {}
 
     async def personal_memories(self, user_id: str) -> dict:
         profile = await self._get_profile(user_id)
@@ -835,28 +822,3 @@ class MemoryManager:
 
         merged = self._safe_text(f"{old_summary}\n{new_summary}").strip()
         return merged[-self.SUMMARY_MAX_CHARS :]
-
-    @staticmethod
-    def _latest_profile_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
-        documents = results.get("documents") or []
-        metadatas = results.get("metadatas") or []
-        if not documents:
-            return {}
-
-        candidates: List[tuple[str, Dict[str, Any], str]] = []
-        for idx, doc in enumerate(documents):
-            if not doc:
-                continue
-            metadata = metadatas[idx] if idx < len(metadatas) and isinstance(metadatas[idx], dict) else {}
-            ts = str(metadata.get("updated_at") or metadata.get("ts") or "")
-            candidates.append((ts, metadata, doc))
-
-        if not candidates:
-            return {}
-
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        latest_doc = candidates[0][2]
-        try:
-            return json.loads(latest_doc)
-        except Exception:
-            return {}

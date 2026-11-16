@@ -76,3 +76,38 @@ OPEN = frozenset({ApprovalStatus.DRAFT, ApprovalStatus.PENDING})
 # Actions nobody works on any more without an operator; the approval's execution then needs a notice.
 SETTLED = frozenset({ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.CANCELLED, ActionStatus.MANUAL_REVIEW})
 NOTIFIED = frozenset({Execution.SUCCEEDED, Execution.FAILED, Execution.MANUAL_REVIEW})
+
+
+# --- Shared tasks (workflow/tasks.py and the task_* services) ---
+
+class TaskStatus(StrEnum):
+    OPEN = "open"
+    STOPPED = "stopped"            # the requester or an admin stopped the Agent's follow-up
+    RESOLVED = "resolved"          # accepted by the requester with a resolution note
+
+
+class RunStatus(StrEnum):
+    """One queued Agent turn of a shared task (``task_runs``)."""
+    QUEUED = "queued"
+    RUNNING = "running"            # leased; an expired lease is claimed again (running -> running)
+    HELD = "held"                  # the task's budget ran out; an admin raising it requeues the run
+    DONE = "done"
+    FAILED = "failed"              # three attempts failed; a user may retry it by hand
+    CANCELLED = "cancelled"        # the task closed, or a newer verification replaced its follow-up
+
+
+TASK = Machine(TaskStatus, """
+    open     -> stopped | resolved
+    stopped  -> open                # reopened, or continued from history
+    resolved -> open
+""")
+
+RUN = Machine(RunStatus, """
+    queued  -> running | cancelled
+    running -> done | queued | failed | held | cancelled   # queued: retry with backoff
+    held    -> queued | cancelled
+    failed  -> queued                                     # manual retry
+""")
+
+# Runs that still occupy the task's queue: they block later runs and are cancelled when the task closes.
+UNFINISHED_RUNS = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.HELD)

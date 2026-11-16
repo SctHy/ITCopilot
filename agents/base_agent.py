@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from agents.agent_stats import AgentStats
-from agents.states import OnceState, once_state, MODEL_RUN, TOOL_CALL, SlotState, slot_state
+from agents.states import SlotState, slot_state
 from agents.intent.taxonomy import WRITE_ACTIONS
 from agents.prompting import (
     AGENT_RULES,
@@ -44,7 +44,6 @@ from agents.types import (
     ModelUnavailableError,
     Request,
 )
-from core.protocols import CacheState, cache_state
 from core.deadline_model import DeadlineModel, TurnDeadlineExceeded
 from core.llm import is_model_unavailable
 from core.model_router import MODEL_ERRORS, ModelRouter
@@ -116,7 +115,7 @@ class BaseAgent:
 
     def _runtime(self) -> Agent:
         """按当前工具白名单懒构建 PydanticAI Agent；白名单变化时重建。"""
-        if cache_state(self._agent is not None) == CacheState.MISSING or (self._skill_manager is not None and self._fingerprints["skill_fp"] != self._skill_manager.fingerprint):
+        if self._agent is None or (self._skill_manager is not None and self._fingerprints["skill_fp"] != self._skill_manager.fingerprint):
             tools = [self._as_tool(spec) for spec in self.get_tools().values()]
             digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
             self._fingerprints = {
@@ -145,7 +144,10 @@ class BaseAgent:
         async def call(ctx: RunContext[AgentRunDeps], **args):
             return await self._invoke_tool(ctx.deps, spec, args, ctx.tool_call_id)
         async def prepare(ctx: RunContext[AgentRunDeps], tool_def):
-            return None if spec.name in ctx.deps.req.hidden_tools else tool_def
+            req = ctx.deps.req
+            unavailable = (spec.name in WRITE_ACTIONS and req.allowed_writes is not None
+                           and spec.name not in req.allowed_writes)
+            return None if spec.name in req.hidden_tools or unavailable else tool_def
 
         # 副作用工具作为屏障串行执行，保持“同请求不重复写”的检查与审批前置提交有序。
         tool = Tool.from_schema(call, spec.name, spec.description, spec.input_schema, takes_ctx=True, sequential=not spec.retry_safe)
@@ -153,14 +155,19 @@ class BaseAgent:
         return tool
 
     async def handle(self, req: Request) -> AgentResponse:
+        from core.model_masking import masking_scope
+
+        owner = getattr(req.principal, "scope_key", None) or req.request_id
+        with masking_scope(owner, req.conv_id):
+            return await self._handle_scoped(req)
+
+    async def _handle_scoped(self, req: Request) -> AgentResponse:
         t0 = req.started_at = time.monotonic()
         self.stats.total += 1
         try:
             result = await self._call_llm(req)
-        except asyncio.CancelledError:
-            raise
         except Exception as ex:
-            ms = self._record(False, t0, req)
+            ms = self._record(False, t0)
             logger.exception("agent LLM call failed")
             tools_used, tool_traces = getattr(ex, "tools_used", []), getattr(ex, "tool_traces", [])
             if isinstance(ex, ModelUnavailableError):
@@ -176,7 +183,7 @@ class BaseAgent:
             return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
         self.stats.success += int(ok)
-        ms = self._record(ok, t0, req)
+        ms = self._record(ok, t0)
         return self._observe(AgentResponse(
             content=result.content, success=ok, confidence=req.intent_confidence, latency_ms=ms,
             escalate=self._needs_escalation(result.content), tools_used=result.tools_used, tool_traces=result.tool_traces,
@@ -195,30 +202,28 @@ class BaseAgent:
                 metrics.LLM_TOKENS.labels(model=response.observability["model"], direction=direction).inc(tokens)
         return response
 
-    def _record(self, success: bool, started: float, req: Request) -> float:
+    def _record(self, success: bool, started: float) -> float:
         ms = (time.monotonic() - started) * 1000
         self.stats.total_ms += ms
         self.stats.record(success, ms)
         return ms
 
     async def _call_llm(self, req: Request) -> AgentCallResult:
-        flow = MODEL_RUN.start()
-        flow.send("run")
         deps = AgentRunDeps(req)
         if self._skill_manager and self.spec.skills.disclosure == "progressive":
             req.skill_text = self._skill_manager.selected_prompt(req.message, req.intent_group, req.allowed_writes or ())
         turn = self._start_turn(req)
-        deadline = asyncio.timeout_at(turn.deadline_at)
+        # deadline_at is on time.monotonic(); timeout_at() compares against loop.time(). The two clocks differ under
+        # uvloop on macOS (libuv keeps counting through sleep), so convert the remaining budget onto the loop's clock.
+        deadline = asyncio.timeout_at(asyncio.get_running_loop().time() + (turn.deadline_at - time.monotonic()))
         kwargs = dict(deps=deps, message_history=history_messages(req.history), usage=turn.usage)
 
         try:
             async with deadline:
-                result = await self._generate(req, deps, turn, kwargs, flow)
+                result = await self._generate(req, deps, turn, kwargs)
         except (TimeoutError, TurnDeadlineExceeded) as exc:
             if not deadline.expired() and not isinstance(exc, TurnDeadlineExceeded):
-                flow.send("fail")
                 raise ModelUnavailableError("模型请求超时", deps.used, deps.traces, os.getenv("OPENAI_BASE_URL", ""), token_usage=turn.known_usage()) from exc
-            flow.send("deadline")
             req.signals.append("deadline")
             writes = {trace["tool_name"]: trace["output"] for trace in deps.traces
                       if trace["success"] and trace["tool_name"] in WRITE_ACTIONS}
@@ -228,24 +233,17 @@ class BaseAgent:
                        if writes else "处理超时，请重试")
             await req.publish("answer_reset", {})
             return AgentCallResult(content, deps.used, deps.traces, "partial", turn.known_usage(), error_code="deadline")
-        except asyncio.CancelledError:
-            flow.send("cancel")
-            raise
         except UsageLimitExceeded:
-            flow.send("fail")
             raise AgentCallError("工具调用超过最大轮数", deps.used, deps.traces, reason="round_limit", token_usage=turn.known_usage()) from None
         except UnexpectedModelBehavior as exc:
-            flow.send("fail")
             raise AgentCallError(f"模型返回无法处理的结果（{type(exc).__name__}）", deps.used, deps.traces, reason="bad_output", token_usage=turn.known_usage()) from exc
         except Exception as exc:
-            flow.send("fail")
             if is_model_unavailable(exc):
                 base_url = os.getenv("OPENAI_BASE_URL", "")
                 raise ModelUnavailableError(f"模型服务请求失败（{type(exc).__name__}）", deps.used, deps.traces, base_url, token_usage=turn.known_usage()) from exc
             raise
         content = strip_execution_notes(result.output or "")
         if not content:
-            flow.send("fail")
             raise AgentCallError("模型未返回有效回复", deps.used, deps.traces, reason="empty_output", token_usage=turn.known_usage())
         remaining = claim_problems(content, deps, req)
         if remaining:
@@ -256,10 +254,7 @@ class BaseAgent:
             content += "\n\n" + fallback_note(remaining)
         content = redact_user_secrets(content, req.message)
         status = "partial" if result.response.finish_reason == "length" else "success"
-        flow.send("truncate" if status == "partial" else "complete")
         return AgentCallResult(content, deps.used, deps.traces, status, turn.known_usage())
-
-
 
     def _start_turn(self, req: Request) -> "_TurnBudget":
         route = self.write_route if req.allowed_writes is None or req.allowed_writes else self.read_route
@@ -268,11 +263,10 @@ class BaseAgent:
         req.route_metadata = {"model": config.candidates[0], "route": route, "route_reason": "primary", "cost_usd": 0.0}
         return _TurnBudget(route, config.request_timeout_s, time.monotonic() + config.turn_deadline_s)
 
-    async def _generate(self, req: Request, deps: AgentRunDeps, turn: "_TurnBudget", kwargs: Dict[str, Any], flow):
+    async def _generate(self, req: Request, deps: AgentRunDeps, turn: "_TurnBudget", kwargs: Dict[str, Any]):
         result = await self._run_model(req, turn, turn_prompt(req), kwargs)
         problems = claim_problems(result.output or "", deps, req)
         if problems:
-            flow.send("correct")
             # 回答与本轮实际业务结果不一致（无据的“已提交”、失败未说明、无据的“已撤回”）：
             # 带上具体不一致之处让模型补调工具或改口，只纠正一次。
             logger.warning("agent reply disagrees with this turn's write results (%d); asking once to correct", len(problems))
@@ -347,8 +341,6 @@ class BaseAgent:
     async def _invoke_tool(self, deps: AgentRunDeps, spec, args: Dict[str, Any], tool_id: Optional[str]):
         """单次工具调用：Schema 校验、写操作守卫，经 ToolExecutor（超时/熔断/只读重试）执行并记录 trace；失败以错误结果回传模型。"""
         req = deps.req
-        flow = TOOL_CALL.start()
-        flow.send("validate")
         started = time.monotonic()
         success, error, outcome = True, "", "success"
         idempotency_key = None if spec.retry_safe else self.executor.idempotency_key(req.request_id, spec.name, args)
@@ -359,15 +351,9 @@ class BaseAgent:
             self._validate_tool_input(spec, args)
             if not spec.retry_safe:
                 await self._guard_unsafe_tool(req, spec.name, args)
-            flow.send("execute")
             result = await self.executor.run(spec, req, args)
             deps.used.append(spec.name)
-            flow.send("complete")
-        except asyncio.CancelledError:
-            flow.send("cancel")
-            raise
         except Exception as ex:
-            flow.send("fail")
             success, error = False, str(ex)
             outcome = error_class(ex)
             result = {"success": False, "error": error}
@@ -378,7 +364,7 @@ class BaseAgent:
             "tool_name": spec.name, "tool_use_id": tool_id, "input": args, "success": success,
             "latency_ms": latency_ms, "error": error, "retry_safe": spec.retry_safe, "outcome": outcome, "error_class": outcome,
             "idempotency_key": idempotency_key, "output": redact(result),
-            "phase": flow.state,
+            "phase": "completed" if success else "failed",
         })
         await req.publish("tool_finished", {"tool": spec.name, "tool_use_id": tool_id,
                                             "success": success, "outcome": outcome, "latency_ms": latency_ms,
@@ -387,7 +373,7 @@ class BaseAgent:
 
     @staticmethod
     async def _guard_unsafe_tool(req: Request, name: str, args: Dict[str, Any]) -> None:
-        """写操作前置条件：槽位齐全、同请求不重复、先提交“结果未知”回执再执行。"""
+        """校验写意图与槽位，在首次 await 前占用本轮调用名额，再执行入口守卫。"""
         if req.allowed_writes is not None and name in WRITE_ACTIONS and name not in req.allowed_writes:
             # 意图识别判断用户这一轮没有要求这项操作：挡住主动提交，而不是从工具列表里拿掉（保持前缀缓存）。
             raise WriteGuardBlocked("用户这一轮没有要求办理这项操作；需要的话先向用户确认")
@@ -395,7 +381,7 @@ class BaseAgent:
         if slot_state(req.conversation_state) == SlotState.CLARIFYING:
             raise WriteGuardBlocked("缺少必要信息，暂不执行写操作：" + ", ".join(missing_slots))
         key = json.dumps([name, args], sort_keys=True, ensure_ascii=True)
-        if once_state(key, req.unsafe_tool_calls) == OnceState.CONSUMED:
+        if key in req.unsafe_tool_calls:
             raise WriteGuardBlocked("副作用工具不得在同一请求重复执行")
         req.unsafe_tool_calls.add(key)
         req.tool_attempts.append({"tool_name": name, "retry_safe": False})

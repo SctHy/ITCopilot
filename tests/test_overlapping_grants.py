@@ -269,36 +269,6 @@ def test_claim_collision_does_not_block_a_different_resource_and_expired_lease_c
     assert {row["id"] for row in reclaimed} == {first["id"], second[0]["id"]}
 
 
-def test_migration_backfills_resource_keys_and_removes_frozen_revoke_baseline(db_url):
-    from pathlib import Path
-
-    from alembic import command
-    from alembic.config import Config
-    from sqlalchemy import MetaData, Table, insert
-
-    from core.db import make_engine, migrate
-    from core.tenant_context import system_scope
-
-    config = Config()
-    config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
-    config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
-    with system_scope():
-        command.upgrade(config, "0005")
-        engine = make_engine(db_url)
-        table = Table("actions", MetaData(), autoload_with=engine)
-        with engine.begin() as db:
-            db.execute(insert(table).values(
-                id="old-revoke", tenant="default", approval_id="old", seq=1000, kind="revoke",
-                tool_name="revoke_access", arguments={"employee_id": "1001", "system": "gitlab", "role": "developer", "baseline_level": None},
-                adapter="local", status="queued", attempts=0, not_before=1, version=0, created_at=1, updated_at=1))
-        migrate(db_url)
-        with engine.connect() as db:
-            migrated = db.execute(select(actions)).mappings().one()
-        engine.dispose()
-    assert migrated["resource_key"] == "default:access:1001:gitlab"
-    assert "baseline_level" not in migrated["arguments"]
-
-
 def test_operator_closes_a_deliberate_drift_and_releases_the_resource(db_url):
     from sqlalchemy import update
     from core.db import directory_grants

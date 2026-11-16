@@ -29,5 +29,5 @@ export const withdrawApproval = (type: string, settings: Settings, id: string, r
 export const releaseApproval = (type: string, settings: Settings, id: string) =>
   requestFor<Approval>(type, settings, path(id, '/release'), { method: 'POST' })
 
-export const listApprovals = (type: string, settings: Settings, status = 'pending') =>
-  requestFor<{ items: Approval[] }>(type, settings, `/approvals?status=${encodeURIComponent(status)}`)
+export const listApprovals = (type: string, settings: Settings, status = 'pending', signal?: AbortSignal) =>
+  requestFor<{ items: Approval[] }>(type, settings, `/approvals?status=${encodeURIComponent(status)}`, { signal })

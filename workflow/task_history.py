@@ -4,6 +4,7 @@ from sqlalchemy import select, insert, delete, or_, func
 from core import db as schema
 from core.db import service_tasks, task_events, task_progress, task_todos, task_runs, task_links
 from workflow.tasks import TaskForbidden, TaskConflict, key
+from workflow.states import UNFINISHED_RUNS
 from core.identity import principal_from_record
 
 
@@ -25,16 +26,16 @@ class TaskHistory:
     def runtime_context(self, task_id):
         with self.tasks.read(task_id) as (_, task):
             principal = principal_from_record(task['principal'])
-        return self.snapshot(task_id, principal)
+        return self.snapshot(task_id, principal, runtime=True)
 
-    def snapshot(self, task_id, principal):
+    def snapshot(self, task_id, principal, *, runtime=False):
         # Read-only snapshot: no version bump or write lock (this runs per private chat turn), while
         # TaskStore.read still serializes against a concurrent membership removal.
         with self.tasks.read(task_id, principal) as (db, task):
             row = db.execute(select(task_progress).where(task_progress.c.task_id == task_id)).mappings().first()
             initial = db.execute(select(task_events.c.text).where(task_events.c.id == key(task_id, 'initial'))).scalar() or task['title']
             todo_count = db.execute(select(func.count()).select_from(task_todos).where(task_todos.c.task_id == task_id, task_todos.c.status == 'open')).scalar()
-            run_count = db.execute(select(func.count()).select_from(task_runs).where(task_runs.c.task_id == task_id, task_runs.c.status.in_(['queued', 'running', 'held']))).scalar()
+            run_count = db.execute(select(func.count()).select_from(task_runs).where(task_runs.c.task_id == task_id, task_runs.c.status.in_(UNFINISHED_RUNS))).scalar()
             approvals = self.approval_view(task).get('approvals', [])
             writable = self.tasks.access.writable(db, task, principal)
             can_reopen = principal.is_admin or principal.subject == task['requester']
@@ -44,7 +45,7 @@ class TaskHistory:
                 'blocker': row['blocker'][:500] if row else '', 'next_action': row['next_action'][:500] if row else '',
                 'steps_done': sum(s['status'] == 'done' for s in row['steps']) if row else 0,
                 'steps_total': len(row['steps']) if row else 0, 'pending_todos': todo_count, 'active_runs': run_count,
-                'approvals': [{k: a[k] for k in ('approval_id', 'status', 'execution')} for a in approvals],
+                'approvals': approvals if runtime else [{k: a[k] for k in ('approval_id', 'status', 'execution')} for a in approvals],
                 'can_continue': writable and (task['status'] == 'open' or can_reopen)}
 
     def search(self, principal, query='', limit=8, exclude_id=None, own_only=False):

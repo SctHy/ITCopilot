@@ -187,15 +187,16 @@ def test_on_behalf_rule_also_stops_approved_work_before_its_first_effect(env):
     assert store.get("a")["results"][0]["status"] == "cancelled"
 
 
-def test_approvals_filed_before_the_role_snapshot_are_not_guessed_at(env):
+def test_missing_requester_snapshot_cannot_bypass_policy_revalidation(env):
     store, _, _, _ = env
     create(store, "legacy", ERIN, [access()])
-    with store.engine.begin() as db:  # what rows written by the previous version look like
+    with store.engine.begin() as db:  # corrupted persisted approval
         row = db.execute(approvals.select().where(approvals.c.id == "legacy")).mappings().one()
         payload = {k: v for k, v in row["payload"].items() if k != "requester_roles"}
         db.execute(update(approvals).where(approvals.c.id == "legacy").values(payload=payload))
     store.policy = changed("v2", no_on_behalf)
-    assert store.revalidate()["invalidated"] == []
+    with pytest.raises(KeyError, match="requester_roles"):
+        store.revalidate()
     assert store.get("legacy")["status"] == "pending"
 
 def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_last_good(tmp_path, monkeypatch):
@@ -209,7 +210,7 @@ def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_las
     assert load_policy().declared_version == "edited"
     path.write_text("version: [unclosed", encoding="utf-8")
     assert load_policy().declared_version == "edited"
-    policy_module._last_good.pop((str(path), None))
+    policy_module._last_good.pop(str(path))
 
 
 def test_worker_sweeps_once_per_version(env):

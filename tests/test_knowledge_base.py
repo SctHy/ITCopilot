@@ -5,6 +5,8 @@ import pytest
 
 from tooling.knowledge_base import KnowledgeBase
 
+pytestmark = pytest.mark.usefixtures("default_tenant")
+
 
 @pytest.fixture
 def kb(tmp_path, monkeypatch):

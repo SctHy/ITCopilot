@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { normalizeToolTraceResponse } from '../src/api/chat.ts'
 
@@ -29,20 +29,6 @@ test('maps backend tool_traces into toolCalls with detailed fields', () => {
   assert.equal(out.trace.toolCalls[2].error, 'ledger unavailable')
 })
 
-test('falls back to legacy tool_calls shape for older responses', () => {
-  const legacy = {
-    request_id: 'req-2',
-    found: true,
-    trace: {
-      tools_used: ['reset_password'],
-      tool_calls: [{ tool_name: 'reset_password', input: { employee_id: '1001' }, success: true }]
-    }
-  }
-  const out = normalizeToolTraceResponse(legacy)
-  assert.equal(out.trace.toolCalls.length, 1)
-  assert.equal(out.trace.toolCalls[0].tool_name, 'reset_password')
-})
-
 test('keeps toolsUsed when detailed tool_traces are absent', () => {
   const out = normalizeToolTraceResponse({ request_id: 'req-3', found: true, trace: { tools_used: ['inspect_request_context'] } })
   assert.deepEqual(out.trace.toolCalls, [])
@@ -56,10 +42,10 @@ test('returns empty lists for an empty or missing trace without throwing', () =>
   assert.deepEqual(empty.trace.toolsUsed, [])
 })
 
-test('knowledge search maps the API list into visible results and surfaces failures', async (t) => {
+test('knowledge search maps the API list into visible results and surfaces failures', async () => {
   const { requestSearch } = await import('../src/api/knowledge.ts')
   const settings = { endpoints: { python: 'http://api.test' }, accessToken: '' }
-  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([{ title: 'VPN' }]), { status: 200 }))
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify([{ title: 'VPN' }]), { status: 200 }))
   assert.deepEqual((await requestSearch('python', settings, 'VPN')).results, [{ title: 'VPN' }])
   globalThis.fetch = async () => new Response(JSON.stringify({ items: [], error: 'search failed', fallback: true }), { status: 200 })
   await assert.rejects(requestSearch('python', settings, 'VPN'), /search failed/)

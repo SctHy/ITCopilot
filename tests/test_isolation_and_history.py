@@ -57,7 +57,7 @@ def test_private_working_and_cross_conversation_memory_are_scoped(db_url):
         await m.commit_turn(a, 'old', 'a', 'VPN SECRET-A', {'request_id': 'a', 'response': '证书过期'})
         await m.store_episodic_turn(a, 'old', 'a', 'VPN SECRET-A', '证书过期')
         await m.store_episodic_turn(ALICE.subject, 'legacy', 'legacy', 'VPN LEGACY', '旧记录')
-        m._profile.upsert(ids=[m._profile_doc_id(a)], documents=[json.dumps({'schema_version': 4, 'work': 'PROFILE-A'})], metadatas=[{'user_id': a}])
+        m._profile.upsert(ids=[m._profile_doc_id(a)], documents=[json.dumps(m._normalize_profile({'work': 'PROFILE-A'}))], metadatas=[{'user_id': a}])
         own = await m.get_context(a, 'new', query='VPN')
         other = await m.get_context(b, 'old', query='VPN')
         assert own.relevant_history and 'PROFILE-A' in str(own.user_profile)
@@ -131,7 +131,7 @@ def test_same_subject_other_tenant_cannot_resume_stream_or_read_trace(chat_clien
     assert len(http.get('/trace/tools', headers=auth('erin')).json()['items']) == 1
 
 
-def test_legacy_approval_reads_votes_and_supersession_are_tenant_scoped(env, caps):
+def test_approval_reads_votes_and_supersession_are_tenant_scoped(env, caps):
     _, workflow, _ = env
     first = workflow.create('old', request_id='r1', conv_id='same', principal=ALICE, action_requests=[access()])
     foreign = replace(ALICE, tenant='other')

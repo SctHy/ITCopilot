@@ -127,7 +127,8 @@ def test_anonymous_mcp_can_only_retrieve_public_documents(tmp_path, monkeypatch,
     kb.add_documents([
         {"title": "public", "content": "VPN public guide", "department": "*"},
         {"title": "private", "content": "VPN financial records", "department": "finance"},
-    ])
+    ], tenant="default")
+    kb.add_documents([{"title": "other tenant", "content": "VPN acme guide", "department": "*"}], tenant="acme")
 
     async def run():
         manager = MCPToolManager("sk-local") if governed else None

@@ -91,10 +91,10 @@ def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
     agent._llm = scripted_model(reply)
     alice = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
     response = asyncio.run(agent.handle(Request("VPN 怎么办", conversation_state={}, principal=alice, allowed_writes=allowed)))
-    trace = response.tool_traces[0]
-    assert trace["success"] is succeeds
-    if not succeeds:
-        assert "没有要求" in trace["error"]
+    if succeeds:
+        assert response.tool_traces[0]["success"]
+    else:
+        assert response.tool_traces == []
 
 
 def test_chat_turn_skips_prefetched_knowledge_only_when_jev_says_no(monkeypatch):
@@ -134,3 +134,21 @@ def test_chat_turn_skips_prefetched_knowledge_only_when_jev_says_no(monkeypatch)
         asyncio.run(chat_routes._run_turn(ChatRequest(message="VPN 报 691"), alice, "r", "c", chat_routes._Stages()))
         assert tools.calls[-1] == ("VPN 报 691", 3, "engineering")
         assert orchestrator.seen.knowledge == expected and orchestrator.seen.allowed_writes == frozenset()
+
+
+def test_compound_question_prefetch_keeps_evidence_for_both_topics(monkeypatch):
+    from api import state
+    from api.routes.chat import _prefetch_knowledge
+    from types import SimpleNamespace
+
+    calls = []
+
+    async def search(name, query, **kwargs):
+        calls.append(query)
+        title = "设备申领" if "电脑" in query else "代理配置"
+        return ToolResult(True, [{"document_id": title, "chunk": 0, "content": title}], name)
+
+    monkeypatch.setattr(state, "tool_manager", SimpleNamespace(search=search))
+    result = asyncio.run(_prefetch_knowledge("新员工电脑需要什么材料？另外公司代理怎么配？", "engineering"))
+    assert len(calls) == 2
+    assert {hit["content"] for hit in result.data} == {"设备申领", "代理配置"}

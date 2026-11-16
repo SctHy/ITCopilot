@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select
-from core.db import (actions, approval_decisions, approvals, badcases, feedback, read,
+from core.db import (actions, approval_decisions, approvals, feedback, read,
                      shared_engine, task_events, task_verifications, turn_records)
 from core.tenant_context import system_scope
 from evaluation.quality import quality_report
@@ -60,7 +60,6 @@ def main():
         rids = [r["request_id"] for r in rows]
         task_ids = {r["task_id"] for r in rows if r["task_id"] is not None}
         feedback_rows = [dict(r) for r in db.execute(select(feedback).where(feedback.c.request_id.in_(rids))).mappings()]
-        cases = [dict(r) for r in db.execute(select(badcases).where(badcases.c.request_id.in_(rids))).mappings()]
         approval_rows = [dict(r) for r in db.execute(select(approvals).where(approvals.c.request_id.in_(rids))).mappings()]
         checks = [dict(r) for r in db.execute(select(task_verifications).where(task_verifications.c.task_id.in_(task_ids),
             task_verifications.c.ended_at >= args.since, task_verifications.c.ended_at < args.until)).mappings()]
@@ -75,7 +74,7 @@ def main():
             voters = list(db.scalars(select(approval_decisions.c.actor).where(approval_decisions.c.approval_id == approval["id"],
                 approval_decisions.c.tenant == approval["tenant"], approval_decisions.c.decision == "approved")))
             unauthorized += int(approval["status"] != "approved" or len(set(voters)) < approval["approvals_required"] or approval["requester"] in voters)
-    report = quality_report(rows, feedback_rows, cases, verifications=checks, approvals=approval_rows,
+    report = quality_report(rows, feedback_rows, verifications=checks, approvals=approval_rows,
         task_events=events, unauthorized_writes=unauthorized, offline_reports=offline_summary(args.offline_report))
     report["window"] = {"since": args.since, "until": args.until, "tenant": args.tenant, "agent_version": args.agent_version}
     previous = None

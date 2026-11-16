@@ -234,7 +234,7 @@ def test_refused_write_does_not_count_as_evidence_and_correction_happens_once():
     agent = with_read_tool(AgentOrchestrator("sk-local")).agent
     agent._llm = scripted_model(reply)
     response = asyncio.run(agent.handle(Request("VPN 怎么办", conversation_state={}, allowed_writes=frozenset())))
-    assert response.tool_traces[0]["success"] is False and "没有要求" in response.tool_traces[0]["error"]
+    assert response.tool_traces == []  # Not offered to the model, so the tool cannot execute.
     assert len(calls) == 3                                        # 工具一轮 + 回答一轮 + 纠正一轮，不会无限纠正
 
 

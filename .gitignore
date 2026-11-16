@@ -15,6 +15,8 @@ dist/
 .vite/
 .playwright-cli/
 output/playwright/
+output/dev-workflow/
+output/evidence/
 
 # 环境变量（含敏感信息）
 .env
@@ -43,3 +45,8 @@ evaluation/reports/*
 evaluation/reports/routing/*
 !evaluation/reports/routing/*__*.json
 evaluation/reports/routing/*_application.json
+
+# 人工复核后的本地历史原始报告；分类与路径校验清单在 docs/archive/。
+evaluation/archive/
+evaluation/fixtures/local/
+evaluation/evidence/local/

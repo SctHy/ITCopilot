@@ -1,5 +1,4 @@
 """Tenant-scoped feedback and explicit transitions for human-reviewed regression inputs."""
-import hashlib
 import time
 from enum import StrEnum
 
@@ -33,10 +32,6 @@ class BadcaseNotFound(LookupError):
     pass
 
 
-def requires_second(row):
-    return row["source"] == "sampled" and int(hashlib.sha256(("second:" + row["request_id"]).encode()).hexdigest(), 16) % 10 == 0
-
-
 class BadcaseStore:
     def __init__(self, engine, clock=time.time):
         self.engine, self.clock = engine, clock
@@ -65,7 +60,7 @@ class BadcaseStore:
     def get(self, case_id, tenant):
         with read(self.engine) as db:
             row = self._require(db, case_id, tenant)
-        return {**row, "requires_second_label": requires_second(row)}
+        return row
 
     def list(self, tenant, *, status=None, root_cause=None, since=None):
         query = select(badcases).where(badcases.c.tenant == tenant)
@@ -77,7 +72,7 @@ class BadcaseStore:
             query = query.join(turn_records, badcases.c.request_id == turn_records.c.request_id).where(turn_records.c.created_at >= since)
         with read(self.engine) as db:
             rows = db.execute(query.order_by(badcases.c.id).limit(500)).mappings()
-            return [{**dict(r), "requires_second_label": requires_second(r)} for r in rows]
+            return [dict(r) for r in rows]
 
     def label(self, case_id, principal, label):
         with self.engine.begin() as db:
@@ -85,16 +80,12 @@ class BadcaseStore:
             if row["status"] in {"promoted", "dismissed"}:
                 raise BadcaseConflict("终态样本不能重新标注")
             clean = redact(label.model_dump(exclude_none=True))
-            if row["labeler"] is not None:
-                if not requires_second(row) or row["second_label"] is not None:
-                    raise BadcaseConflict("该样本已标注")
-                if row["labeler"] == principal.scope_key:
-                    raise BadcaseConflict("第二人标注不能由同一人完成")
-                values = {"second_label": {**clean, "labeler": principal.scope_key, "labeled_at": self.clock()}}
-            else:
+            if row["status"] == "new":
                 current = BADCASE.check(row["status"], "triaged")
-                values = {"status": BADCASE.check(current, "labeled"), "label": clean,
-                          "labeler": principal.scope_key, "labeled_at": self.clock()}
+            else:
+                current = row["status"]
+            values = {"status": BADCASE.check(current, "labeled"), "label": clean,
+                      "labeler": principal.scope_key, "labeled_at": self.clock()}
             db.execute(update(badcases).where(badcases.c.id == case_id, badcases.c.tenant == principal.tenant).values(**values))
         return self.get(case_id, principal.tenant)
 
@@ -105,8 +96,6 @@ class BadcaseStore:
             if target == "promoted":
                 if row["snapshot"]["snapshot_partial"] or not row["snapshot"]["turns"]:
                     raise BadcaseConflict("快照正文缺失，不能导出为可执行用例")
-                if requires_second(row) and row["second_label"] is None:
-                    raise BadcaseConflict("需要第二人标注")
                 if row["label"]["root_cause"] == "not_a_bug":
                     raise BadcaseConflict("非缺陷样本应dismiss")
                 expected = row["label"]["expected"]

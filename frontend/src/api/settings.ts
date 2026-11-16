@@ -1,4 +1,4 @@
-// Connection settings persisted in localStorage. The access token is never written here (see lib/auth.js).
+// Connection settings persisted in localStorage. The access token is never written here (see lib/auth.ts).
 import { storedToken } from '../lib/auth.ts'
 import { DEFAULT_BACKENDS } from './http.ts'
 import type { Settings } from '../lib/types.ts'
@@ -17,7 +17,7 @@ export function createInitialSettings(): Settings {
   const saved = readSettings()
   const savedPythonEndpoint = saved.endpoints?.python === '/api/python' ? 'http://127.0.0.1:8001' : saved.endpoints?.python
   return {
-    // 身份由登录令牌决定（见 auth.js）；请求体不再携带 user_id / department。
+    // 身份由登录令牌决定（见 auth.ts）；请求体不再携带 user_id / department。
     accessToken: typeof sessionStorage === 'undefined' ? '' : storedToken(),
     backend: 'python',
     conversationId: saved.conversationId || '',

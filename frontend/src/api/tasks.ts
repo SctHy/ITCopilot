@@ -5,8 +5,8 @@ import type { Settings } from '../lib/types.ts'
 type Params = Record<string, string | number | boolean>
 const query = (params: Params) => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))
 
-export const requestTaskInbox = (type: string, settings: Settings, params: Params = {}) =>
-  requestFor(type, settings, '/task-inbox?' + query(params))
+export const requestTaskInbox = (type: string, settings: Settings, params: Params = {}, signal?: AbortSignal) =>
+  requestFor(type, settings, '/task-inbox?' + query(params), { signal })
 
 export const requestTaskHistory = (type: string, settings: Settings, params: Params = {}) =>
   requestFor(type, settings, '/task-history?' + query(params))

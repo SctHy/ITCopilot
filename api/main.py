@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 
 from api import state
 from api.deps import env_flag
-from api.routes import quality, agents, memory, task_history, task_execution, approvals, auth, chat, intake, knowledge, ops, tasks, task_capabilities, task_product
+from api.routes import speech, quality, agents, memory, task_history, task_execution, approvals, auth, chat, conversations, intake, knowledge, ops, tasks, task_capabilities, task_product
 from api.routes.chat import _channel_turn
 from core.env import env_float
 from core.events import InMemoryEventBus, RedisEventBus
@@ -28,7 +28,7 @@ from core.retention import RetentionPolicy, RetentionSweeper
 from agents.request_recall import RequestRecall
 from core.session_revocation import SessionRevocations
 from core import tenant_context
-from core.tenancy import TenantRegistry, bypasses_row_security, ensure_supported, multi_tenant_enabled
+from core.tenancy import TenantRegistry
 from core.rate_limit import MemoryRateLimiter, RedisRateLimiter, rules_from_env
 from core.protocols import APPLICATION
 from core import identity
@@ -69,13 +69,15 @@ async def _start_channels():
             client.settings = replace(settings, bot_open_id=await client.bot_open_id())
         except ChannelError as exc:
             logger.warning("飞书机器人 open_id 获取失败，群聊中的 @ 将无法识别（可设置 FEISHU_BOT_OPEN_ID）：%s", exc)
-    resolver = resolve_principal
-    if state.tenants is not None:
-        resolver = bind_workspace(resolve_principal, state.tenants)
+    # A mapped person counts only when the message came from the workspace bound to their tenant (ADR 0023).
+    resolver = bind_workspace(resolve_principal, state.tenants)
     service = ChannelService(state.workflow.engine, {"feishu": client}, _channel_turn, {"feishu": resolver},
                              poll_s=env_float("IT_COPILOT_CHANNEL_POLL_S", 1))
     state.workflow.notify = service.notify_approval
     service.start()
+    if not any(row["feishu_tenant_key"] for row in await asyncio.to_thread(state.tenants.list)):
+        logger.warning("飞书已启用，但没有租户绑定飞书工作区，所有消息都会被丢弃："
+                       "python scripts/tenants.py set default --feishu-tenant-key <tenant_key>")
     logger.info("feishu channel enabled (allowed chats: %s)", sorted(settings.allowed_chats) or "all")
     return service, client
 
@@ -129,7 +131,6 @@ async def lifespan(app: FastAPI):
             state.tool_manager = MCPToolManager(**llm, router=model_router)
             # 审批、执行与向量（知识库、记忆）同库：本地 SQLite，部署 PostgreSQL + pgvector。
             db_url = database_url(os.getenv("IT_COPILOT_DATA_DIR", str(pathlib.Path(_ROOT) / "data")))
-            ensure_supported(db_url)
             state.kb = KnowledgeBase(db_url)
 
             async def knowledge(params, ctx=None):
@@ -155,9 +156,6 @@ async def lifespan(app: FastAPI):
                 logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
             # 审批与执行状态的唯一来源是应用数据库，不放在 Redis 里。
             state.workflow = await asyncio.to_thread(WorkflowStore, db_url)
-            await asyncio.to_thread(ensure_supported, db_url, state.workflow.engine)
-            if not multi_tenant_enabled() and await asyncio.to_thread(bypasses_row_security, state.workflow.engine):
-                logger.warning("database role bypasses row-level security; tenant isolation rests on application filters only (ADR 0023)")
             from core.change_log import record_deploy
             await asyncio.to_thread(record_deploy, state.workflow.engine, sha)
             state.skills.change_engine = state.orchestrator.change_engine = state.workflow.engine
@@ -165,10 +163,8 @@ async def lifespan(app: FastAPI):
             state.orchestrator.knowledge_version = state.kb.collection_version
             state.orchestrator.directory = state.workflow
             from agents.registry import AgentRegistry
-            from core.agent_rollouts import AgentRollouts
             state.agent_registry = AgentRegistry(tools=set(state.orchestrator.agent.get_tools()), routes=set(model_router.config.routes))
-            state.agent_rollouts = AgentRollouts(state.workflow.engine, state.agent_registry)
-            state.orchestrator.rollouts = state.agent_rollouts
+            state.orchestrator.registry = state.agent_registry
             resources.callback(state.workflow.close)
             state.registry = build_registry(state.workflow)
             for adapter in state.registry.all():
@@ -181,35 +177,29 @@ async def lifespan(app: FastAPI):
                 state.worker.start()
             state.events = RedisEventBus(state.memory._redis) if state.memory else InMemoryEventBus()
             rules = rules_from_env(os.getenv)
-            state.rate_limiter = (RedisRateLimiter(state.memory._redis, rules) if state.memory else MemoryRateLimiter(rules)) if rules else None
+            # Always a limiter, even with the per-identity limit off: tenants have their own (ADR 0035).
+            state.rate_limiter = RedisRateLimiter(state.memory._redis, rules) if state.memory else MemoryRateLimiter(rules)
             resources.callback(lambda: setattr(state, "rate_limiter", None))
             state.tasks = TaskStore(state.workflow.engine, effects=TaskApprovalEffects(state.workflow))
-            async def task_intent_group(message):
-                return (await state.orchestrator.recognize_intent(message)).intent_group
-
-            state.tasks.recognize_intent_group = task_intent_group
             def task_agent_version(principal, intent_group):
-                chosen = {}
-                state.agent_rollouts.choose(principal.tenant, intent_group, principal.scope_key, chosen)
-                return chosen
+                spec = state.agent_registry.choose(principal.tenant, intent_group)
+                return {"agent_spec": spec.name, "agent_version": spec.version}
             state.tasks.choose_agent_version = task_agent_version
             state.worker.reconciler.tasks = state.tasks
             state.task_capabilities = TaskCapabilities(state.tasks, state.tasks.effects.view, GoalVerifiers(state.registry, state.workflow.engine))
-            state.tasks.governance = state.task_capabilities.governance
             state.task_recall = TaskRecall(state.task_capabilities.history.recall_owned)
             state.request_recall = RequestRecall(state.workflow.requester_items)
             state.sessions = SessionRevocations(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_REVOCATION_CACHE_S", 5))
             resources.callback(lambda: setattr(state, "sessions", None))
-            if multi_tenant_enabled():
-                state.tenants = TenantRegistry(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
-                resources.callback(lambda: setattr(state, "tenants", None))
-                # Each tenant's bound realm is a trusted OIDC issuer; which tenant it may claim is checked per request.
-                identity.extra_issuers = state.tenants.issuers
-                resources.callback(lambda: setattr(identity, "extra_issuers", frozenset))
+            state.tenants = TenantRegistry(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
+            resources.callback(lambda: setattr(state, "tenants", None))
+            # Each tenant's bound realm is a trusted OIDC issuer; which tenant it may claim is checked per request.
+            identity.extra_issuers = state.tenants.issuers
+            resources.callback(lambda: setattr(identity, "extra_issuers", frozenset))
             state.tasks.effects = CompositeTaskEffects([state.tasks.effects, state.task_capabilities.suggestions, state.task_capabilities.goals])
             state.workflow.shared_access = state.task_capabilities.access.approval_access
             state.workflow.shared_filter = state.task_capabilities.access.approval_filter
-            state.task_worker = TaskWorker(state.tasks, TaskAgentRunner(state.orchestrator, state.workflow.get, state.task_capabilities.progress.context, TaskProgressAdvisor(router=model_router), state.task_capabilities.plan_store, read_task_state=state.task_capabilities.history.runtime_context))
+            state.task_worker = TaskWorker(state.tasks, TaskAgentRunner(state.orchestrator, state.workflow.get, state.task_capabilities.progress.context, TaskProgressAdvisor(router=model_router), state.task_capabilities.plan_store, read_task_state=state.task_capabilities.history.runtime_context, read_brief=state.task_capabilities.brief.context))
             services.push_async_callback(state.task_worker.stop)
             state.task_worker.start()
             verification_worker = TaskVerificationWorker(state.task_capabilities.goals)
@@ -244,14 +234,14 @@ async def lifespan(app: FastAPI):
                 resources.push_async_callback(state.profile_updater.close)
                 state.profile_updater.start()
 
-            mcp_server = create_server(state.kb, state.tool_manager)
+            mcp_server = create_server(state.kb, state.tool_manager, tenant=os.getenv("IT_COPILOT_PLATFORM_TENANT", "default"))
             _mcp_mount.app = create_http_app(mcp_server)
             resources.callback(setattr, _mcp_mount, "app", None)
             await resources.enter_async_context(mcp_server.session_manager.run())
             state.mcp_client = await _start_mcp_client()
             if state.mcp_client:
                 resources.push_async_callback(state.mcp_client.close)
-            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, workflow=state.workflow, agent_rollouts=state.agent_rollouts)
+            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, workflow=state.workflow)
             services.push_async_callback(state.monitor.stop)
             await state.monitor.start()
             state.lifecycle.send("ready" if state.memory else "degrade")
@@ -289,5 +279,5 @@ app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
 _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/mcp", _mcp_mount)
-for module in (quality, agents, memory, ops, auth, approvals, knowledge, chat, intake, tasks, task_capabilities, task_product, task_execution, task_history):
+for module in (speech, quality, agents, memory, ops, auth, approvals, knowledge, chat, conversations, intake, tasks, task_capabilities, task_product, task_execution, task_history):
     app.include_router(module.router)

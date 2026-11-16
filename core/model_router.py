@@ -1,4 +1,4 @@
-"""确定性模型路由：合规和健康是硬约束，偏好顺序由离线评测门禁约束。"""
+"""确定性模型路由：按用途配置候选，合规过滤后按顺序故障切换。"""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ import logging
 import os
 import pathlib
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
@@ -25,7 +25,6 @@ from core.db import read, tenants, turn_records
 from core.deadline_model import TurnDeadlineExceeded
 from core.llm import build_model, is_model_unavailable
 from core.tenant_context import current_tenant
-from evaluation.reporting import percentile
 from monitor import metrics
 
 logger = logging.getLogger(__name__)
@@ -63,7 +62,6 @@ class RouteConfig(ConfigModel):
     timeout_s: float = Field(default=15, gt=0)
     thinking: Literal["disabled", "low", "high", "max"] = "disabled"
     max_rounds: int = Field(default=1, ge=1)
-    latency_slo_s: float | None = Field(default=None, gt=0)
     turn_deadline_s: float = Field(default=30, gt=0)
     request_timeout_s: float = Field(default=15, gt=0)
 
@@ -139,7 +137,6 @@ class ModelRouter:
         if set(self.models) != set(self.config.models):
             raise ValueError("injected models must match configured names")
         self.breakers = {name: CircuitBreaker() for name in self.models}
-        self.latencies = defaultdict(deque)
         self._cost_cache = {}
         self._forced = {}
         self.calls = defaultdict(int)
@@ -172,10 +169,13 @@ class ModelRouter:
                 record_change(self.engine, "model_route_rejected", hashlib.sha256(raw).hexdigest(),
                               {"kept": self.fingerprint, "error": str(exc)[:500]})
             return
+        previous = self.config
         self.config = candidate
         self.models = self._build_models()
-        self.breakers = {name: CircuitBreaker() for name in self.models}
-        self.latencies.clear()
+        # An unrelated edit must not close an open circuit: a model whose own settings are unchanged
+        # keeps its breaker (state, cooldown and generation, so in-flight calls still report to it).
+        self.breakers = {name: self.breakers[name] if name in self.breakers and previous.models.get(name) == model
+                         else CircuitBreaker() for name, model in candidate.models.items()}
         self.fingerprint = hashlib.sha256(raw).hexdigest()
         metrics.CONFIG_RELOADS.labels(config="model_routes", outcome="applied").inc()
         if self.engine is not None:
@@ -214,14 +214,6 @@ class ModelRouter:
             raise ModelUnavailableError(route, "no healthy compliant model")
         name = candidates[0]
         selected_reason = "primary" if name == config.candidates[0] else "failover"
-        if len(candidates) > 1 and config.latency_slo_s is not None:
-            samples = self.latencies[name]
-            cutoff = time.monotonic() - 300
-            while samples and samples[0][0] < cutoff:
-                samples.popleft()
-            if samples and percentile([duration for _, duration in samples], .95) > config.latency_slo_s:
-                name = candidates[1]
-                selected_reason = "latency_shift"
         if route == "agent_write" and self.over_budget(tenant):
             selected_reason = "budget"
         if not self.breakers[name].allow():
@@ -230,11 +222,10 @@ class ModelRouter:
         return Routed(self.models[name], name, route, reason or selected_reason, settings, config.max_rounds, self.breakers[name].generation)
 
     async def run(self, routed: Routed, operation, *, deadline_at: float | None = None):
-        """Await one model call and feed its outcome to the model's breaker and latency window.
+        """Await one model call and feed its outcome to the model's breaker.
 
         A failure at or after ``deadline_at`` is the turn's own budget running out, not the model
         failing: it releases a half-open probe and surfaces as TurnDeadlineExceeded."""
-        started = time.monotonic()
         try:
             result = await operation
         except (asyncio.CancelledError, TurnDeadlineExceeded):
@@ -244,22 +235,17 @@ class ModelRouter:
             if deadline_at is not None and time.monotonic() >= deadline_at:
                 self.breakers[routed.name].abandon_probe(routed.generation)
                 raise TurnDeadlineExceeded("Agent turn deadline exceeded") from exc
-            self.record(routed, time.monotonic() - started, success=not is_model_unavailable(exc))
+            self.record(routed, success=not is_model_unavailable(exc))
             raise
-        self.record(routed, time.monotonic() - started, success=True)
+        self.record(routed, success=True)
         return result
 
-    def record(self, routed: Routed, seconds: float, *, success: bool):
+    def record(self, routed: Routed, *, success: bool):
         breaker = self.breakers[routed.name]
         self.calls[routed.route] += 1
         before = breaker.state
         if success:
             breaker.record_success(routed.generation)
-            now = time.monotonic()
-            samples = self.latencies[routed.name]
-            samples.append((now, seconds))
-            while samples and samples[0][0] < now - 300:
-                samples.popleft()
         else:
             breaker.record_failure(routed.generation)
             if self.engine is not None and before != "open" and breaker.state == "open":

@@ -51,7 +51,8 @@ def test_operational_actions_are_logged(http):
     assert http.post("/skills/reload", headers=erin).status_code == 200
     events = [i["event"] for i in log(http)["items"]]
     assert events == ["skills_reloaded", "retention_run", "policy_revalidated"]
-    assert log(http, event="retention_run")["items"][0]["detail"] == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0, "turn_records": 0}
+    assert log(http, event="retention_run")["items"][0]["detail"] == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0, "turn_records": 0,
+                                                                         "chat_history": 0, "chat_conversations": 0}
 
 
 def test_only_admins_and_auditors_read_their_own_tenant(http):
@@ -74,7 +75,7 @@ def test_keyset_paging(http):
     assert ids == sorted(ids, reverse=True) and len(set(ids)) == 5 and third["next_before"] is None
 
 
-# ── Write-ahead entries and database-level immutability (migration 0002) ─────
+# ── Write-ahead entries and database-level immutability (current baseline) ─────
 
 def test_failed_attempts_are_kept_but_listed_only_when_asked(http):
     erin = auth("erin")

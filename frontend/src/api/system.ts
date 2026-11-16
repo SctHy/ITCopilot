@@ -7,6 +7,6 @@ export const requestAuthConfig = (type: string, settings: Settings) => requestFo
 export const requestMe = (type: string, settings: Settings) => requestFor(type, settings, '/auth/me')
 export const requestDevToken = (type: string, settings: Settings, username: string) =>
   requestFor<{ access_token: string }>(type, settings, '/auth/dev-token', jsonBody({ username }))
-export const requestMonitor = (type: string, settings: Settings) => requestFor(type, settings, '/monitor')
+export const requestMonitor = (type: string, settings: Settings, signal?: AbortSignal) => requestFor(type, settings, '/monitor', { signal })
 export const requestSkills = (type: string, settings: Settings) => requestFor(type, settings, '/skills')
 export const reloadSkills = (type: string, settings: Settings) => requestFor(type, settings, '/skills/reload', { method: 'POST' })

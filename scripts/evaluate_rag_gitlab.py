@@ -223,4 +223,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    from core import tenant_context
+
+    tenant_context.enter("default")  # the benchmark corpus is one tenant's library
     asyncio.run(main())

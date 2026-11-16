@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { createTaskHistoryController } from '../src/lib/taskHistoryController.ts'
 import { createTaskClient } from '../src/lib/taskClient.ts'
@@ -59,7 +59,7 @@ test('links refresh through the current viewer access and do not copy source con
 
 test('history transport snapshots the endpoint and token for search, links and continuation', async t => {
   const settings = { backend: 'python', endpoints: { python: 'http://original.test' }, accessToken: 'alice' }, calls = []
-  t.mock.method(globalThis, 'fetch', async (url, options) => { calls.push({ url, options }); return new Response(JSON.stringify({ items: [] })) })
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => { calls.push({ url, options }); return new Response(JSON.stringify({ items: [] })) })
   const client = createTaskClient(settings)
   settings.accessToken = 'bob'; settings.endpoints.python = 'http://changed.test'
   await client.history({ q: 'VPN', limit: 8 }); await client.linked('room/A')

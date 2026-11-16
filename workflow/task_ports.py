@@ -43,3 +43,9 @@ class CompositeTaskEffects:
         for effect in self.effects:
             metadata.update(effect.commit(connection, task, event, claim, result))
         return metadata
+
+
+class TaskTurnFailed(RuntimeError):
+    def __init__(self, record):
+        super().__init__("Agent 暂时不可用")
+        self.record = record

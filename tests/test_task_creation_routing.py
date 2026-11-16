@@ -1,12 +1,10 @@
-"""Creation resolves the actual intent and freezes the selected specification before execution."""
+"""Tasks record creation metadata; recovery executes the currently deployed specification."""
 import asyncio
-import json
 
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 import yaml
 
 from agents.registry import AgentRegistry, default_spec
-from core.agent_rollouts import AgentRollouts
 from evaluation.application import application
 from evaluation.fake_model import scripted_model
 from tests.test_workflow import ALICE
@@ -14,21 +12,15 @@ from workflow.store import WorkflowStore
 from workflow.tasks import TaskStore
 
 
-def registry(directory, tools, routes):
+def registry(directory, tools, routes, version="1.0.0"):
     base = default_spec().model_dump(mode="json")
     (directory / "it.yaml").write_text(yaml.safe_dump(base))
-    for version in ("1.0.0", "1.1.0"):
-        (directory / f"network_{version}.yaml").write_text(yaml.safe_dump({**base, "name": "network_support",
-            "version": version, "serves": {"intent_groups": ["network"]}}))
+    (directory / "network.yaml").write_text(yaml.safe_dump({**base, "name": "network_support",
+        "version": version, "serves": {"intent_groups": ["network"]}}))
     return AgentRegistry(directory, tools=tools, routes=routes)
 
 
-def release_gate(directory, spec):
-    (directory / f"{spec.name}@{spec.version}.json").write_text(json.dumps({"spec": spec.name,
-        "version": spec.version, "status": "passed", "fingerprint": spec.fingerprint}))
-
-
-def test_http_creation_routes_actual_intent_reuses_cache_and_rolls_pinned_version_back(tmp_path):
+def test_task_recovery_uses_deployed_version_and_preserves_creation_history(tmp_path):
     classifications = []
 
     async def reply(messages, info):
@@ -41,12 +33,9 @@ def test_http_creation_routes_actual_intent_reuses_cache_and_rolls_pinned_versio
     async def run():
         async with application(model=scripted_model(reply)) as (http, state):
             await state.task_worker.stop()
-            reg = registry(tmp_path, set(state.orchestrator.agent.get_tools()), set(state.orchestrator.router.config.routes))
-            rolls = AgentRollouts(state.workflow.engine, reg, reports=tmp_path)
-            state.agent_rollouts = state.orchestrator.rollouts = rolls
-            state.agent_registry = reg
-            release_gate(tmp_path, reg.get("network_support", "1.1.0"))
-            rolls.change("network_support", "canary", "test", tenant="default", version="1.1.0", percent=100)
+            tools, routes = set(state.orchestrator.agent.get_tools()), set(state.orchestrator.router.config.routes)
+            reg = registry(tmp_path, tools, routes, version="1.1.0")
+            state.agent_registry = state.orchestrator.registry = reg
             payload = {"title": "VPN排障", "message": "VPN客户端报错VPN-691", "client_request_id": "first"}
             response = await http.post("/tasks", json=payload)
             assert response.status_code == 201, response.text
@@ -56,12 +45,12 @@ def test_http_creation_routes_actual_intent_reuses_cache_and_rolls_pinned_versio
             assert context[0]["id"] == first_id
             assert context[0]["_agent"] == {"agent_spec": "network_support", "agent_version": "1.1.0"}
             assert len(classifications) == 1
-            rolls.change("network_support", "rollback", "test", tenant="default")
-            req, slots, _ = await state.task_worker.handle._prepare(*context)
-            assert slots["agent_version"] == "1.1.0" and req.intent_group == "network"
+            state.agent_registry = state.orchestrator.registry = registry(tmp_path, tools, routes)
+            req, _ = await state.task_worker.handle._prepare(*context)
+            assert req.conversation_state["agent_version"] == "1.1.0" and req.intent_group == "network"
             assert len(classifications) == 1
             result = await state.orchestrator._execute(req)
-            # The creation record keeps 1.1.0 as history; execution after the rollback moves back to stable.
+            # The creation record keeps 1.1.0 as history; execution uses the version selected by deployment.
             assert result.success and result.observability["agent_spec"] == "network_support"
             assert result.observability["agent_version"] == "1.0.0"
             replay = await http.post("/tasks", json=payload)
@@ -76,22 +65,24 @@ def test_http_creation_routes_actual_intent_reuses_cache_and_rolls_pinned_versio
     asyncio.run(run())
 
 
-def test_standalone_task_create_accepts_explicit_group_and_freezes_version(db_url, tmp_path):
+def test_task_store_accepts_runtime_metadata_without_requiring_agent_config(db_url, tmp_path, monkeypatch):
     workflow = WorkflowStore(db_url)
     reg = registry(tmp_path, set(), {"agent_read", "agent_write"})
-    rolls = AgentRollouts(workflow.engine, reg, reports=tmp_path)
     tasks = TaskStore(workflow.engine)
 
     def choose(principal, intent_group):
-        selected = {}
-        rolls.choose(principal.tenant, intent_group, principal.scope_key, selected)
-        return selected
+        spec = reg.choose(principal.tenant, intent_group)
+        return {"agent_spec": spec.name, "agent_version": spec.version}
     tasks.choose_agent_version = choose
     task = tasks.create(ALICE, "VPN排障", "VPN连不上", "one", intent_group="network")
     claim = tasks.claim()
     assert tasks.context(claim)[0]["_agent"] == {"agent_spec": "network_support", "agent_version": "1.0.0"}
     assert task["events"][0]["data"]["agent_spec"] == "network_support"
+    def unavailable():
+        raise AssertionError("TaskStore must not load Agent configuration")
+    monkeypatch.setattr("agents.registry.default_spec", unavailable)
     default = TaskStore(workflow.engine)
     standalone = default.create(ALICE, "独立存储", "无模型任务", "standalone")
-    assert standalone["events"][0]["data"]["agent_spec"] == default_spec().name
+    assert "agent_spec" not in standalone["events"][0]["data"]
+    assert default.context(default.claim())[0]["_agent"] == {}
     workflow.close()

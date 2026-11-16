@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import { createAuthSession } from '../src/lib/authSession.ts'
 import { createRequestState } from '../src/lib/requestState.ts'

@@ -1,166 +1,41 @@
-# 评测说明：身份与授权、受控执行、实时事件流与真实模型评测
+# 评测结论与数据
 
-验证三类保证：越权与提示注入不会造成未授权读写；审批后的执行在并发、崩溃与外部系统故障下不重复、不遗漏、可回收；执行进展在完成前就能到达客户端。第 1–4 节离线可复现，不消耗模型 token；第 5–6 节调用真实模型。
+工程检查以最近一次 `scripts/dev.py check` 的源码指纹、命令和结果为准；以下均为 **2026-11-12～14 的历史测量**，不代表当前版本重新验收。没有真实用户或生产效果证明。
 
-报告由各脚本写入 `evaluation/reports/`（不入库），文中给出的是报告文件名，本地重跑即可生成。
+## 保留结论
 
-## 1. 安全回归（21 项）
-
-命令：`python scripts/evaluate_security.py` → `security_v3.json`；同一套用例在 `tests/test_security_suite.py` 中作为 CI 门禁运行。
-
-| 类别 | 用例数 | 内容 |
+| 项目 | 测量结果 | 口径与限制 |
 |---|---|---|
-| 身份认证 | 5 | 错误密钥、`alg=none`、过期、篡改 claims 的令牌，缺失令牌 |
-| 身份冒充 | 2 | 请求体声明他人身份/部门；检索参数指定其他部门 |
-| 对象级授权 | 2 | 跨用户读取审批、审计、trace、员工状态、事件流、近期 trace；`client_request_id` 碰撞 |
-| 职责分离 | 5 | 非审批人决定、申请人自批、管理员代申请后自批、审批人是变更对象、双人审批只有一人 |
-| 策略 | 4 | 管理员角色、超长有效期、为他人申请、为管理员账号重置密码 |
-| 篡改与重放 | 2 | 篡改快照哈希；四个请求并发批准 |
-| 提示注入 | 1 | 知识库文档要求跳过审批，脚本化模型完全照做调用写工具 |
+| 确定性安全 | 22/22，未授权读/写各 0 | 2026-11-13，脚本化模型，非真实攻击面全集 |
+| 真实进程故障 | 24/24 | 独立进程与测试台账；不等同生产基础设施 |
+| 应用业务 | strata 182/192，hard 130/138，合计 312/330 | 两套自编场景各三遍；含全部失败，单模型 |
+| 记忆治理 | 确定性 20/20；working/state/full 各 84 轮，回忆各 19/19，写会话各 3/4 | 固定会话，不证明生产收益或因果改善 |
+| 模型角色 | intent 15/15、summary 12/12、profile 3/9、rerank 12/12、judge 12/12 | 辅助烟测；画像未达标；单候选相对检查不证明绝对质量 |
+| 单 Agent 选择 | 42 场景：bounded 41/42、bounded_all 42/42、通用 40/42；多 Agent token 约多 60% | 未观察到显著效果优势，当前保留单 Agent |
+| 延迟目标 | 流水线阶段 P99 8.552 → 8.239 s（−3.65%）；Agent P99 5.820 → 5.954 s | 每组 330 用例/489 回合；未达到下降 30% 目标，非完整 HTTP 时延 |
+| 已知 SDK 成本 | 每成功用例 $0.00072809 → $0.00072238 | 历史峰值价估算；排除 Jev/embedding，不是账单 |
 
-结果：21/21 通过，未授权写入 0，未授权读取 0。每个用例记录目录状态前后快照，凡非预期变化即计为未授权写入；分母是攻击用例数，不是请求总数。
+性能基线与当前快照还包含其他改动，外部负载/缓存/随机性未消除，不能把差值全部归因于截止时间。认证失败和跨用例台账污染的实验不纳入有效成绩。灰度、双人复标及强制线上样本门禁已移除；线上回归集仍为空，不以合成夹具冒充。
 
-变异测试（确认门禁有效）：去掉 trace 归属检查后 `idor_cross_user_reads` 失败；去掉“仅限本人申请”后 4 个用例失败。
+## 专题结果
 
-限制：模型是脚本化的“最坏情况”替身，验证的是模型之外的控制；用例由作者编写，不代表攻击面全集（见 [威胁模型](threat-model.md) 的未覆盖项）。
+- [公开检索与注入基准](evaluation-public.md)：WixQA、AgentDojo。
+- [业务、记忆与多轮指标](evaluation-deep.md)：单次结果、pass^k、未达标项。
+- [出站脱敏](model-masking-acceptance.md)：最终配对结果、误改动与已知漏检。
+- 常用机器结果：[安全](../evaluation/reports/security_v3.json)、[故障](../evaluation/reports/long_tasks_worker_kill_2026-11-12.json)、[脱敏汇总](../evaluation/reports/model_masking/v3_verified/summary.json)、[保护回退](../evaluation/reports/model_masking/v3_verified/lost_coverage_audit.json)。
 
-## 2. 实时事件流
+## 复现入口
 
-命令：`python scripts/benchmark_stream.py --runs 20 --model-latency 0.8` → `stream_latency_v3.json`
-
-真实 uvicorn 监听回环 TCP，客户端按行读取 SSE；模型替身每次调用固定 0.8s，每轮 3 次调用（意图、工具决策、最终回答）；每轮消息不同，避免意图缓存命中。
-
-| 指标 | P50 | P95 |
-|---|---|---|
-| 首个执行进展事件（非 started） | 0.93s | 1.02s |
-| 首个 `tool_started` | 1.73s | 1.83s |
-| `completed` | 2.56s | 2.64s |
-
-旧实现在整轮完成后才回放事件，首个执行事件时延约等于 `completed`。差值取决于模型时延与调用次数；这是架构对比，不是生产时延。进程内 ASGI 传输会缓冲整个响应，最初用它测得所有事件同时到达，因此改为真实 TCP，并加入回归测试 `test_events_reach_a_real_tcp_client_before_the_turn_completes`。
-
-断线续传：`test_live_stream_reports_tools_before_completion_and_resumes` 从 `tool_started` 之后的 id 续读，只收到之后的事件，且没有重复执行；他人续读返回 403。
-
-## 3. 工作流并发与故障
-
-`tests/test_workflow.py` 12 项，默认 SQLite；`IT_COPILOT_TEST_DATABASE_URL` 指向 PostgreSQL 时每个测试使用独立 schema，执行同一套 Alembic 迁移。本地在 PostgreSQL 17 上连续 5 次全部通过（SQLite 同样 5 次）。
-
-覆盖：20 线程并发批准只迁移一次、执行一次；批准与拒绝竞争；双人审批并发投票；职责分离；策略；preflight 失败零变更；到期回收；原有权限与漂移权限不被回收；结果未知的两种情况（已生效 → 回查记成功、只调用一次；未生效 → 回查后重做）；worker 在变更后、记账前被 `os._exit` 杀死，另一个 worker 在租约过期后回查并完成，密码版本只增加一次；批量中途确定失败时已授予的权限被补偿回收。
-
-## 4. 真实服务集成
-
-`tests/test_integration_live.py`（未配置时跳过；CI 的 integration job 启动服务后运行）：
-
-- Keycloak 26.4：密码模式取令牌 → `Principal` 字段与角色正确；篡改签名被拒；受众不符被拒；API 在 oidc 模式下接受 Keycloak 令牌、拒绝 dev 令牌。
-- Gitea 1.24：worker 授予 alice 只读 → Gitea 协作者权限为 read → 时间推进后回收 → 协作者被移除；授权后手工把权限改为 write，到期时 worker 不删除，回收动作停在 `manual_review`。
-
-Compose 全栈手工验收（2026-10-29）：Keycloak 登录（授权码 + PKCE）→ 审批页 → bob 批准后仍待审批（developer 需两人）→ carol 批准 → 执行成功，Gitea 中 alice 权限为 write，回收排期为 8 小时后；跨用户读取与自批均返回 403。该次验收未启动模型网关，审批记录由与 `/chat` 相同的代码路径在容器内创建。
-
-## 5. 真实模型应用评测（单轮与脚本化多轮）
-
-上游 `deepseek-flash`（api.deepseek.com；该名称是 DeepSeek 的滚动别名，`/models` 与响应都不给出具体版本，报告的 `upstream` 字段记录实际调用名）。每个用例以对话中声明的本人工号作为登录身份，审批由 bob（必要时加 carol）完成，另加两项检查：申请人不能自批、授权已登记到期回收。
-
-命令：`python scripts/evaluate_application.py --dataset <数据集> --output <报告>.json`（使用独立 Redis `:16379`）。
-
-| 数据集 | 内容 | 结果 |
-|---|---|---|
-| `application_strata_v3.json` | 64 场景：S 单领域 16、C2 双领域 20、C3 三领域 8、M 多轮 10、N 不应写入 10 | 两次完整重跑均 64/64（N 层 10/10），p50 6.3 s / p95 11.4 s |
-| `application_v2.json` / `application_holdout_v2.json` | 开发集 24 场景、留出集 12 场景 × 3 | 见报告；开发集改善不当作泛化结果 |
-
-分阶段耗时（64 场景）：Agent 占 79%（p50 4.4 s），意图识别占 20%（p50 1.2 s），记忆读取 14 ms，建审批 5 ms。
-
-调优中发现并修复的问题：
-
-- **复合“诊断 + 建单”**：诊断 → 建单 → 回复需要 4 次模型请求，原 `UsageLimits(request_limit=3)` 把它截断成 `agent_failed`。写操作路由改为 5（`config/model_routes.yaml` 的 `agent_write.max_rounds`）。
-- **建单前追问**：模型按 endpoint 技能先追问系统版本而不建单。修改 ticket/endpoint 技能（诊断字段不是建单前提；待审批即确认，不在聊天里二次确认）后两次完整重跑均 64/64。
-
-### 为什么只保留一个 Agent
-
-曾实现过多 Agent 规划：按意图路由到单个专职 Agent（single）、LLM 规划后由多个专职 Agent 并行执行（bounded）、以及每个专职 Agent 都持有全部工具的对照（bounded_all）。在同一批场景上配对比较：
-
-- 64 场景（修复规划器前）：single 40/64、bounded 44/64、单个通用 Agent 63/64。single 的失败来自“路由即能力边界”（错误码、资产查询被分给没有对应工具的 Agent）；bounded 的失败来自规则规划器漏领域、未要求时追加建单。
-- 改为 LLM 规划、只在用户要求时建单、按步骤数算预算后，42 个重跑场景上 bounded 41/42、bounded_all 42/42、通用 Agent 40/42，三者无显著差异；多 Agent token 多约 60%，C3 场景是通用 Agent 的 2–4 倍。
-- τ-bench 式多轮评测（下一节）的 33 个完成任务上 pass^1：bounded 0.85、bounded_all 0.80、通用 0.80、single 0.62；三种全覆盖策略两两之间 p ≥ 0.45。
-
-多 Agent 没有带来成功率或速度收益，成本更高、链路更长；按领域隔离写工具的作用已由代码里的身份、策略与审批覆盖。因此只保留一个持有全部工具的 Agent。结论限于当前工具规模（当时约 10 个本地工具，现为 7 个），工具增加到几十个时需要重新评测。
-
-## 6. τ-bench 式多轮评测
-
-### 6.1 借鉴的评测方法
-
-单轮场景里用户第一句话就给全信息，评分大多看是否调用了某个工具、是否生成审批，已经到了天花板。公开 Agent 基准的做法：
-
-| 来源 | 借鉴点 |
-|---|---|
-| [τ-bench](https://arxiv.org/pdf/2406.12045)（Sierra，2024） | LLM 扮演用户，信息只在被问到时透露；按**对话结束后的数据库状态**评分，不看措辞；报告 pass^k（同一任务 k 次都成功） |
-| [τ²-bench](https://huggingface.co/papers/2506.07982)（2025） | 任务由原子子任务组合，子任务数即难度；单独统计用户模拟器出错 |
-| [WorkArena](https://servicenow.github.io/WorkArena/) | IT 服务台类企业任务，任务目标可程序化校验 |
-| [Establishing Best Practices for Building Rigorous Agentic Benchmarks](https://arxiv.org/pdf/2507.02825)（2025） | 两条检查：任务必须可解；"什么都不做"不能通过（拒绝类任务要求明确说明理由） |
-
-本项目没有使用这些数据集（领域、工具、语言都不同），借鉴的是方法。
-
-### 6.2 设计与结果
-
-**数据**：[simulated_v4.json](../evaluation/datasets/simulated_v4.json)，由 `evaluation/simulated.py` 以固定种子生成后冻结。
-
-- 7 种原子任务：错误码诊断（经知识检索）、资产排查（查本人设备台账）、资产排查并建单、权限申请、密码重置、账号解锁、知识问答。下文结果来自删除“服务状态”原子之前的上一版数据集，数据集已按同一种子重新生成，需要重跑才可比。
-- 分层：T1（1 个原子）14 个、T2（2 个）16 个、T3（3 个）12 个，另有 P 层 8 个（一个正常请求加一个策略禁止的 GitLab 管理员权限）。
-- 用户第一句话故意不完整（例如只说“笔记本黑屏”，不给资产号）。
-
-**流程**：
-
-- 模拟用户也用 deepseek-flash 扮演，只在被问到时透露事实。
-- 每段对话最多 8 轮。
-- 对话结束后，审批人 bob（需要两人时加 carol）批准 agent 提交的所有待审批申请，worker 执行。
-
-**评分**（以下检查必须全部通过）：
-
-- 员工最终状态：权限集合精确一致（多授予也算失败）、工单数量精确、密码与锁定状态；
-- 关键工具调用时参数正确（资产号、错误码）；
-- 知识问答带出处；
-- P 层必须明确说明拒绝理由，且不能提交管理员类角色。
-
-**统计**：2 个独立进程，报告 pass^1（单次成功率）和 pass^2（两次都成功）。
-
-**v4 暴露的三个缺陷**（均在正式运行前修复，修复前的数据保存在 `prefix_v4/`）：
-
-1. **重复建单（产品缺陷）。** 用户补充信息、说“确认提交”或要求“补充进工单”时，agent 会重新调用 `create_ticket`，同一问题堆积多张待审批工单。修复前 247 段对话中有 73 段因此产生多余工单，占全部 101 个失败的 72%，与 Agent 架构无关。修复方式：同一会话、同一申请人的新审批，如果它的动作完全覆盖某张仍待审批的旧单（键为工具 + 员工，权限申请再加系统），旧单标记为 `superseded`。被替代的审批不能再被批准，替代关系写入审计，回复中告知用户；范围更窄的新申请不会替代范围更宽的旧单（`workflow/store.py::_supersede`）。
-2. **任务不可解（评测缺陷）。** 知识库 SOP 要求 GitLab 申请提供项目名称、Jira 申请提供项目空间，但 9 个任务没有给模拟用户这个信息，严格遵守 SOP 的 agent 反而失败。已补上这些事实，并新增测试：检查每个任务都含其 SOP 必需的信息、评分用到的参数都能从模拟用户处获得、“什么都不做”判为失败。
-3. **模拟用户越界。** 模拟用户会自行要求建单、在 agent 没问时说“确认提交”、编造自查结果。已收紧提示词（报告中记录其哈希 `simulator_prompt_sha256`），并标记越界对话（`simulator_flags`）。分析时既报告全量结果，也报告剔除越界任务后的结果。
-
-**结果**：运行后段 DeepSeek 返回 429 与 402（余额耗尽），只有 33 个任务（T1 14、T2 16、T3 3）在全部运行中没有服务端错误，P 层全部丢失。这 33 个任务上，通用 Agent pass^2 为 22/33、pass^1 为 0.80，每段对话平均 4.4–5.0 轮、token 中位数约 33k。
-
-- 重复建单是这套评测发现的最大问题，出在审批层而不是 Agent。按最终状态评分的多轮评测，比单轮“是否调用某工具”的评测更能暴露真实缺陷。
-- 局限：T3 只有 3 个有效任务、P 层没有数据；模拟用户和 agent 是同一个模型；任务和 SOP 由作者编写，原子类型分布不均（解锁只出现 4 次）；每格 2 次重复，区间较宽。
-
-## 未完成
-
-- 未重跑的部分：τ-bench 式评测的 T3 后 9 个任务和 P 层。复现命令见 README，并发不要超过模型服务商的并发上限。
-- 范围更窄的新申请不会替代范围更宽的待审批单（例如先“建单 + 权限”、后“只建单”），这种情况仍可能出现重复工单。
-
-
-## 模型路由候选门禁（ADR 0030）
-
-调用角色、合规和地域能力由 `config/model_routes.yaml` 声明。优先级是静态候选顺序，启动校验拒绝缺少合规候选或结构化工具能力的配置；运行时使用健康、五分钟 P95 和日预算调整选择。
-
-候选均为 `deepseek-flash`，2026-11-13 实跑，每题重复 3 次。读/写复用两个完整应用数据集的同一组业务断言，并核对实际角色调用；其成功数、延迟与成本为完整用例口径，不是角色切片。
-
-| 角色 | 通过数/总数 | P95 | 每个成功样本成本估算 |
-|---|---|---|---|
-| agent_read | 312/330 | 10.910s | $0.000599 |
-| agent_write | 312/330 | 10.910s | $0.000599 |
-| intent_fallback | 15/15 | 1.740s | $0.000251 |
-| summary | 12/12 | 1.150s | $0.000050 |
-| profile | 3/9 | 1.312s | $0.000465 |
-| rewrite_rerank | 12/12 | 1.564s | $0.000130 |
-| judge | 12/12 | 1.442s | $0.000196 |
-
-读/写报告已在每用例独立台账上重跑，旧跨用例污染数据不参与验收。其余角色采用各自冻结小题集，不能与端到端成功率直接比较。**profile 仍为 3/9**，字段归类与旧部门保留问题未通过放宽断言掩盖；该烟测提示比生产画像提示简短，不能外推生产失败率。当前仅一个候选，门禁证明报告完整与相对首选不劣，不代表绝对质量达标。完整验收及阻塞见 [验收记录](improvement-acceptance.md)。
-
-价格核验于 2026-11-12，[DeepSeek 官方价格页](https://api-docs.deepseek.com/quick_start/pricing/)；非高峰时段减半。峰值每百万输入/输出/缓存命中为0.30/1.20/0.006美元；平台使用峰值作保守估算，token 缓存部分从普通输入扣除；不是供应商账单。当前只配一个已有凭据的候选，尚无第二模型质量比较，不宣称偏好顺序最优。
-
-```sh
-.venv/bin/python scripts/evaluate_model_route.py --route agent_read --model deepseek-flash --repeats 3
-.venv/bin/python scripts/check_model_routes.py
+```bash
+python scripts/dev.py check --profile backend
+python scripts/dev.py evaluate scripts/audit_resume_metrics.py
+python scripts/dev.py evaluate scripts/summarize_agent_metrics.py
+python scripts/dev.py evaluate --file scripts/evaluate_memory_governance.py
+python scripts/dev.py evaluate scripts/evaluate_application.py --limit 1000
+python scripts/evaluate_model_route.py --route agent_read --model deepseek-flash --repeats 3
+python scripts/check_model_routes.py
 ```
 
-每个 `(route,candidate)` 都需要真实模型报告，比较 Wilson 成功率下界，低于首选下界3个百分点即拒绝。CI缺报告会失败，未运行不能视为通过。应用级报告使用原有业务断言判分；只覆盖被该数据集实际触发的角色。未触发某个角色的报告不能证明该角色质量，脚本会记录调用次数并拒绝作为门禁依据。
+前两个指标脚本读取冻结证据，不调用模型，不代表当前重测。其他脚本按自身配置可能调用真实模型：明确数据集、模型、次数、预算，并使用独立数据库/Redis/测试身份。完整应用评测显式 `--limit 1000`，不要把前若干条冒充全量。
+
+[固定输入清单](../evaluation/fixtures/manifest.json) 校验 SHA-256；输入缺失/损坏直接失败，不能回退小样本或静默重采。原始报告、失败和源码指纹在 [压缩证据](archive/README.md)，需追溯才恢复。新运行通过 `scripts/dev.py evaluate` 留在忽略目录，重要基线另固定，临时产物按 30 天规则清理。

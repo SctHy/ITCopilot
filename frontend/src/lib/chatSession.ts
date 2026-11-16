@@ -1,6 +1,6 @@
 // Private chat session: message list, streaming status and the last request's details.
 // Transport is injected (no fetch here) and DOM concerns such as scrolling stay in the view.
-import { reactive } from 'vue'
+import { reactive } from './store.ts'
 import { createAnswerDraft } from './answerDraft.ts'
 import type { RequestState, TrackedRequest } from './requestState.ts'
 import type { ChatResponse, StreamEventHandler } from '../api/chat.ts'
@@ -29,6 +29,16 @@ export interface ChatSession {
   clear(): void
   /** Drop what is on screen but keep the conversation id (used when the connection changes). */
   reset(): void
+  /** Show a stored conversation and continue it: later messages are sent under its id. */
+  open(conversationId: string, messages: StoredTurnMessage[]): void
+}
+
+/** A message as stored in chat history (api/conversations.ts); assistant meta mirrors the reply fields. */
+export interface StoredTurnMessage {
+  request_id: string
+  role: 'user' | 'assistant'
+  content: string
+  meta: Record<string, any>
 }
 
 const streamLabels: Record<string, (data: Record<string, any>) => string> = {
@@ -139,11 +149,29 @@ export function createChatSession(settings: Settings, requestState: RequestState
     state.lastTrace = null
   }
 
+  function open(conversationId: string, stored: StoredTurnMessage[]) {
+    reset()
+    settings.conversationId = conversationId
+    hooks.persist()
+    const request = requestState.begin('history')
+    state.messages = stored.map((item, index): ChatMessage => {
+      const id = `history-${item.request_id}-${item.role}-${index}`
+      if (item.role === 'user') return { id, role: 'user', content: item.content }
+      const m = item.meta || {}
+      const summary = replyMeta({ intent: m.intent, intentConfidence: Number(m.intent_confidence ?? 0),
+        clarificationNeeded: !!m.clarification_needed, missingSlots: m.missing_slots || [], approvalRequired: !!m.approval_required,
+        approvalId: m.approval_id || null, knowledgeUsed: !!m.knowledge_used, escalated: !!m.escalated } as ChatResponse)
+      return { id, requestId: item.request_id, role: 'assistant', content: item.content, meta: summary,
+        error: m.status === 'failed', taskReferences: m.task_references || [],
+        approvalId: m.approval_id || undefined, approvalSettings: request.settings, approvalBackend: request.backend }
+    })
+  }
+
   function clear() {
     reset()
     settings.conversationId = ''
     hooks.persist()
   }
 
-  return { state, send, clear, reset }
+  return { state, send, clear, reset, open }
 }

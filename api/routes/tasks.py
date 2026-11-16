@@ -1,5 +1,4 @@
 """Requester, Agent and reviewers share one durable service room."""
-import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,8 +8,8 @@ from api import state
 from api.deps import current_principal, enforce_rate_limit
 from api.schemas import ApprovalDecision
 from api.approval_actions import submit_decision
+from api.task_dependencies import invoke, wake_task_worker
 from core.identity import Principal
-from workflow.tasks import TaskConflict, TaskForbidden
 from core.rate_limit import AGENT_TURN
 
 router = APIRouter(prefix="/tasks", tags=["shared tasks"])
@@ -35,64 +34,50 @@ def store():
     return state.tasks
 
 
-async def call(method, *args):
-    try:
-        return await asyncio.to_thread(method, *args)
-    except TaskForbidden as exc:
-        raise HTTPException(403, str(exc)) from exc
-    except TaskConflict as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-
-def wake():
-    if state.task_worker:
-        state.task_worker.kick()
-
-
 @router.get("")
 async def list_tasks(principal: Principal = Depends(current_principal)):
-    return {"items": await call(store().list, principal)}
+    return {"items": await invoke(store().list, principal)}
 
 
 @router.post("", status_code=201)
 async def create_task(payload: NewTask, principal: Principal = Depends(current_principal)):
     await enforce_rate_limit(principal, AGENT_TURN)
     tasks = store()
-    intent_group = await tasks.recognize_intent_group(payload.message)
-    body = await call(tasks.create, principal, payload.title, payload.message, payload.client_request_id, intent_group)
-    wake()
+    intent_group = (await state.orchestrator.recognize_intent(payload.message)).intent_group if state.orchestrator else "other"
+    body = await invoke(tasks.create, principal, payload.title, payload.message, payload.client_request_id, intent_group)
+    wake_task_worker()
     return body
 
 
 @router.get("/{task_id}")
 async def get_task(task_id: str, principal: Principal = Depends(current_principal), event_limit: int | None = Query(default=None, ge=1, le=100)):
-    return await call(store().get, task_id, principal, event_limit)
+    return await invoke(store().get, task_id, principal, event_limit)
 
 
 @router.post("/{task_id}/messages", status_code=202)
 async def post_message(task_id: str, payload: TaskMessage, principal: Principal = Depends(current_principal)):
     if payload.ask_agent:  # plain discussion does not start model work
         await enforce_rate_limit(principal, AGENT_TURN)
-    body = await call(store().post, task_id, principal, payload.message, payload.client_request_id, payload.ask_agent)
-    wake()
+    body = await invoke(store().post, task_id, principal, payload.message, payload.client_request_id, payload.ask_agent)
+    wake_task_worker()
     return body
 
 
 @router.post("/{task_id}/stop")
 async def stop_task(task_id: str, principal: Principal = Depends(current_principal)):
-    return await call(store().stop, task_id, principal)
+    return await invoke(store().stop, task_id, principal)
 
 
 @router.post("/{task_id}/runs/{run_id}/retry", status_code=202)
 async def retry_run(task_id: str, run_id: str, principal: Principal = Depends(current_principal)):
-    await call(store().retry, task_id, run_id, principal)
-    wake()
+    await invoke(store().retry, task_id, run_id, principal)
+    wake_task_worker()
     return {"queued": True}
 
 
 @router.post("/{task_id}/approvals/{approval_id}")
 async def decide_in_room(task_id: str, approval_id: str, payload: ApprovalDecision, principal: Principal = Depends(current_principal)):
-    room = await call(store().get, task_id, principal)
+    room = await invoke(store().get, task_id, principal)
     if not any(a["approval_id"] == approval_id for a in room["approvals"]):
         raise HTTPException(404, "审批不属于该事项")
     # The workflow still enforces authenticated role, separation of duties and hash.

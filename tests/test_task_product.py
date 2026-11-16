@@ -235,7 +235,7 @@ def test_invalid_progress_advice_keeps_known_usage_and_unproven_steps_are_not_do
     advisor = module.TaskProgressAdvisor(FunctionModel(request))
     args = ({}, {'title': '访问', 'tenant': 'default'}, {'text': '排查'}, '回复', 'reply-id')
     payload, usage = asyncio.run(advisor.suggest(*args))
-    assert payload is None and usage == {'input_tokens': 22, 'output_tokens': 14}
+    assert payload is None and usage == {'requests': 2, 'input_tokens': 22, 'output_tokens': 14, 'cache_read_tokens': 0}
     response.parts = [ToolCallPart('draft_progress', {'goal': '恢复访问', 'steps': [{'title': '排查', 'status': 'done', 'evidence_ids': ['forged']}]})]
     payload, usage = asyncio.run(advisor.suggest(*args))
     assert payload['steps'][0]['status'] == 'working'

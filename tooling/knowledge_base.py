@@ -23,11 +23,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from core.env import multi_tenant_enabled
 from core.tenancy import DEFAULT_TENANT
 from core.tenant_context import SYSTEM, TenantContextMissing, current_tenant
 from core.vector_store import VectorStore
-from core.protocols import CacheState, cache_state
 from core.states import Protocol
 
 # knowledge_search 工具的参数契约：应用注册与评测脚本共用。
@@ -201,7 +199,7 @@ class KnowledgeLibrary:
 
     def _ensure_lexical_index(self, version: tuple) -> None:
         """集合版本（行数, 最近写入时间）变化时重建 BM25 索引；覆盖其他进程写入同一数据库的情况。"""
-        if cache_state(True, version_matches=version == self._indexed_version) == CacheState.STALE:
+        if version != self._indexed_version:
             self._rebuild_lexical_index()
 
     def _bm25_array(self, query: str, mask: np.ndarray) -> np.ndarray:
@@ -381,7 +379,7 @@ class KnowledgeBase:
 
     ``tenant`` is resolved as: the argument; else the tenant scope (``core.tenant_context``) -
     a request's caller, which is how the ``knowledge_search`` tool gets it without the model ever
-    seeing or choosing it; else ``default``, but only when multi-tenant mode is off.
+    seeing or choosing it; with neither the call fails, it never falls back to some tenant.
     """
 
     COLLECTION_NAME = "knowledge_base"
@@ -402,9 +400,7 @@ class KnowledgeBase:
         scoped = current_tenant()
         if scoped and scoped != SYSTEM:
             return scoped
-        if multi_tenant_enabled():
-            raise TenantContextMissing("knowledge base access needs a tenant")
-        return DEFAULT_TENANT
+        raise TenantContextMissing("knowledge base access needs a tenant")
 
     def collection_version(self, tenant: str) -> float:
         return self.library(tenant)._collection.version()[1]

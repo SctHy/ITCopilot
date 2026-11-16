@@ -1,5 +1,5 @@
 // Session state with an injected transport; no fetch, approval rules or DOM lifecycle.
-import { reactive } from 'vue'
+import { reactive } from './store.ts'
 import type { TaskClient } from './taskClient.ts'
 import type { Approval, ApprovalDecision, TaskListItem, TaskQuery, TaskRoom } from './types.ts'
 

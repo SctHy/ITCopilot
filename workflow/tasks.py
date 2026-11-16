@@ -14,10 +14,11 @@ import uuid
 from sqlalchemy import and_, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from core import db as schema
+from core import db as schema, fair_queue
 from core.db import service_tasks as tasks, task_events as events, task_runs as runs
 from core.concurrency import LeaseLostError
 from workflow.task_ports import NoTaskEffects, TaskEffects
+from workflow.states import RUN, TASK, UNFINISHED_RUNS
 
 
 def key(*parts):
@@ -39,13 +40,16 @@ class TaskStore:
         self.governance = None
         self.on_status = None
         self.access = None
-        from agents.registry import default_spec
-        spec = default_spec()
-        self.choose_agent_version = lambda principal, intent_group: {"agent_spec": spec.name, "agent_version": spec.version}
+        # Runtime metadata is an integration port. The store can run without Agent code/config.
+        self.choose_agent_version = lambda principal, intent_group: {}
 
-    async def recognize_intent_group(self, message):
-        """Standalone stores have no model; the composition root supplies the recognizer."""
-        return "other"
+    def configure_extensions(self, *, access, governance, on_status):
+        """Install the shared-task bundle together, before serving requests.
+
+        Keeping one composition call prevents a configured UI from silently running
+        without admission budgets or close-time cleanup.
+        """
+        self.access, self.governance, self.on_status = access, governance, on_status
 
     @contextmanager
     def transaction(self, task_id, principal=None, *, lock=True, write=True):
@@ -84,10 +88,19 @@ class TaskStore:
             text, data, wake=wake)
 
     def set_status(self, db, task, status):
-        db.execute(update(tasks).where(tasks.c.id == task['id']).values(status=status))
+        TASK.check(task['status'], status)
+        if status == task['status']:
+            return
+        changed = db.execute(update(tasks).where(
+            tasks.c.id == task['id'], tasks.c.status == task['status'],
+            tasks.c.version == task['version'],
+        ).values(status=status, version=tasks.c.version + 1)).rowcount
+        if changed != 1:
+            raise TaskConflict('事项状态已变化，请刷新后重试')
         task['status'] = status
+        task['version'] += 1
         if status != 'open':
-            db.execute(update(runs).where(runs.c.task_id == task['id'], runs.c.status.in_(['queued', 'running', 'held']))
+            db.execute(update(runs).where(runs.c.task_id == task['id'], runs.c.status.in_(UNFINISHED_RUNS), runs.c.status.in_(RUN.sources('cancelled')))
                        .values(status='cancelled', version=runs.c.version + 1, lease_until=None))
         if self.on_status:
             self.on_status(db, task, status)
@@ -226,7 +239,7 @@ class TaskStore:
                                                             runs.c.status.in_(("running", "done")))).first():
                 raise TaskConflict("已有更新的处理结果，请发送新消息继续事项")
             changed = db.execute(update(runs).where(runs.c.task_id == task_id, runs.c.id == run_id, runs.c.status == "failed")
-                                 .values(status="queued", attempts=0, version=runs.c.version + 1, not_before=self.clock(), error=None)).rowcount
+                                 .values(status=RUN.check("failed", "queued"), attempts=0, version=runs.c.version + 1, not_before=self.clock(), error=None)).rowcount
             if not changed:
                 raise TaskConflict("只有失败的 Agent 回合可以重试")
             self._append(db, task, key(task_id, "retry", run_id, task["version"]), "system", principal.subject,
@@ -257,27 +270,32 @@ class TaskStore:
                          {**(data or {}), "source_cursor": {"source": source, "object_id": object_id, "version": version}}, wake=wake)
             return True
 
-    def claim(self, lease_s=120):
+    def claim(self, lease_s=120, *, after_tenant=None):
+        """Lease the next due run, serving tenants in turn (``core.fair_queue``, ADR 0035)."""
         now = self.clock()
         due = or_(and_(runs.c.status == "queued", runs.c.not_before <= now),
                   and_(runs.c.status == "running", runs.c.lease_until <= now))
         earlier = runs.alias("earlier_task_run")
         blocked = select(earlier.c.id).where(earlier.c.task_id == runs.c.task_id, earlier.c.id != runs.c.id,
-            or_(and_(earlier.c.seq < runs.c.seq, earlier.c.status.in_(("queued", "running", "held"))),
+            or_(and_(earlier.c.seq < runs.c.seq, earlier.c.status.in_(UNFINISHED_RUNS)),
                 earlier.c.status == "running")).exists()
         with self.engine.begin() as db:
-            candidates = db.execute(select(runs).join(tasks, tasks.c.id == runs.c.task_id).where(due, ~blocked, tasks.c.status == "open")
-                                    .order_by(runs.c.not_before, runs.c.seq).limit(32)).mappings().all()
-            for candidate in candidates:
+            open_due = and_(due, ~blocked, tasks.c.status == "open")
+            ranked = (select(runs, tasks.c.tenant, fair_queue.tenant_rank(tasks.c.tenant, runs.c.not_before, runs.c.seq))
+                      .join(tasks, tasks.c.id == runs.c.task_id).where(open_due).subquery())
+            candidates = db.execute(select(ranked).where(ranked.c.tenant_rank <= 32)
+                                    .order_by(ranked.c.tenant_rank, ranked.c.not_before, ranked.c.seq).limit(32)).mappings().all()
+            for candidate in fair_queue.rotate(candidates, after_tenant):
+                candidate = {k: v for k, v in candidate.items() if k not in {"tenant_rank", "tenant"}}
                 task = self._require(db, candidate["task_id"], lock=True)
                 if task["status"] != "open":
                     continue
                 prior = db.execute(select(runs.c.id).where(runs.c.task_id == task["id"], runs.c.id != candidate["id"],
-                    or_(and_(runs.c.seq < candidate["seq"], runs.c.status.in_(("queued", "running", "held"))), runs.c.status == "running"))).first()
+                    or_(and_(runs.c.seq < candidate["seq"], runs.c.status.in_(UNFINISHED_RUNS)), runs.c.status == "running"))).first()
                 if prior:
                     continue
                 changed = db.execute(update(runs).where(runs.c.id == candidate["id"], runs.c.version == candidate["version"], due)
-                                     .values(status="running", attempts=candidate["attempts"] + 1,
+                                     .values(status=RUN.check(candidate["status"], "running"), attempts=candidate["attempts"] + 1,
                                              version=candidate["version"] + 1, lease_until=now + lease_s)).rowcount
                 if changed:
                     claim = {**candidate, "status": "running", "attempts": candidate["attempts"] + 1,
@@ -300,7 +318,7 @@ class TaskStore:
             task = self._require(db, claim["task_id"])
             event = dict(db.execute(select(events).where(events.c.id == claim["id"])).mappings().one())
             initial = db.execute(select(events.c.data).where(events.c.id == key(task["id"], "initial"))).scalar_one()
-            task["_agent"] = {"agent_spec": initial["agent_spec"], "agent_version": initial["agent_version"]}
+            task["_agent"] = {k: initial[k] for k in ("agent_spec", "agent_version") if k in initial}
             task["goal"] = db.execute(select(events.c.text).where(events.c.id == key(task["id"], "initial"))).scalar() or task["title"]
             # No future messages and no private chat/profile/episodic memory.
             history = db.execute(select(events).where(events.c.task_id == task["id"], events.c.seq < event["seq"])
@@ -325,7 +343,7 @@ class TaskStore:
                 self.governance.complete(db, claim, result)
             self._append(db, task, key("reply", claim["id"]), "assistant", "agent:it-copilot", "IT-Copilot",
                          result["response"], data)
-            if not db.execute(update(runs).where(self._owned(claim)).values(status="done", lease_until=None, error=None)).rowcount:
+            if not db.execute(update(runs).where(self._owned(claim)).values(status=RUN.check("running", "done"), lease_until=None, error=None)).rowcount:
                 raise LeaseLostError("事项运行提交时租约已失效")
 
     def fail(self, claim, error, *, turn_record=None):
@@ -333,7 +351,7 @@ class TaskStore:
             task = self._require(db, claim["task_id"], lock=True)
             failed = claim["attempts"] >= 3
             changed = db.execute(update(runs).where(self._owned(claim)).values(
-                status="failed" if failed else "queued", lease_until=None, error=error,
+                status=RUN.check("running", "failed" if failed else "queued"), lease_until=None, error=error,
                 not_before=self.clock() + min(30, 2 ** claim["attempts"]))).rowcount
             if changed and self.governance:
                 self.governance.complete(db, claim, error=error)

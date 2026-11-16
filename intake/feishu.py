@@ -209,7 +209,7 @@ def resolve_principal(sender: Dict[str, Any]) -> Optional[Principal]:
 
 
 def bind_workspace(resolve: Callable[[Dict[str, Any]], Optional[Principal]], registry) -> Callable[[Dict[str, Any]], Optional[Principal]]:
-    """Multi-tenant mode (ADR 0023): a mapped person counts only when the message came from the Feishu
+    """ADR 0023: a mapped person counts only when the message came from the Feishu
     workspace bound to their tenant. A mapping file entry cannot make another workspace's user ours."""
     def resolver(sender: Dict[str, Any]) -> Optional[Principal]:
         principal = resolve(sender)

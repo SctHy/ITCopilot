@@ -43,19 +43,6 @@ JOB = Protocol("coalesced_job", "idle", {
 })
 
 
-class CacheState(StrEnum):
-    MISSING = "missing"
-    FRESH = "fresh"
-    STALE = "stale"
-
-
-def cache_state(present, *, expired=False, version_matches=True):
-    """Derived state: timestamps/versions remain the sole source of truth."""
-    if not present:
-        return CacheState.MISSING
-    return CacheState.STALE if expired or not version_matches else CacheState.FRESH
-
-
 class CredentialState(StrEnum):
     MISSING = "missing"
     VALID = "valid"

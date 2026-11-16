@@ -1,6 +1,5 @@
-"""Feedback -> redacted snapshot -> two-person labels -> executable regression input."""
+"""Feedback -> redacted snapshot -> human labels -> executable regression input."""
 import asyncio
-from dataclasses import replace
 import hashlib
 import json
 import time
@@ -20,7 +19,7 @@ from evaluation.quality import quality_report
 from memory.conversation_memory import MemoryManager
 from tests.conftest import auth
 from tests.test_workflow import ALICE, BOB, ERIN
-from workflow.badcases import BadcaseConflict, BadcaseStore, requires_second
+from workflow.badcases import BadcaseConflict, BadcaseStore
 from workflow.badcase_miner import BadcaseMiner
 from workflow.store import WorkflowStore
 
@@ -137,24 +136,20 @@ def test_label_promote_and_export_are_tenant_scoped(store, db_url, monkeypatch):
     asyncio.run(run())
 
 
-def test_sampled_double_label_requires_different_people_and_reports_kappa(store):
-    rid = next(f"sample-{i}" for i in range(10000) if int(hashlib.sha256(f"sample-{i}".encode()).hexdigest(), 16) % 100 == 0 and requires_second({"source": "sampled", "request_id": f"sample-{i}"}))
+def test_one_reviewer_can_correct_and_promote_a_sampled_case(store):
+    rid = "sample-single-reviewer"
     row = turn(store.engine, rid)
     snapshot = {"snapshot_partial": False, "turn_record": row, "turns": ["VPN失败"], "response": "重试", "trace": None}
-    miner = BadcaseMiner(store.engine)
-    miner._save(row, set(), "sampled", snapshot)
+    BadcaseMiner(store.engine)._save(row, set(), "sampled", snapshot)
     case_id = hashlib.sha256(rid.encode()).hexdigest()
     cases = BadcaseStore(store.engine)
-    assert requires_second(cases.get(case_id, ALICE.tenant))
     cases.label(case_id, ERIN, label())
-    with pytest.raises(BadcaseConflict, match="第二人"):
-        cases.label(case_id, ERIN, label())
-    with pytest.raises(BadcaseConflict, match="第二人"):
-        cases.transition(case_id, ERIN, "promoted")
-    cases.label(case_id, replace(ERIN, subject="reviewer-2"), label())
+    corrected = label().model_copy(update={"note": "补充复现步骤"})
+    assert cases.label(case_id, ERIN, corrected)["label"]["note"] == "补充复现步骤"
     saved = cases.transition(case_id, ERIN, "promoted")
-    report = quality_report([row], [], [saved])
-    assert report["label_quality"]["n"] == 1 and report["label_quality"]["agreement"] == 1
+    assert export_cases([saved])[0]["turns"] == ["VPN失败"]
+    with pytest.raises(BadcaseConflict, match="终态"):
+        cases.label(case_id, ERIN, label())
 
 
 def test_missing_trace_is_partial_and_cannot_be_promoted(store):
@@ -169,11 +164,11 @@ def test_missing_trace_is_partial_and_cannot_be_promoted(store):
 
 def test_quality_metrics_do_not_invent_cost_or_small_sample_values(store):
     row = turn(store.engine, cost_usd=None)
-    report = quality_report([row], [], [])
+    report = quality_report([row], [])
     assert report["cost"]["per_turn_usd"] is None
     assert report["experience"]["negative_feedback"]["value"] is None
     assert report["experience"]["latency_ms"]["p99"] == 100
-    assert quality_report([], [], [])["experience"]["latency_ms"]["p99"] is None
+    assert quality_report([], [])["experience"]["latency_ms"]["p99"] is None
 
 
 def test_shared_task_observer_can_feedback_but_nonmembers_and_other_tenants_cannot(store, monkeypatch):
@@ -213,13 +208,6 @@ def test_miner_discovers_clarification_loops_and_rephrasing(store, db_url, monke
         assert any("rephrase" in row["signals"] for row in rows)
         await manager.close()
     asyncio.run(run())
-
-
-def test_success_sample_and_second_label_use_independent_buckets():
-    sampled = [{"request_id": f"sample-{i}", "source": "sampled"} for i in range(10000)
-        if int(hashlib.sha256(f"sample-{i}".encode()).hexdigest(), 16) % 100 == 0]
-    second = sum(requires_second(row) for row in sampled)
-    assert .05 <= second / len(sampled) <= .2
 
 
 def test_final_task_failure_record_can_be_replaced_by_authoritative_recovery(store):

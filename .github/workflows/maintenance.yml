@@ -1,0 +1,29 @@
+# Read-only inventory. Never deletes repository files or creates automatic commits.
+name: maintenance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 1 * *' # First day of each month, 10:00 Asia/Singapore.
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Review document and report inventory
+        run: |
+          mkdir -p output/dev-workflow/maintenance
+          python3 scripts/dev.py inventory > output/dev-workflow/maintenance/inventory.json
+      - run: python3 scripts/dev.py check --profile docs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maintenance-inventory
+          path: output/dev-workflow/
+          retention-days: 14
+          if-no-files-found: warn

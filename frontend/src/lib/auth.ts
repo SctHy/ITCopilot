@@ -92,32 +92,50 @@ export async function startOidcLogin(config: OidcConfig): Promise<void> {
   const { issuer, clientId } = requireOidc(config)
   const { verifier, challenge } = await pkcePair()
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)))
-  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, issuer, clientId }))
-  window.location.assign(authorizeUrl({ issuer, clientId, redirectUri: redirectUri(), challenge, state }))
+  const callbackUri = redirectUri()
+  const destination = new URL(`${callbackUri}${window.location.search}${window.location.hash}`)
+  for (const key of ['code', 'state', 'session_state', 'iss', 'error', 'error_description']) destination.searchParams.delete(key)
+  const returnTo = destination.pathname + destination.search + destination.hash
+  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, issuer, clientId, redirectUri: callbackUri, returnTo }))
+  window.location.assign(authorizeUrl({ issuer, clientId, redirectUri: callbackUri, challenge, state }))
 }
 
 // 回调页：校验 state，用 code + verifier 换取令牌，并从地址栏移除 code。
 export async function completeOidcLogin(): Promise<string> {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code')
-  if (!code) return ''
+  const denied = params.get('error')
+  if (!code && !denied) return ''
+  const callbackUri = redirectUri()
   const flow = machine(LOGIN, 'callback')
   try {
     const pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null')
     sessionStorage.removeItem(PKCE_KEY)
-    window.history.replaceState({}, '', redirectUri())
+    window.history.replaceState(window.history.state, '', callbackUri)
     if (!pending || pending.state !== params.get('state')) throw new Error('登录状态校验失败，请重新登录')
+    if (pending.redirectUri && pending.redirectUri !== callbackUri) throw new Error('登录回调地址不匹配，请重新登录')
+    if (denied) throw new Error(`身份提供方拒绝登录：${params.get('error_description') || denied}`)
+    if (!code) throw new Error('登录回调缺少授权码，请重新登录')
     flow.send('validate')
     const response = await fetch(`${pending.issuer.replace(/\/+$/, '')}/protocol/openid-connect/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), client_id: pending.clientId, code_verifier: pending.verifier }),
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUri, client_id: pending.clientId, code_verifier: pending.verifier }),
     })
     if (!response.ok) throw new Error(`登录失败：${response.status}`)
     const token = (await response.json()).access_token
     if (typeof token !== 'string' || !token) throw new Error('登录响应缺少访问令牌')
     flow.send('token')
     storeToken(token)
+    // Restore the original task/page only after the PKCE exchange. Never navigate to another origin.
+    if (typeof pending.returnTo === 'string') {
+      try {
+        const destination = new URL(pending.returnTo, window.location.origin)
+        if (destination.origin === window.location.origin) {
+          window.history.replaceState(window.history.state, '', destination.pathname + destination.search + destination.hash)
+        }
+      } catch { /* Ignore malformed saved destinations; keep the callback page. */ }
+    }
     return token
   } catch (error) {
     if (flow.state !== 'authenticated') flow.send('fail')

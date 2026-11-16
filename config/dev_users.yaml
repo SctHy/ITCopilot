@@ -25,7 +25,7 @@ users:
   - username: erin
     employee_id: "9001"
     department: it
-    roles: [employee, it_admin]
+    roles: [employee, it_admin, platform_admin]   # the operator: deployment-wide operations (ADR 0025)
   - username: grace
     employee_id: "9002"
     department: security

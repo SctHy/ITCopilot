@@ -24,9 +24,9 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from sqlalchemy import and_, false, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from core import db as schema
+from core import db as schema, fair_queue
 from core.tenant_context import require_tenant, tenant_scope
-from core.tenancy import DEFAULT_TENANT, multi_tenant_enabled
+from core.tenancy import DEFAULT_TENANT
 from core.db import (
     tenants,
     access_grants,
@@ -131,19 +131,12 @@ class WorkflowStore:
         self.notify = notify
         self.shared_access = None
         self.shared_filter = None
-        # Multi-tenant mode: the worker does not claim actions of tenants that are not active.
-        self.active_tenants_only = multi_tenant_enabled()
         self._seed()
 
     @property
     def policy(self) -> AccessPolicy:
-        """The injected policy, or the platform base policy as it is now (edits apply without restart)."""
+        """The injected policy, or the policy file as it is now (edits apply without restart)."""
         return self._policy or load_policy()
-
-    def policy_for(self, tenant: Optional[str]) -> AccessPolicy:
-        """The policy that governs ``tenant``'s requests: the base narrowed by its overlay (ADR 0025).
-        Every decision about an approval or grant uses the policy of the tenant that owns it."""
-        return self._policy or load_policy(tenant)
 
     @policy.setter
     def policy(self, value: AccessPolicy) -> None:
@@ -237,7 +230,7 @@ class WorkflowStore:
         immutable ``created`` audit entry, outside the hash."""
         if not action_requests:
             raise ValueError("审批必须包含冻结的工具名称和参数")
-        policy = self.policy_for(principal.tenant)
+        policy = self.policy
         frozen_actions = [policy.normalise(a) for a in action_requests]
         for action in frozen_actions:
             policy.check_requester(action, principal.employee_id, principal.roles)
@@ -344,7 +337,7 @@ class WorkflowStore:
             requester_employee_id=row["requester_employee_id"], department=row["department"], tenant=row["tenant"],
             status=row["status"], execution=Execution.NOT_EXECUTED,
             payload_hash=hashlib.sha256(canonical(frozen).encode()).hexdigest(), policy_version=row["policy_version"],
-            approvals_required=max(self.policy_for(row["tenant"]).requirement(a).approvals for a in rest), payload=payload, version=0,
+            approvals_required=max(self.policy.requirement(a).approvals for a in rest), payload=payload, version=0,
             created_at=now, expires_at=row["expires_at"], confirmed_at=row["confirmed_at"],
         ))
         self._audit(db, rest_id, "created", row["requester"], detail={"carried_from": row["id"], "by": by,
@@ -359,6 +352,27 @@ class WorkflowStore:
             decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id).order_by(approval_decisions.c.id)).mappings().all()
             rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
             return self._body(row, decisions, rows, self._open_resources(db, row["tenant"]))
+
+    def get_many(self, approval_ids):
+        """Read complete approval views in one snapshot, sharing conflict lookup per tenant."""
+        ids = list(dict.fromkeys(approval_ids))
+        if not ids:
+            return []
+        with schema.read(self.engine) as db:
+            rows = db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings().all()
+            decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
+                                   .order_by(approval_decisions.c.id)).mappings().all()
+            operations = db.execute(select(actions).where(actions.c.approval_id.in_(ids))
+                                    .order_by(actions.c.seq)).mappings().all()
+            conflicts = {tenant: self._open_resources(db, tenant) for tenant in {r['tenant'] for r in rows}}
+            by_id = {r['id']: r for r in rows}
+            grouped_decisions, grouped_operations = {}, {}
+            for item in decisions:
+                grouped_decisions.setdefault(item['approval_id'], []).append(item)
+            for item in operations:
+                grouped_operations.setdefault(item['approval_id'], []).append(item)
+            return [self._body(by_id[i], grouped_decisions.get(i, []), grouped_operations.get(i, []),
+                               conflicts[by_id[i]['tenant']]) for i in ids if i in by_id]
 
     def _body(self, row, decisions, rows, open_resources) -> Dict[str, Any]:
         payload = dict(row["payload"])
@@ -417,7 +431,7 @@ class WorkflowStore:
 
     def list(self, principal: Principal, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         private_scope = or_(approvals.c.requester == principal.subject, principal.can_read_all,
-            bool(self.policy_for(principal.tenant).approver_roles.intersection(principal.roles)))
+            bool(self.policy.approver_roles.intersection(principal.roles)))
         shared_scope = and_(approvals.c.tenant == principal.tenant,
             or_(approvals.c.requester == principal.subject, principal.is_admin))
         if self.shared_filter:
@@ -450,7 +464,7 @@ class WorkflowStore:
         if body["status"] == ApprovalStatus.DRAFT:  # not yet submitted: the requester's own business
             return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all)
         return self._shared_scope(body, principal) and (body["requester"] == principal.subject or principal.can_read_all
-                or bool(self.policy_for(principal.tenant).approver_roles.intersection(principal.roles)))
+                or bool(self.policy.approver_roles.intersection(principal.roles)))
 
     def _shared_scope(self, row, principal, db=None, decision=False):
         if row.get('tenant') != principal.tenant:
@@ -484,7 +498,7 @@ class WorkflowStore:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return False
-            if not self.policy_for(principal.tenant).approver_roles.intersection(principal.roles):
+            if not self.policy.approver_roles.intersection(principal.roles):
                 raise ApprovalForbidden("当前身份没有审批权限")
             if not self._shared_scope(row, principal, db, decision=True):
                 raise ApprovalForbidden("无权处理该审批")
@@ -497,7 +511,7 @@ class WorkflowStore:
             if now >= row["expires_at"]:
                 self._expire(db, row, now)
                 return True
-            if row["policy_version"] != self.policy_for(row["tenant"]).version:
+            if row["policy_version"] != self.policy.version:
                 # Frozen under an older policy: re-check before any vote counts.
                 row = self._revalidate_pending(db, row, now)
                 if row is None:
@@ -604,16 +618,36 @@ class WorkflowStore:
             if now >= row["expires_at"]:
                 self._expire(db, row, now)
                 return True
-            if row["policy_version"] != self.policy_for(row["tenant"]).version:
+            if row["policy_version"] != self.policy.version:
                 row = self._revalidate_pending(db, row, now)
                 if row is None:
                     return True
             self._cas(db, row, status=ApprovalStatus.PENDING, confirmed_at=now,
-                      expires_at=now + self.policy_for(row["tenant"]).approval_ttl_hours * 3600)
+                      expires_at=now + self.policy.approval_ttl_hours * 3600)
             self._audit(db, approval_id, "confirmed", principal.subject, detail={"via": "card" if payload_hash else "message"})
             self._supersede(db, approval_id, row["conv_id"], row["requester"], row["tenant"], row["payload"]["action_requests"], now)
             self._notify(db, approval_id, "confirmed")
         return True
+
+    def conversation_approvals(self, principal: Principal, conv_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Latest persisted states for this caller's requests in this conversation."""
+        if not conv_id:
+            return []
+        with schema.read(self.engine) as db:
+            rows = db.execute(select(approvals).where(
+                approvals.c.tenant == principal.tenant, approvals.c.requester == principal.subject,
+                approvals.c.conv_id == conv_id,
+            ).order_by(approvals.c.created_at.desc(), approvals.c.id).limit(limit)).mappings().all()
+            grants = db.execute(select(access_grants).where(
+                access_grants.c.tenant == principal.tenant,
+                access_grants.c.approval_id.in_([row["id"] for row in rows]),
+            )).mappings().all() if rows else []
+        return [{"approval_id": row["id"], "status": row["status"], "execution": row["execution"],
+                 "grants": [{k: g[k] for k in ("system", "role", "status", "baseline_role", "expires_at")}
+                            for g in grants if g["approval_id"] == row["id"]],
+                 "confirmed_at": row["confirmed_at"], "approvals_required": row["approvals_required"],
+                 "actions": [a["tool_name"] for a in row["payload"]["action_requests"]],
+                 "summary": _describe(row["payload"]["action_requests"])} for row in rows]
 
     def drafts(self, principal: Principal, conv_id: str) -> List[Dict[str, Any]]:
         """This requester's unconfirmed, unexpired drafts in one conversation, oldest first."""
@@ -699,21 +733,13 @@ class WorkflowStore:
     # Loosening never widens frozen work: quorums only go up and expiries only move earlier.
 
     def revalidate(self, tenant: Optional[str] = None) -> Dict[str, Any]:
-        """Re-check open work against the current policy of the tenant that owns it (ADR 0025).
-        ``tenant`` limits the sweep to one tenant; None sweeps every tenant with open work."""
-        now = self.clock()
-        report: Dict[str, Any] = {"policy_version": self.policy_for(tenant).version, "invalidated": [], "quorum_raised": [], "cancelled": [],
+        """Re-check open work against the current policy; ``tenant`` limits the sweep to one tenant."""
+        policy, now = self.policy, self.clock()
+        report: Dict[str, Any] = {"policy_version": policy.version, "invalidated": [], "quorum_raised": [], "cancelled": [],
                                   "grants_revoked": [], "grants_shortened": []}
-        with schema.read(self.engine) as db:
-            owners = [tenant] if tenant else sorted(set(db.execute(select(approvals.c.tenant).where(
-                approvals.c.status.in_((*OPEN, ApprovalStatus.APPROVED)))).scalars()) | set(db.execute(
-                select(access_grants.c.tenant).where(access_grants.c.status == GrantStatus.ACTIVE)).scalars()))
-        for owner in owners:
-            self._revalidate_tenant(owner, self.policy_for(owner), now, report)
-        return report
-
-    def _revalidate_tenant(self, tenant: str, policy: AccessPolicy, now: float, report: Dict[str, Any]) -> None:
-        stale = and_(approvals.c.tenant == tenant, approvals.c.policy_version != policy.version)
+        stale = approvals.c.policy_version != policy.version
+        if tenant is not None:
+            stale = and_(stale, approvals.c.tenant == tenant)
         with schema.read(self.engine) as db:
             pending = db.execute(select(approvals.c.id).where(stale, approvals.c.status.in_(OPEN))).scalars().all()
             queued = db.execute(select(approvals.c.id).where(stale, approvals.c.status == ApprovalStatus.APPROVED,
@@ -743,10 +769,11 @@ class WorkflowStore:
                 outcome = self._recheck_grant(db, grant_id, now)
                 if outcome:
                     report[outcome].append(grant_id)
+        return report
 
     def _revalidate_pending(self, db, row, now):
         """Returns the refreshed row, or None when the approval was invalidated."""
-        policy = self.policy_for(row["tenant"])
+        policy = self.policy
         frozen = row["payload"]["action_requests"]
         reason = policy.still_allows(frozen, self._requester(row))
         if reason:
@@ -763,7 +790,7 @@ class WorkflowStore:
 
     def _cancel_if_disallowed(self, db, approval_id: str, now: float) -> bool:
         row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-        policy = self.policy_for(row["tenant"])
+        policy = self.policy
         reason = policy.still_allows(row["payload"]["action_requests"], self._requester(row))
         if not reason:
             return False
@@ -781,7 +808,7 @@ class WorkflowStore:
         grant = db.execute(select(access_grants).where(access_grants.c.action_id == grant_id)).mappings().first()
         if grant["status"] != GrantStatus.ACTIVE or not grant["revoke_action_id"]:
             return None
-        policy = self.policy_for(grant["tenant"])
+        policy = self.policy
         max_hours = policy.max_hours(grant["system"], grant["role"])
         approval = db.execute(select(approvals).where(approvals.c.id == grant["approval_id"])).mappings().first()
         if max_hours is None or not self._may_have_filed(grant["employee_id"], approval):
@@ -808,27 +835,24 @@ class WorkflowStore:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
         if not row:
             return None
-        policy = self.policy_for(row["tenant"])
+        policy = self.policy
         if row["policy_version"] == policy.version:
             return None
         return policy.still_allows(row["payload"]["action_requests"], self._requester(row))
 
     def _may_have_filed(self, employee_id: str, approval) -> bool:
         """Whether the current policy still lets the original requester file for this employee."""
-        requester = self._requester(approval) if approval else None
-        if requester is None:
-            return True
+        requester = self._requester(approval)
         try:
-            self.policy_for(approval["tenant"]).check_requester({"arguments": {"employee_id": employee_id}}, *requester)
+            self.policy.check_requester({"arguments": {"employee_id": employee_id}}, *requester)
         except PolicyViolation:
             return False
         return True
 
     @staticmethod
-    def _requester(row) -> Optional[tuple]:
-        """(employee_id, roles) snapshotted at filing; None for approvals created before the snapshot."""
-        roles = (row["payload"] or {}).get("requester_roles")
-        return None if roles is None else (row["requester_employee_id"], frozenset(roles))
+    def _requester(row) -> tuple:
+        """Required server-derived identity snapshot; malformed approvals cannot bypass policy."""
+        return row["requester_employee_id"], frozenset(row["payload"]["requester_roles"])
 
     @staticmethod
     def _cas(db, row, **values) -> None:
@@ -907,7 +931,10 @@ class WorkflowStore:
 
     # ── Worker side ─────────────────────────────────────────────────────────
 
-    def claim(self, worker_id: str, lease_s: float, limit: int = 10, *, exclude_ids=()) -> List[Dict[str, Any]]:
+    def claim(self, worker_id: str, lease_s: float, limit: int = 10, *, exclude_ids=(),
+              after_tenant: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lease due actions. Tenants are served in turn (``core.fair_queue``, ADR 0035); ``after_tenant``
+        is the tenant the caller served last."""
         now = self.clock()
         due = or_(and_(actions.c.status.in_((ActionStatus.QUEUED, ActionStatus.UNKNOWN)), actions.c.not_before <= now),
                   and_(actions.c.status == ActionStatus.EXECUTING, actions.c.lease_until < now))
@@ -931,14 +958,17 @@ class WorkflowStore:
         due = and_(due, or_(and_(actions.c.status == ActionStatus.QUEUED, ~reserved),
             and_(actions.c.status == ActionStatus.UNKNOWN, ~recovery_blocked),
             and_(actions.c.status == ActionStatus.EXECUTING, ~manual_blocked)))
-        if self.active_tenants_only:
-            # Multi-tenant mode (ADR 0023): a suspended or offboarding tenant's actions wait, unclaimed,
-            # until it is active again; nothing is cancelled and the queue order is kept.
-            due = and_(due, actions.c.tenant.in_(select(tenants.c.id).where(tenants.c.status == "active")))
+        # Suspension stops new grants, not expiry/compensation of existing grants.
+        due = and_(due, or_(actions.c.kind == "revoke",
+            actions.c.tenant.not_in(select(tenants.c.id).where(tenants.c.status != "active"))))
+        ranked = select(actions, fair_queue.tenant_rank(actions.c.tenant, actions.c.not_before, actions.c.seq)).where(
+            due, actions.c.id.not_in(exclude_ids)).subquery()
         with schema.read(self.engine) as db:
-            candidates = db.execute(select(actions).where(due, actions.c.id.not_in(exclude_ids)).order_by(actions.c.not_before, actions.c.seq).limit(limit * 4)).mappings().all()
+            candidates = db.execute(select(ranked).where(ranked.c.tenant_rank <= limit * 4)
+                                    .order_by(ranked.c.tenant_rank, ranked.c.not_before, ranked.c.seq).limit(limit * 4)).mappings().all()
         claimed = []
-        for row in candidates:
+        for row in fair_queue.rotate(candidates, after_tenant):
+            row = fair_queue.strip_rank(row)
             if work_phase(row, now) not in {WorkPhase.READY, WorkPhase.RECLAIMABLE}:
                 continue
             if len(claimed) >= limit:

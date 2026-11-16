@@ -2,13 +2,22 @@
 
 集中在一个模块里，测试与评测脚本替换组件时只需 ``monkeypatch.setattr(state, "workflow", ...)``。
 """
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from workflow.store import WorkflowStore
+    from workflow.tasks import TaskStore
+    from workflow.task_capabilities import TaskCapabilities
+    from workflow.task_worker import TaskWorker
+    from workflow.task_events import TaskEventPump
+    from workflow.worker import ExecutionWorker
 
 from core.events import InMemoryEventBus
 
 lifecycle: Any = None
 agent_registry: Any = None
-agent_rollouts: Any = None
 orchestrator: Any = None
 memory: Any = None              # MemoryManager；Redis 不可用且显式允许降级时为 None
 tool_manager: Any = None
@@ -18,16 +27,16 @@ profile_updater: Any = None
 tracing: Any = None
 monitor: Any = None
 mcp_client: Any = None
-workflow: Any = None            # WorkflowStore：审批与执行状态的唯一来源
-worker: Any = None
-tasks: Any = None               # shared service rooms, distinct from private conversations
-task_worker: Any = None
-task_event_pump: Any = None
+workflow: WorkflowStore | None = None            # WorkflowStore：审批与执行状态的唯一来源
+worker: ExecutionWorker | None = None
+tasks: TaskStore | None = None               # shared service rooms, distinct from private conversations
+task_worker: TaskWorker | None = None
+task_event_pump: TaskEventPump | None = None
 retention: Any = None          # core.retention.RetentionSweeper
 sessions: Any = None           # core.session_revocation.SessionRevocations；None 时不检查吊销
 tenants: Any = None            # core.tenancy.TenantRegistry；None 时不检查租户（多租户开关关闭）
 rate_limiter: Any = None       # core.rate_limit；None 表示不限流（单元测试默认）
-task_capabilities: Any = None
+task_capabilities: TaskCapabilities | None = None
 registry: Any = None
 channels: Optional[Any] = None  # IM 渠道服务（配置 FEISHU_APP_ID 时启用）
 feishu: Optional[Any] = None    # FeishuClient

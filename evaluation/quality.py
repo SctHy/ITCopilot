@@ -15,18 +15,7 @@ def quantiles(values):
     return {f"p{int(q * 100)}": percentile(values, q) for q in (.5, .9, .95, .99)}
 
 
-def cohen_kappa(cases):
-    pairs = [(r["label"]["root_cause"], r["second_label"]["root_cause"]) for r in cases if r["second_label"] is not None]
-    n = len(pairs)
-    if not n:
-        return {"n": 0, "kappa": None}
-    first, second = Counter(a for a, _ in pairs), Counter(b for _, b in pairs)
-    observed = sum(a == b for a, b in pairs) / n
-    expected = sum(first[k] * second[k] for k in first) / (n * n)
-    return {"n": n, "agreement": observed, "kappa": (observed - expected) / (1 - expected) if expected < 1 else None}
-
-
-def quality_report(rows, feedback, cases, *, verifications=(), approvals=(), task_events=(), unauthorized_writes=0, offline_reports=()):
+def quality_report(rows, feedback, *, verifications=(), approvals=(), task_events=(), unauthorized_writes=0, offline_reports=()):
     n = len(rows)
     signal = lambda name: sum(name in r["signals"] for r in rows)
     write_rows = [r for r in rows if r["quality"].get("write_turn")]
@@ -86,7 +75,6 @@ def quality_report(rows, feedback, cases, *, verifications=(), approvals=(), tas
         "stability": {"versions": {version: {"n": len(group), "success_rate": sum(turn_outcome(r) == "success" for r in group) / len(group),
             "wilson_95": wilson(sum(turn_outcome(r) == "success" for r in group), len(group))}
             for version, group in _by_version(rows).items()}, "version_differences": _version_differences(rows), "offline_pass_k": list(offline_reports)},
-        "label_quality": cohen_kappa(cases),
     }
 
 

@@ -8,6 +8,8 @@ What is swept, and why it is safe:
   it produced is still open (draft, pending, or approved and not finished executing).
 - ``channel_outbox`` rows that are ``sent`` / ``dropped``. Delivery order only matters among
   rows still waiting, and a notice is queued once, in the transaction that settled it.
+- ``conversation_messages`` / ``conversations`` (private web chat history, already redacted) older
+  than ``history_days``: messages by their own time, conversations by their last activity.
 - ``vector_documents`` in the ``episodic`` collection (past conversation turns recalled into
   later prompts). The user profile collection is merged in place and is not swept.
 
@@ -31,7 +33,7 @@ from typing import Callable, Dict, Optional
 
 from sqlalchemy import and_, delete, exists, or_, select
 
-from core.db import approvals, channel_inbox, channel_outbox, vector_documents, turn_records
+from core.db import approvals, channel_inbox, channel_outbox, conversation_messages, conversations, vector_documents, turn_records
 from core.env import env_float
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class RetentionPolicy:
     channel_days: Optional[float] = 30.0     # None: keep forever
     episodic_days: Optional[float] = 90.0
     turn_days: Optional[float] = 90.0
+    history_days: Optional[float] = 90.0
     batch: int = 500
 
     @classmethod
@@ -60,7 +63,8 @@ class RetentionPolicy:
             raise ValueError("IT_COPILOT_RETENTION_TURN_DAYS must be a finite nonnegative number")
         return cls(channel_days=days("IT_COPILOT_RETENTION_CHANNEL_DAYS", 30.0),
                    episodic_days=days("IT_COPILOT_RETENTION_EPISODIC_DAYS", 90.0),
-                   turn_days=raw_turn_days if raw_turn_days > 0 else None)
+                   turn_days=raw_turn_days if raw_turn_days > 0 else None,
+                   history_days=days("IT_COPILOT_RETENTION_HISTORY_DAYS", 90.0))
 
 
 def _open_approval_for(request_id_column):
@@ -92,6 +96,11 @@ class RetentionSweeper:
         if self.policy.turn_days:
             report["turn_records"] = self._drain(turn_records, turn_records.c.request_id,
                 turn_records.c.created_at < now - self.policy.turn_days * DAY)
+        if self.policy.history_days:
+            cutoff = now - self.policy.history_days * DAY
+            report["chat_history"] = self._drain(conversation_messages, conversation_messages.c.id,
+                conversation_messages.c.created_at < cutoff)
+            report["chat_conversations"] = self._drain_conversations(conversations.c.updated_at < cutoff)
         if any(report.values()):
             from monitor import metrics
             for kind, count in report.items():
@@ -114,10 +123,26 @@ class RetentionSweeper:
             if len(ids) < self.policy.batch:
                 return total
 
+    def _drain_conversations(self, condition) -> int:
+        # Composite key: delete one bounded batch at a time, re-checking the condition so a conversation
+        # that received a new message since the select is kept.
+        total = 0
+        while True:
+            with self.engine.begin() as db:
+                keys = db.execute(select(conversations.c.tenant, conversations.c.owner, conversations.c.conv_id)
+                                  .where(condition).limit(self.policy.batch)).all()
+                for tenant, owner, conv_id in keys:
+                    total += db.execute(delete(conversations).where(
+                        conversations.c.tenant == tenant, conversations.c.owner == owner,
+                        conversations.c.conv_id == conv_id, condition)).rowcount or 0
+            if len(keys) < self.policy.batch:
+                return total
+
     # ── background loop ──────────────────────────────────────────────────
 
     def start(self) -> None:
-        if self._task is None and (self.policy.channel_days or self.policy.episodic_days or self.policy.turn_days):
+        if self._task is None and (self.policy.channel_days or self.policy.episodic_days or self.policy.turn_days
+                                   or self.policy.history_days):
             self._task = asyncio.create_task(self._loop(), name="retention-sweeper")
 
     async def stop(self) -> None:

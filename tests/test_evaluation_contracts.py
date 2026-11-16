@@ -39,5 +39,8 @@ def test_offline_application_isolates_channels_and_all_model_paths(monkeypatch):
             assert state.tool_manager._jev is None
             assert state.orchestrator._intent_recognizer.llm is model
             assert state.orchestrator.agent._llm is model
+            assert state.tool_manager._llm is model
+            assert state.task_worker.handle.advisor.model is model
+            assert state.memory._llm is model
 
     asyncio.run(run())

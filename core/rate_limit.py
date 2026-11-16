@@ -91,8 +91,9 @@ class MemoryRateLimiter:
         self._tat: Dict[str, float] = {}
         self._lock = asyncio.Lock()
 
-    async def check(self, bucket: str, scope_key: str) -> Decision:
-        rule = self.rules.get(bucket)
+    async def check(self, bucket: str, scope_key: str, rule: Optional[RateRule] = None) -> Decision:
+        """``rule`` overrides the bucket's configured rule (per-tenant quotas, ADR 0035)."""
+        rule = rule or self.rules.get(bucket)
         if rule is None:
             return Decision(True)
         key = f"{bucket}:{scope_key}"
@@ -111,8 +112,8 @@ class RedisRateLimiter:
         self.redis, self.rules, self.prefix = redis, rules, prefix
         self._script = redis.register_script(_LUA)
 
-    async def check(self, bucket: str, scope_key: str) -> Decision:
-        rule = self.rules.get(bucket)
+    async def check(self, bucket: str, scope_key: str, rule: Optional[RateRule] = None) -> Decision:
+        rule = rule or self.rules.get(bucket)
         if rule is None:
             return Decision(True)
         try:
@@ -126,6 +127,8 @@ class RedisRateLimiter:
 # Requests that start model work share one budget per identity: /chat, /chat/stream,
 # shared-task messages that ask the agent, and IM messages.
 AGENT_TURN = "agent_turn"
+# The same requests counted for the whole tenant; its rule comes from the tenant's quotas (core.quotas).
+TENANT_AGENT_TURN = "agent_turn:tenant"
 DEFAULT_RULES = {AGENT_TURN: RateRule(30, 60.0)}
 
 

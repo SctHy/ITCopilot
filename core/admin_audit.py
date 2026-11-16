@@ -14,7 +14,7 @@ which ``recent`` reports as ``interrupted`` once it is older than ``INTERRUPTED_
 ``recent`` lists succeeded and interrupted changes; failed attempts are kept but only listed
 when asked for (``outcome="failed"``), so a refused or no-op request does not read as a change.
 
-Entries are never updated or deleted (database triggers, migration 0002), and the retention
+Entries are never updated or deleted (database triggers, current baseline), and the retention
 sweep does not touch them. Policy changes are global and recorded under tenant ``*``, which
 every tenant's admins see.
 """
@@ -84,7 +84,7 @@ def recent(engine, tenant: str, *, limit: int = 100, before: Optional[int] = Non
     closing = aliased(admin_audit)
     closed = exists().where(closing.c.ref == admin_audit.c.id)
     stale = (now or time.time()) - INTERRUPTED_AFTER_S
-    succeeded = or_(admin_audit.c.outcome.is_(None), admin_audit.c.outcome == "succeeded")
+    succeeded = admin_audit.c.outcome == "succeeded"
     interrupted = and_(admin_audit.c.outcome == "started", admin_audit.c.at <= stale, ~closed)
     shown = {"succeeded": succeeded, "failed": admin_audit.c.outcome == "failed", "interrupted": interrupted,
              None: or_(succeeded, interrupted)}[outcome]
@@ -96,5 +96,5 @@ def recent(engine, tenant: str, *, limit: int = 100, before: Optional[int] = Non
     with schema.read(engine) as db:
         rows = db.execute(query.order_by(admin_audit.c.id.desc()).limit(limit)).mappings().all()
     return [{"id": r["id"], "actor": r["actor"], "event": r["event"], "subject": r["subject"], "detail": r["detail"],
-             "at": r["at"], "outcome": "interrupted" if r["outcome"] == "started" else (r["outcome"] or "succeeded"),
+             "at": r["at"], "outcome": "interrupted" if r["outcome"] == "started" else r["outcome"],
              "global": r["tenant"] == GLOBAL_TENANT} for r in rows]

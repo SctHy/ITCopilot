@@ -2,7 +2,7 @@
 import asyncio
 import logging
 
-from agents.types import TaskTurnFailed
+from workflow.task_ports import TaskTurnFailed
 from core.concurrency import LeaseLostError, run_leased
 from core.protocols import SERVICE
 from core.tenant_context import tenant_scope
@@ -15,6 +15,8 @@ class TaskWorker:
         self.store, self.handle = store, handle
         self.concurrency, self.poll_s = concurrency, poll_s
         self.lease_s, self.timeout_s = lease_s, timeout_s
+        # Tenants take turns (ADR 0035); the loops share the cursor, so rotation spans all of them.
+        self._last_tenant = None
         self.lifecycle = SERVICE.start()
         self._workers = []
         self._wake = asyncio.Event()
@@ -52,9 +54,10 @@ class TaskWorker:
                 pass
 
     async def run_once(self):
-        claim = await asyncio.to_thread(self.store.claim, self.lease_s)
+        claim = await asyncio.to_thread(self.store.claim, self.lease_s, after_tenant=self._last_tenant)
         if not claim:
             return False
+        self._last_tenant = claim["tenant"]
 
         async def operation():
             try:

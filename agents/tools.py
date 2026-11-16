@@ -67,7 +67,7 @@ def _pending(req, args, action):
     principal = getattr(req, "principal", None)
     if action == "create_ticket" and not args.get("employee_id"):
         args["employee_id"] = (principal.employee_id if principal else None) or next(iter(req.entities.get("employee_id", [])), "")
-    policy = load_policy(getattr(principal, "tenant", None))  # the caller's tenant overlay (ADR 0025)
+    policy = load_policy()
     normalised = policy.normalise({"tool_name": action, "arguments": args})
     if principal is not None:
         policy.check_requester(normalised, principal.employee_id, principal.roles)
@@ -140,7 +140,7 @@ def agent_tools(directory=lambda: None) -> ToolSet:
     """directory：返回台账读模型（WorkflowStore）的函数；运行时装配完成后才有值。"""
     access_schema = {**_strings("employee_id", "reason"),
         "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
-        "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "不得把管理员等其他角色换成这里的角色"},
+        "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "readonly 表示只读。候选角色是否适用于该系统由工具实时策略校验，SOP 举例不是完整角色列表；不得把管理员等其他角色换成这里的角色"},
         "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "有效期（小时）；用户没说就省略"}}
     tools = _toolset(
         make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001；不传 asset_id 时列出本人名下全部设备。",

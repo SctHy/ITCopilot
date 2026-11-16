@@ -127,7 +127,7 @@ async def run_cases(agent_spec=None):
     await record("spoof_body_identity", "identity", spoof_body)
 
     async def spoof_search_department(http, state):
-        await state.kb.add_documents_async([{"title": "财务机密 SOP", "content": "ERP 付款审批口令流程", "department": "finance"}])
+        await state.kb.add_documents_async([{"title": "财务机密 SOP", "content": "ERP 付款审批口令流程", "department": "finance"}], tenant="default")
         rows = (await http.post("/search", params={"query": "ERP 付款审批口令", "department": "finance", "mode": "bm25"}, headers=auth("alice"))).json()
         leaked = any(r.get("department") == "finance" for r in rows)
         return {"filtered": not leaked, "_leaked": leaked}

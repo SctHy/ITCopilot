@@ -185,13 +185,16 @@ export interface TaskQuery { q: string; status: string; archived: boolean; categ
 // ---- Shared-task workspace (workflow/task_capabilities.py `workspace`) ----
 
 export interface TaskMember { subject: string; role: 'collaborator' | 'observer' | 'revoked' | (string & {}); profile: { username: string } }
-export interface DirectoryPerson { subject: string; username: string; department: string; roles: string[] }
+export interface DirectoryPerson { subject: string; username: string; employee_id?: string; department: string; roles: string[] }
 export interface TaskFile { id: string; name: string; size: number }
 export interface TaskTodo { id: string; question: string; assignee: string; creator: string; status: 'open' | 'answered' | 'cancelled' | (string & {}); due_at?: number | null; answer?: string }
 export interface TaskReminder { id: string; text: string; due_at: number; status: 'pending' | 'fired' | 'cancelled' | (string & {}) }
 export interface ProgressStep { title: string; status: 'todo' | 'working' | 'done' | (string & {}); evidence_ids: string[] }
 export interface TaskProgress { version: number; goal: string; steps: ProgressStep[]; blocker?: string; next_action?: string; resolution?: string }
-export interface TaskSuggestion { id: string; status: 'pending' | 'accepted' | 'dismissed' | (string & {}); base_version: number; payload: TaskProgress }
+export interface TaskSuggestion { id: string; status: 'pending' | 'accepted' | 'dismissed' | 'superseded' | (string & {}); base_version: number; payload: TaskProgress }
+export interface TaskBriefSource { event_id: string; quote: string; actor_name?: string; kind?: string; created_at?: number }
+export interface TaskBriefItem { text: string; sources: TaskBriefSource[] }
+export interface TaskBrief { reported: TaskBriefItem[]; hypotheses: TaskBriefItem[]; questions: TaskBriefItem[]; answered?: TaskBriefItem[]; origin?: TaskBriefSource; event_id: string; updated_at: number; through_seq?: number }
 export interface AccessCheck { kind?: string; system: string; role: string }
 export type GoalCheck = AccessCheck | { kind: 'device_locked'; device_id: string } | { kind: 'ticket_open'; ticket_id: string }
 export interface VerificationRecord {
@@ -219,6 +222,7 @@ export interface TaskNotifications {
   deliveries: { id: string; channel: string; status: string; attempts: number; error?: string | null }[]
 }
 export interface TaskWorkspaceData {
+  brief?: TaskBrief | null
   verification?: TaskVerification | null
   checkpoints?: TaskCheckpoint[]
   progress: TaskProgress

@@ -1,0 +1,2 @@
+# Optional public-corpus reader; not a production runtime dependency.
+pyarrow==26.0.1

@@ -37,7 +37,6 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import TypeDecorator
 
-from core.tenant_context import current_tenant
 
 metadata = MetaData()
 
@@ -107,7 +106,7 @@ approvals = Table(
     Column("request_id", String(200), nullable=False),
     Column("conv_id", String(200)),
     Column("requester", String(200), nullable=False),          # Principal.subject
-    Column("requester_name", String(200)),                     # display only (migration 0002)
+    Column("requester_name", String(200)),                     # display only
     Column("requester_employee_id", String(64)),
     Column("department", String(80)),
     Column("tenant", String(80), nullable=False, default="default"),
@@ -121,16 +120,19 @@ approvals = Table(
     Column("created_at", Float, nullable=False),
     Column("expires_at", Float, nullable=False),
     Column("decided_at", Float),
-    Column("confirmed_at", Float),                              # requester confirmed the draft (migration 0002)
+    Column("confirmed_at", Float),                              # requester confirmed the draft
 )
+
+Index("ix_approvals_conversation", approvals.c.tenant, approvals.c.requester, approvals.c.conv_id,
+      approvals.c.created_at.desc(), approvals.c.id)
 
 approval_decisions = Table(
     "approval_decisions", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
+    Column("tenant", String(80), nullable=False),               # copied from the approval
     Column("approval_id", String(200), nullable=False),
     Column("actor", String(200), nullable=False),
-    Column("actor_name", String(200)),                         # display only (migration 0002)
+    Column("actor_name", String(200)),                         # display only
     Column("decision", String(20), nullable=False),
     Column("at", Float, nullable=False),
     UniqueConstraint("approval_id", "actor", name="uq_decision_actor"),
@@ -141,7 +143,7 @@ approval_decisions = Table(
 actions = Table(
     "actions", metadata,
     Column("id", String(64), primary_key=True),                 # idempotency key passed to adapters
-    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
+    Column("tenant", String(80), nullable=False),               # copied from the approval
     Column("approval_id", String(200), nullable=False),
     Column("seq", Integer, nullable=False),
     Column("kind", String(20), nullable=False),                 # apply / revoke / compensate
@@ -171,7 +173,7 @@ Index("uq_actions_resource_executing", actions.c.resource_key, unique=True,
 access_grants = Table(
     "access_grants", metadata,
     Column("action_id", String(64), primary_key=True),
-    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
+    Column("tenant", String(80), nullable=False),               # copied from the approval
     Column("approval_id", String(200), nullable=False),
     Column("employee_id", String(64), nullable=False),
     Column("system", String(40), nullable=False),
@@ -183,12 +185,13 @@ access_grants = Table(
     Column("revoke_action_id", String(64)),
     Column("updated_at", Float, nullable=False),
 )
+Index("ix_access_grants_approval", access_grants.c.tenant, access_grants.c.approval_id)
 Index("ix_access_grants_tenant", access_grants.c.tenant, access_grants.c.employee_id)
 
 audit = Table(
     "audit", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("tenant", String(80), nullable=False),               # copied from the approval (migration 0004)
+    Column("tenant", String(80), nullable=False),               # copied from the approval
     Column("approval_id", String(200), nullable=False),
     Column("action_id", String(64)),
     Column("event", String(60), nullable=False),
@@ -200,9 +203,9 @@ Index("ix_audit_approval", audit.c.approval_id, audit.c.id)
 Index("ix_audit_tenant", audit.c.tenant, audit.c.id)
 
 # Administrative changes that are not tied to one approval (knowledge documents, policy
-# re-checks, skill reloads, retention sweeps). Append-only, like ``audit`` (enforced by triggers,
-# migration 0002). A change writes ``started`` first and ``succeeded``/``failed`` after, with ``ref``
-# pointing at the started row; NULL ``outcome`` is a pre-0002 row and reads as succeeded.
+# re-checks, skill reloads, retention sweeps). Append-only, like ``audit`` (enforced by triggers).
+# A change writes ``started`` first and ``succeeded``/``failed`` after, with ``ref``
+# pointing at the started row. Every entry has an explicit outcome.
 admin_audit = Table(
     "admin_audit", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
@@ -212,7 +215,7 @@ admin_audit = Table(
     Column("subject", String(200)),                             # what was changed, e.g. a document id
     Column("detail", JSON),
     Column("at", Float, nullable=False),
-    Column("outcome", String(20)),                              # started / succeeded / failed
+    Column("outcome", String(20), nullable=False),              # started / succeeded / failed
     Column("ref", Integer),                                     # the started row this outcome closes
 )
 Index("ix_admin_audit_tenant", admin_audit.c.tenant, admin_audit.c.id)
@@ -231,10 +234,9 @@ session_revocations = Table(
     PrimaryKeyConstraint("tenant", "subject"),
 )
 
-# Tenant registry (ADR 0022, migration 0003). With IT_COPILOT_MULTI_TENANT on, a token's tenant must
-# be listed here and ``active``; off, the table is not consulted. ``issuer`` / ``feishu_tenant_key``
-# bind an IdP realm and a Feishu workspace to the tenant; ``policy_ref`` names the tenant's policy
-# overlay and ``quotas`` its rate and budget limits. Later phases read them; nothing guesses a tenant.
+# Tenant registry (ADR 0022). A token's tenant must be listed here and ``active``. ``issuer`` / ``feishu_tenant_key``
+# bind an IdP realm and a Feishu workspace to the tenant; ``quotas`` holds its rate and budget limits
+# (core.quotas). Nothing guesses a tenant.
 tenants = Table(
     "tenants", metadata,
     Column("id", String(80), primary_key=True),
@@ -242,7 +244,6 @@ tenants = Table(
     Column("tier", String(40), nullable=False),
     Column("issuer", String(300), unique=True),
     Column("feishu_tenant_key", String(120), unique=True),
-    Column("policy_ref", String(200)),
     Column("quotas", JSON, nullable=False),
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
@@ -292,6 +293,42 @@ turn_records = Table(
 Index("ix_turn_records_tenant_created", turn_records.c.tenant, turn_records.c.created_at)
 Index("ix_turn_records_task", turn_records.c.task_id)
 
+# Private web chat history (core/conversation_history.py). Owned by one (tenant, user)
+# scope key and readable only by it. Bodies are redacted before they are written (ADR 0032) and swept
+# after IT_COPILOT_RETENTION_HISTORY_DAYS (core/retention.py). Not used as Agent context: the Agent
+# still reads short-lived working memory, so a reopened old conversation shows its history but the
+# model only remembers what working memory still holds.
+conversations = Table(
+    "conversations", metadata,
+    Column("tenant", String(80), nullable=False),
+    Column("owner", String(300), nullable=False),
+    Column("conv_id", String(200), nullable=False),
+    Column("channel", String(40), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("message_count", Integer, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+    PrimaryKeyConstraint("tenant", "owner", "conv_id", name="pk_conversations"),
+)
+Index("ix_conversations_owner_updated", conversations.c.tenant, conversations.c.owner, conversations.c.updated_at)
+
+conversation_messages = Table(
+    "conversation_messages", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tenant", String(80), nullable=False),
+    Column("owner", String(300), nullable=False),
+    Column("conv_id", String(200), nullable=False),
+    Column("request_id", String(200), nullable=False),
+    Column("role", String(20), nullable=False),                 # user / assistant
+    Column("content", Text, nullable=False),
+    Column("meta", JSON, nullable=False),
+    Column("created_at", Float, nullable=False),
+    UniqueConstraint("tenant", "owner", "request_id", "role", name="uq_conversation_messages_turn"),
+)
+Index("ix_conversation_messages_conv", conversation_messages.c.tenant, conversation_messages.c.owner,
+      conversation_messages.c.conv_id, conversation_messages.c.id)
+Index("ix_conversation_messages_created", conversation_messages.c.created_at)
+
 change_events = Table(
     "change_events", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
@@ -304,21 +341,9 @@ change_events = Table(
 )
 Index("ix_change_events_at", change_events.c.at)
 
-agent_rollouts = Table(
-    "agent_rollouts", metadata,
-    Column("spec_name", String(80), primary_key=True),
-    Column("stable_version", String(80), nullable=False),
-    Column("canary_version", String(80)),
-    Column("canary_percent", Integer, nullable=False),
-    Column("canary_tenants", JSON),
-    Column("status", String(30), nullable=False),
-    Column("updated_at", Float, nullable=False),
-    Column("updated_by", String(200), nullable=False),
-)
-
 # ── Local sandbox "directory" system used by the local adapter ───────────────
 
-# Every directory row belongs to a tenant and the tenant is part of the key (migration 0004): the
+# Every directory row belongs to a tenant and the tenant is part of the key: the
 # sandbox stands in for each tenant's own IAM, so two tenants can both have employee 1001.
 directory_employees = Table(
     "directory_employees", metadata,
@@ -487,16 +512,7 @@ def make_engine(url: str) -> Engine:
             connection.exec_driver_sql("BEGIN" if connection.get_execution_options().get("read_only") else "BEGIN IMMEDIATE")
 
         return engine
-    engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
-
-    @event.listens_for(engine, "begin")
-    def _tenant_setting(connection):
-        # Row-level security (migration 0005) filters on app.tenant. SET LOCAL semantics (third
-        # argument true): it ends with the transaction, so a pooled connection never carries one
-        # request's tenant into the next. Outside any scope it is empty and matches nothing.
-        connection.exec_driver_sql("SELECT set_config('app.tenant', %s, true)", (current_tenant() or "",))
-
-    return engine
+    return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
 
 
 def read(engine: Engine) -> Connection:

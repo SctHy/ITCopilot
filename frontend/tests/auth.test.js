@@ -1,6 +1,6 @@
-import { test } from 'node:test'
+import { test, vi, onTestFinished } from 'vitest'
 import assert from 'node:assert/strict'
-import { authorizeUrl, identityFromToken, parseJwt, pkcePair, storedToken } from '../src/lib/auth.ts'
+import { authorizeUrl, startOidcLogin, completeOidcLogin, identityFromToken, parseJwt, pkcePair, storedToken } from '../src/lib/auth.ts'
 import { readEventStream } from '../src/api/chat.ts'
 
 function jwt(claims) {
@@ -44,4 +44,62 @@ test('SSE reader keeps event ids, skips heartbeats and handles split chunks', as
   const events = []
   await readEventStream(body, (id, event, data) => events.push([id, event, data]))
   assert.deepEqual(events, [['1-1', 'status', { request_id: 'r' }], ['1-2', 'tool_started', { tool: 'lookup' }], ['1-3', 'completed', { ok: true }]])
+})
+
+function oidcEnvironment( href) {
+  let location = new URL(href)
+  let assigned = ''
+  const browser = {
+    get location() { return { origin: location.origin, pathname: location.pathname, search: location.search, hash: location.hash, assign: url => { assigned = url } } },
+    history: { state: { __TSR_index: 3 }, replaceState(_state, _title, url) { location = new URL(url, location) } },
+  }
+  for (const [key, value] of Object.entries({ window: browser, sessionStorage: memoryStorage() })) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    Object.defineProperty(globalThis, key, { configurable: true, value })
+    onTestFinished(() => previous ? Object.defineProperty(globalThis, key, previous) : delete globalThis[key])
+  }
+  return { get location() { return location }, get assigned() { return assigned }, go: href => { location = new URL(href) } }
+}
+
+test('OIDC returns to the shared task while exchanging the original redirect URI', async () => {
+  const env = oidcEnvironment( 'http://app/tasks?task=room-42')
+  await startOidcLogin({ issuer: 'http://kc/realms/it', client_id: 'web' })
+  const authorize = new URL(env.assigned)
+  env.go(`http://app/tasks?code=code-1&state=${authorize.searchParams.get('state')}`)
+  let exchanged
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
+    exchanged = options.body
+    return new Response(JSON.stringify({ access_token: 'token-1' }))
+  })
+  assert.equal(await completeOidcLogin(), 'token-1')
+  assert.equal(exchanged.get('redirect_uri'), authorize.searchParams.get('redirect_uri'))
+  assert.equal(env.location.href, 'http://app/tasks?task=room-42')
+})
+
+test('OIDC rejects a mismatched state without exchanging or storing a token', async () => {
+  const env = oidcEnvironment( 'http://app/tasks?code=c&state=wrong')
+  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 'expected', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('must not exchange') })
+  await assert.rejects(completeOidcLogin(), /登录状态校验失败/)
+  assert.equal(fetch.mock.calls.length, 0)
+  assert.equal(sessionStorage.getItem('it-copilot.access-token'), null)
+  assert.equal(env.location.search, '')
+})
+
+test('OIDC reports authorization denial and removes callback parameters', async () => {
+  const env = oidcEnvironment( 'http://app/tasks?error=access_denied&error_description=Denied&state=s')
+  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('must not exchange') })
+  await assert.rejects(completeOidcLogin(), /拒绝登录：Denied/)
+  assert.equal(fetch.mock.calls.length, 0)
+  assert.equal(env.location.search, '')
+  assert.equal(sessionStorage.getItem('it-copilot.pkce'), null)
+})
+
+test('OIDC does not follow an external saved return destination', async () => {
+  const env = oidcEnvironment( 'http://app/tasks?code=c&state=s')
+  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web', returnTo: 'https://elsewhere.example/private' }))
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ access_token: 'token-1' })))
+  assert.equal(await completeOidcLogin(), 'token-1')
+  assert.equal(env.location.href, 'http://app/tasks')
 })

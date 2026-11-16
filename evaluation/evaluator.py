@@ -5,7 +5,6 @@ evaluation/simulated.py。两者都按业务状态判定通过/失败。
 """
 import asyncio
 import json
-import logging
 import math
 import os
 import pathlib
@@ -17,7 +16,6 @@ from typing import Any, Dict, List, Optional
 
 from agents.intent.recognizer import IntentRecognizer
 
-logger = logging.getLogger(__name__)
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────────
 
@@ -158,32 +156,19 @@ class IntentEvaluator:
         }
 
 
-# ── 内置测试用例（开箱即用）──────────────────────────────────────────────────
-
-DEFAULT_INTENT_CASES: List[IntentTestCase] = [
-    IntentTestCase("VPN 连不上", "vpn_issue"),
-    IntentTestCase("帮我重置密码", "password_reset"),
-    IntentTestCase("申请 GitLab 权限", "permission_request"),
-    IntentTestCase("Wi-Fi 一直断开", "wifi_issue"),
-    IntentTestCase("创建 IT 工单", "ticket_create"),
-    IntentTestCase("你好", "greeting"),
-    IntentTestCase("我要转人工", "human_handoff"),
-]
-
-
 def load_intent_cases(path: Optional[str] = None) -> List[IntentTestCase]:
-    """Load the versioned offline intent suite; keep a code fallback for deployments."""
+    """Load exactly the requested dataset; missing, malformed or empty input is an error."""
     candidate = pathlib.Path(path) if path else pathlib.Path(__file__).parent / "datasets" / "intent_v3.json"
-    try:
-        payload = json.loads(candidate.read_text(encoding="utf-8"))
-        return [IntentTestCase(
-            item["message"], item["expected_intent"], item.get("context"),
-            id=item.get("id", ""),
-            acceptable_intents=tuple(item.get("acceptable_intents", ())),
-            tags=tuple(item.get("tags", ())),
-            split=item.get("split", ""),
-            expected_urgency=item.get("expected_urgency"),
-        ) for item in payload["cases"]]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("无法读取意图评测集 %s：%s；使用内置最小集", candidate, type(exc).__name__)
-        return list(DEFAULT_INTENT_CASES)
+    payload = json.loads(candidate.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("cases"), list) or not payload["cases"]:
+        raise ValueError(f"Intent dataset must contain a non-empty cases list: {candidate}")
+    for item in payload["cases"]:
+        if not isinstance(item, dict) or any(not isinstance(item.get(k), str) or not item[k].strip()
+                                             for k in ("message", "expected_intent")):
+            raise ValueError(f"Intent dataset contains an invalid case: {candidate}")
+    return [IntentTestCase(
+        item["message"], item["expected_intent"], item.get("context"),
+        id=item.get("id", ""), acceptable_intents=tuple(item.get("acceptable_intents", ())),
+        tags=tuple(item.get("tags", ())), split=item.get("split", ""),
+        expected_urgency=item.get("expected_urgency"),
+    ) for item in payload["cases"]]

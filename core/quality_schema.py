@@ -24,7 +24,6 @@ def define_tables(metadata):
         Column("label", JSON, nullable=False),
         Column("labeler", String(300)),
         Column("labeled_at", Float),
-        Column("second_label", JSON),
         Column("dataset_case_id", String(80)))
     Index("ix_badcases_tenant_status", badcases.c.tenant, badcases.c.status)
     cursors = Table("badcase_mining_cursors", metadata,

@@ -1,12 +1,9 @@
-"""Tenant registry and the multi-tenant switch (ADR 0022).
+"""Tenant registry (ADR 0022, 0036).
 
-``IT_COPILOT_MULTI_TENANT`` off (default): one organisation per deployment; the ``tenant`` claim
-still scopes data, but the registry is not consulted and behaviour is what it was before.
-
-On: every request's tenant must be registered and ``active``. An unknown tenant is refused as
+Every request's tenant must be registered and ``active``; a deployment for one organisation is
+the ``default`` tenant alone. An unknown tenant is refused as
 unauthenticated (401, its tokens are not ours to honour); a suspended or offboarding one as
-forbidden (403). A failed lookup refuses the request (fail closed), like token revocation. The
-switch also refuses SQLite, which has no row-level security to back the application filters.
+forbidden (403). A failed lookup refuses the request (fail closed), like token revocation.
 
 Lookups go through a short per-process cache (``cache_ttl_s``), so a suspension reaches every API
 process within that window. Status changes are written to ``admin_audit`` under the tenant, in the
@@ -23,13 +20,13 @@ import time
 from enum import StrEnum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from core import db as schema
 from core.db import admin_audit, tenants as T
-from core.env import multi_tenant_enabled  # noqa: F401  (re-exported)
 from core.identity import default_issuer
+from core.quotas import validate as validate_quotas
 
 DEFAULT_TENANT = "default"
 TENANT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
@@ -51,26 +48,6 @@ class TenantUnavailable(Exception):
 
 class TenantExists(Exception):
     pass
-
-
-def ensure_supported(database_url: str, engine=None) -> None:
-    """Refuse to start multi-tenant on a database that cannot enforce row-level isolation: SQLite
-    (no RLS), or a PostgreSQL role that bypasses it - superusers and BYPASSRLS roles ignore every
-    policy, FORCE or not (ADR 0023). ``engine`` is checked when given."""
-    if not multi_tenant_enabled():
-        return
-    if database_url.startswith("sqlite"):
-        raise RuntimeError("IT_COPILOT_MULTI_TENANT requires PostgreSQL; SQLite is single-tenant only (ADR 0022)")
-    if engine is not None and bypasses_row_security(engine):
-        raise RuntimeError("IT_COPILOT_MULTI_TENANT: the database role is a superuser or has BYPASSRLS, so row-level "
-                           "security would not apply; connect as a plain role (deploy/postgres/app-role.sql, ADR 0023)")
-
-
-def bypasses_row_security(engine) -> bool:
-    if engine.dialect.name != "postgresql":
-        return False
-    with engine.connect() as db:
-        return bool(db.execute(text("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")).scalar())
 
 
 def valid_tenant_id(tenant: str) -> bool:
@@ -136,18 +113,19 @@ class TenantRegistry:
             return [dict(r) for r in db.execute(select(T).order_by(T.c.id)).mappings()]
 
     def create(self, tenant: str, *, actor: str, tier: str = "standard", issuer: Optional[str] = None,
-               feishu_tenant_key: Optional[str] = None, policy_ref: Optional[str] = None,
+               feishu_tenant_key: Optional[str] = None,
                quotas: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not valid_tenant_id(tenant):
             raise ValueError(f"invalid tenant id {tenant!r}: lowercase letters, digits, '_' or '-', not starting with '_'")
+        quotas = validate_quotas(quotas or {})
         now = self.clock()
         row = {"id": tenant, "status": TenantStatus.ACTIVE.value, "tier": tier, "issuer": issuer or None,
-               "feishu_tenant_key": feishu_tenant_key or None, "policy_ref": policy_ref or None, "quotas": dict(quotas or {}),
+               "feishu_tenant_key": feishu_tenant_key or None, "quotas": quotas,
                "created_at": now, "updated_at": now}
         try:
             with self.engine.begin() as db:
                 db.execute(insert(T).values(**row))
-                self._audit(db, tenant, actor, "tenant_created", {k: row[k] for k in ("tier", "issuer", "feishu_tenant_key", "policy_ref")}, now)
+                self._audit(db, tenant, actor, "tenant_created", {k: row[k] for k in ("tier", "issuer", "feishu_tenant_key")}, now)
         except IntegrityError as exc:
             raise TenantExists(f"tenant {tenant!r}, its issuer or its Feishu key is already registered") from exc
         self._forget(tenant)
@@ -163,6 +141,44 @@ class TenantRegistry:
             if before != status:
                 db.execute(update(T).where(T.c.id == tenant).values(status=status.value, updated_at=now))
                 self._audit(db, tenant, actor, "tenant_status_changed", {"from": before, "to": status.value, "reason": reason[:500]}, now)
+        self._forget(tenant)
+        return self.get(tenant)
+
+    def set_bindings(self, tenant: str, *, actor: str, **bindings: Optional[str]) -> Dict[str, Any]:
+        """Bind (or with "" unbind) the tenant's OIDC ``issuer`` or Feishu workspace ``feishu_tenant_key``;
+        audited with the before and after values."""
+        unknown = set(bindings) - {"issuer", "feishu_tenant_key"}
+        if unknown:
+            raise ValueError(f"unknown bindings {sorted(unknown)}")
+        values = {k: (v or None) for k, v in bindings.items()}
+        now = self.clock()
+        try:
+            with self.engine.begin() as db:
+                before = db.execute(select(T.c.issuer, T.c.feishu_tenant_key).where(T.c.id == tenant)).mappings().first()
+                if before is None:
+                    raise KeyError(tenant)
+                changed = {k: v for k, v in values.items() if before[k] != v}
+                if changed:
+                    db.execute(update(T).where(T.c.id == tenant).values(**changed, updated_at=now))
+                    self._audit(db, tenant, actor, "tenant_bindings_changed",
+                                {"from": {k: before[k] for k in changed}, "to": changed}, now)
+        except IntegrityError as exc:
+            raise TenantExists("that issuer or Feishu key is already bound to another tenant") from exc
+        self._forget(tenant)
+        return self.get(tenant)
+
+    def set_quotas(self, tenant: str, quotas: Dict[str, Any], *, actor: str) -> Dict[str, Any]:
+        """Replace the tenant's own quotas (tier defaults fill the rest, ``core.quotas``); audited with
+        the before and after values. Other API processes see the change within ``cache_ttl_s``."""
+        quotas = validate_quotas(quotas)
+        now = self.clock()
+        with self.engine.begin() as db:
+            before = db.execute(select(T.c.quotas).where(T.c.id == tenant)).scalar()
+            if before is None:
+                raise KeyError(tenant)
+            if before != quotas:
+                db.execute(update(T).where(T.c.id == tenant).values(quotas=quotas, updated_at=now))
+                self._audit(db, tenant, actor, "tenant_quotas_changed", {"from": before, "to": quotas}, now)
         self._forget(tenant)
         return self.get(tenant)
 

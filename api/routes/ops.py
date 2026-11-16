@@ -93,7 +93,7 @@ async def run_retention(principal: Principal = Depends(require_platform_admin)):
         deleted = await asyncio.to_thread(state.retention.sweep)
         change.detail = deleted
     return {"deleted": deleted, "policy": {
-        "channel_days": state.retention.policy.channel_days, "episodic_days": state.retention.policy.episodic_days, "turn_days": state.retention.policy.turn_days}}
+        "channel_days": state.retention.policy.channel_days, "episodic_days": state.retention.policy.episodic_days, "turn_days": state.retention.policy.turn_days, "history_days": state.retention.policy.history_days}}
 
 
 @router.get("/admin/audit")

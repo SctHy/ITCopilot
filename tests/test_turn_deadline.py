@@ -51,6 +51,32 @@ def test_turn_deadline_returns_partial_without_retrying_or_claiming_a_write(tmp_
     assert response.tools_used == [] and response.tool_traces == []
 
 
+@pytest.mark.parametrize("offset", [25_000.0, -25_000.0])
+def test_turn_deadline_holds_when_the_loop_clock_differs_from_monotonic(tmp_path, offset):
+    # uvloop on macOS: loop.time() keeps counting through sleep, time.monotonic() does not.
+    class SkewedLoop(asyncio.SelectorEventLoop):
+        def time(self):
+            return super().time() + offset
+
+    async def quick(messages, info):
+        await asyncio.sleep(.01)
+        return ModelResponse(parts=[TextPart("已处理")])
+
+    async def slow(messages, info):
+        await asyncio.sleep(1)
+        return ModelResponse(parts=[TextPart("too late")])
+
+    def run(model, deadline):
+        agent = BaseAgent(None, "test", router=router_for(tmp_path, FunctionModel(model), deadline=deadline))
+        with asyncio.Runner(loop_factory=SkewedLoop) as runner:
+            return runner.run(agent.handle(Request("查询", principal=ALICE, allowed_writes=frozenset())))
+
+    assert run(quick, deadline=.5).status == "success"
+    started = time.monotonic()
+    late = run(slow, deadline=.05)
+    assert late.error_code == "deadline" and time.monotonic() - started < .5
+
+
 def test_each_model_request_gets_the_remaining_budget(tmp_path):
     from tooling.tool_spec import make_tool
 

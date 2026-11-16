@@ -60,10 +60,8 @@ def test_scopes_nest_and_restore():
 
 # ── Identity ─────────────────────────────────────────────────────────────────
 
-def test_multi_tenant_tokens_must_name_their_tenant(monkeypatch):
+def test_tokens_must_name_their_tenant():
     token = auth("alice", tenant="")["Authorization"].split()[1]
-    assert identity.principal_from_token(token).tenant == "default"      # one-organisation deployments
-    monkeypatch.setenv("IT_COPILOT_MULTI_TENANT", "true")
     with pytest.raises(AuthError, match="no tenant claim"):
         identity.principal_from_token(token)
 
@@ -157,7 +155,6 @@ def test_the_sandbox_directory_refuses_work_outside_a_tenant_scope(env):  # noqa
 def test_the_worker_leaves_a_suspended_tenants_actions_queued(env, registry):  # noqa: F811
     store, worker, _ = env
     store.seed_directory("acme")
-    store.active_tenants_only = True
     pending = store.create("acme-1", request_id="r", conv_id="c", principal=ACME_ALICE, action_requests=[access()])
     registry.set_status("acme", TenantStatus.SUSPENDED, actor="cli:op")
     store.decide("acme-1", "approved", ACME_BOB, pending["payload_hash"])
@@ -166,3 +163,40 @@ def test_the_worker_leaves_a_suspended_tenants_actions_queued(env, registry):  #
     registry.set_status("acme", TenantStatus.ACTIVE, actor="cli:op")
     asyncio.run(worker.run_until_idle())
     assert store.get("acme-1")["execution"] == "succeeded"
+
+
+@pytest.mark.parametrize("status", [TenantStatus.SUSPENDED, TenantStatus.OFFBOARDING])
+def test_inactive_tenant_still_loses_expired_access(env, registry, status):  # noqa: F811
+    store, worker, clock = env
+    store.seed_directory("acme")
+    pending = store.create("expiring", request_id="expiring", conv_id="c", principal=ACME_ALICE,
+                           action_requests=[access(duration_hours=1)])
+    store.decide("expiring", "approved", ACME_BOB, pending["payload_hash"])
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "acme")["grants"]
+    queued = store.create("new-access", request_id="new-access", conv_id="other", principal=ACME_ALICE,
+                          action_requests=[access(system="Jira")])
+    store.decide("new-access", "approved", ACME_BOB, queued["payload_hash"])
+    registry.set_status("acme", status, actor="cli:op")
+    clock.t += 3601
+    asyncio.run(worker.run_until_idle())
+    assert store.employee("1001", "acme")["grants"] == []
+    assert store.get("expiring")["revocations"][0]["status"] == "succeeded"
+    assert store.get("new-access")["execution"] == "queued"
+
+
+def test_the_deployments_own_target_systems_act_only_for_the_operator_tenant(env, monkeypatch):  # noqa: F811
+    from workflow.adapters import AdapterRegistry
+    from workflow.worker import build_registry
+
+    store, _, _ = env
+    local, gitea = LocalDirectoryAdapter(store.engine), object()
+    registry = AdapterRegistry(local, {"gitlab": gitea}, shared_with={"default"})
+    grant = access()["arguments"] | {"system": "gitlab"}
+    with tenant_scope("default"):
+        assert registry.for_action({"tool_name": "request_access", "arguments": grant}) is gitea
+    with tenant_scope("acme"):
+        assert registry.for_action({"tool_name": "request_access", "arguments": grant}) is local
+    assert build_registry(store).shared_with == {"default"}
+    monkeypatch.setenv("IT_COPILOT_PLATFORM_TENANT", "ops")
+    assert build_registry(store).shared_with == {"ops"}

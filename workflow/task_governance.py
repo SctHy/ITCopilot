@@ -2,6 +2,7 @@
 from sqlalchemy import insert, select, update
 from core.db import task_budgets, task_attempts, task_events, task_runs
 from workflow.tasks import TaskForbidden, key
+from workflow.states import RUN
 
 
 class TaskGovernance:
@@ -18,7 +19,7 @@ class TaskGovernance:
                    .values(status='interrupted', ended_at=now, error='lease_expired_usage_unknown'))
         budget = self._budget(db, task['id'])
         if budget['used_tokens'] >= budget['token_limit'] or budget['used_runs'] >= budget['run_limit']:
-            db.execute(update(task_runs).where(task_runs.c.id == claim['id']).values(status='held', attempts=claim['attempts'] - 1, lease_until=None, error='budget_exhausted'))
+            db.execute(update(task_runs).where(task_runs.c.id == claim['id']).values(status=RUN.check('running', 'held'), attempts=claim['attempts'] - 1, lease_until=None, error='budget_exhausted'))
             return False
         exists = db.execute(select(task_budgets.c.task_id).where(task_budgets.c.task_id == task['id'])).first()
         budget['used_runs'] += 1
@@ -58,6 +59,11 @@ class TaskGovernance:
         db.execute(update(task_attempts).where(task_attempts.c.run_id.in_(run_ids), task_attempts.c.status == 'running')
                    .values(status='interrupted', ended_at=self.tasks.clock(), error=reason))
 
+    def close_task(self, db, task):
+        db.execute(update(task_attempts).where(
+            task_attempts.c.task_id == task['id'], task_attempts.c.status == 'running',
+        ).values(status='interrupted', ended_at=self.tasks.clock(), error='task_closed_usage_unknown'))
+
     def read(self, task_id, principal):
         with self.tasks.read(task_id, principal) as (db, task):
             attempts = [dict(r) for r in db.execute(select(task_attempts).where(task_attempts.c.task_id == task_id)
@@ -75,5 +81,5 @@ class TaskGovernance:
                 db.execute(update(task_budgets).where(task_budgets.c.task_id == task_id).values(**budget))
             else:
                 db.execute(insert(task_budgets).values(**budget))
-            db.execute(update(task_runs).where(task_runs.c.task_id == task_id, task_runs.c.status == 'held').values(status='queued'))
+            db.execute(update(task_runs).where(task_runs.c.task_id == task_id, task_runs.c.status == 'held').values(status=RUN.check('held', 'queued')))
             self.tasks.record(db, task, principal, 'budget', '管理员调整了任务累计预算。', {'token_limit': token_limit, 'run_limit': run_limit})

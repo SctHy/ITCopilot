@@ -49,6 +49,7 @@ class Request:
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
     checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
     task_references: List[Dict[str, Any]] = field(default_factory=list)  # private-chat recall; not shared-room context
+    conversation_approvals: List[Dict[str, Any]] = field(default_factory=list)  # fresh persisted states, scoped to caller and conversation
     related_approvals: List[Dict[str, Any]] = field(default_factory=list)  # own withdrawable/releasable items (agents/request_recall.py)
 
     async def publish(self, event: str, data: Dict[str, Any]) -> None:
@@ -127,9 +128,3 @@ class OrchestratorResult:
     @property
     def trace_id(self) -> str:
         return self.request_id
-
-
-class TaskTurnFailed(RuntimeError):
-    def __init__(self, record):
-        super().__init__("Agent 暂时不可用")
-        self.record = record

@@ -72,12 +72,21 @@ class JevClient:
         self._keepalive = asyncio.get_running_loop().create_task(loop(), name="jev-keepalive")
 
     async def ask(self, state: str, questions: Dict[str, Dict[str, Any]]) -> JevResponse:
-        payload = {"model": self.model, "state": state, "questions": questions}
+        from core.model_masking import current_session, prepare_local
+
+        session = current_session()
+        await prepare_local([state, questions], session)
+        session.learn(state)
+        session.learn(questions)
+        payload = {"model": self.model, "state": session.mask(state), "questions": session.mask(questions)}
         for attempt in range(self._retries + 1):
             # 连接池排队不受 httpx 超时约束，整体再套一层 wait_for 保证时延上限。
             response = await asyncio.wait_for(self._client.post(self._url, json=payload), timeout=self._timeout_s)
             retryable = response.status_code == 429 or response.status_code >= 500
             if not retryable or attempt == self._retries:
+                if response.is_error:
+                    # 不让厂商回显的输入进入异常正文。
+                    response = httpx2.Response(response.status_code, request=response.request, json={"error": "intent provider rejected request"})
                 response.raise_for_status()
                 data = response.json()
                 return JevResponse(answers=data["answers"], model=data.get("model", ""), usage=data.get("usage") or {})

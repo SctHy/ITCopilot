@@ -37,7 +37,7 @@ KNOWLEDGE_SEARCHES = Counter("it_copilot_knowledge_searches_total", "Agent 知�
 APPROVALS = Counter("it_copilot_approvals_total", "写操作审批事件", ["event"])
 AUTH_FAILURES = Counter("it_copilot_auth_failures_total", "鉴权/授权拒绝", ["reason"])
 RETENTION_DELETED = Counter("it_copilot_retention_deleted_total", "按保留期删除的行", ["kind"])
-RATE_LIMITED = Counter("it_copilot_rate_limited_total", "按身份限流拒绝的请求", ["bucket", "channel"])
+RATE_LIMITED = Counter("it_copilot_rate_limited_total", "限流拒绝的请求（bucket 为 agent_turn 按身份、agent_turn:tenant 按租户）", ["bucket", "channel"])
 
 # ── 受控执行（outbox worker） ─────────────────────────────────────────────────
 WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])
@@ -59,3 +59,10 @@ MCP_SERVER_UP = Gauge("it_copilot_mcp_server_up", "外部 MCP 服务连接状态
 MCP_TOOLS = Gauge("it_copilot_mcp_tools", "外部 MCP 服务已注册的工具数", ["server"])
 ALERTS_FIRING = Gauge("it_copilot_alerts_firing", "进程内告警是否触发（1=firing）", ["alert", "severity"])
 SLO_BURN_RATE = Gauge("it_copilot_slo_burn_rate", "SLO 错误预算燃烧率", ["slo", "window"])
+
+# 模型出站脱敏：不记录原值、占位符、租户或会话标识。
+MODEL_MASK_REQUESTS = Counter("it_copilot_model_mask_requests_total", "出站脱敏结果", ["outcome"])
+MODEL_MASK_VALUES = Counter("it_copilot_model_mask_values_total", "出站替换次数", ["kind"])
+MODEL_MASK_LATENCY = Histogram("it_copilot_model_mask_seconds", "出站脱敏耗时", buckets=(.0001, .0005, .001, .005, .01, .05, .1, .5, 1))
+LOCAL_PII_REQUESTS = Counter("it_copilot_local_pii_requests_total", "本地脱敏模型检测结果", ["outcome"])
+LOCAL_PII_LATENCY = Histogram("it_copilot_local_pii_seconds", "本地脱敏模型检测/排队耗时", buckets=(.001, .005, .01, .05, .1, .5, 1, 5, 10))

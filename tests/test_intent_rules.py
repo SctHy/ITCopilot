@@ -29,10 +29,10 @@ def test_one_rule_table_drives_both_llm_guide_and_jev_questions():
     assert set(jev_questions(with_entities=False)) == {"intent", "urgency"}
 
 
-def test_jev_state_keeps_only_last_four_history_items():
-    history = [{"role": "user", "content": f"m{i}"} for i in range(6)]
+def test_jev_state_keeps_bounded_working_history():
+    history = [{"role": "user", "content": f"message-{i:02d}"} for i in range(25)]
     state = jev_state("现在呢", history)
-    assert "m1" not in state and "m2" in state and state.endswith("用户最新消息：现在呢")
+    assert "message-04" not in state and "message-05" in state and state.endswith("用户最新消息：现在呢")
     assert jev_state("你好", None) == "用户最新消息：你好"
 
 
@@ -78,7 +78,8 @@ def test_intent_cache_hits_skip_the_model_and_are_counted():
     before = REGISTRY.get_sample_value("it_copilot_cache_lookups_total", labels) or 0
     first = asyncio.run(recognizer.recognize("申请 GitLab 权限，工号 E1001"))
     second = asyncio.run(recognizer.recognize("申请 GitLab 权限，工号 E1001"))
-    assert first is second and jev.calls == 1
+    assert first.intent == second.intent and first.entities == second.entities and jev.calls == 1
+    assert first.token_usage['requests'] == 1 and second.token_usage == {}
     assert REGISTRY.get_sample_value("it_copilot_cache_lookups_total", labels) == before + 1
     asyncio.run(recognizer.recognize("申请 GitLab 权限，工号 E1001", history=[{"role": "user", "content": "之前"}]))
     assert jev.calls == 2  # 历史不同，缓存键不同
@@ -91,7 +92,7 @@ def test_billable_tokens_do_not_double_count_cache_reads():
 
 def test_low_confidence_jev_answer_is_used_when_llm_also_fails():
     async def failing_llm(message, history):
-        return {"intent": IntentCategory.OTHER, "confidence": .5, "entities": {}, "_source": "fallback_exception"}
+        return {"intent": IntentCategory.OTHER, "confidence": .5, "entities": {}, "_source": "fallback_exception", "_usage": {"requests": 2, "input_tokens": 17}}
 
     low = answers()
     low["intent"] = {"choice": "vpn_issue", "probabilities": {"vpn_issue": .65}}
@@ -100,6 +101,7 @@ def test_low_confidence_jev_answer_is_used_when_llm_also_fails():
     result = asyncio.run(recognizer.recognize("那个连不上"))
     assert result.intent == IntentCategory.VPN_ISSUE and result.recognition_source == "jev_low_confidence"
     assert result.source_scores == {"jev": .65} and result.clarification_needed is False
+    assert result.token_usage["requests"] == 3 and result.token_usage["input_tokens"] == 17
 
 
 def test_empty_numeric_env_values_fall_back_to_defaults(monkeypatch):

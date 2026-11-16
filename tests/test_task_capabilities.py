@@ -23,7 +23,6 @@ from workflow.task_worker import TaskWorker
 def caps(env):
     tasks, _, _ = env
     result = TaskCapabilities(tasks, tasks.effects.view)
-    tasks.governance = result.governance
     return result
 
 
@@ -87,6 +86,21 @@ def test_todo_assignee_deadline_reply_dedup_and_read_cursor(env, caps):
     assert caps.inbox(ALICE)['items'][0]['unread'] == 0
     with pytest.raises(TaskConflict):
         caps.collaboration.mark_read(task['id'], ALICE, 999999)
+
+
+def test_closed_tasks_overdue_todos_do_not_starve_open_tasks_reminders(env, caps):
+    tasks, _, clock = env
+    closed, live = room(tasks, 'closed'), room(tasks, 'live')
+    for i in range(101):   # more than one poll page
+        caps.collaboration.create(closed['id'], BOB, dict(assignee=ALICE.subject, question=f'旧问题{i}', due_at=clock.t + 1, client_request_id=f'old{i}'))
+    tasks.stop(closed['id'], ALICE)
+    caps.collaboration.create(live['id'], BOB, dict(assignee=ALICE.subject, question='新问题', due_at=clock.t + 5, client_request_id='new'))
+    clock.t += 10
+    caps.deadlines.poll()
+    assert sum(e['kind'] == 'reminder' for e in tasks.get(live['id'], ALICE)['events']) == 1
+    caps.progress.transition(closed['id'], ALICE, 'open', '')
+    caps.deadlines.poll()
+    assert any(e['kind'] == 'reminder' for e in tasks.get(closed['id'], ALICE)['events'])
 
 
 def test_persisted_timers_fire_once_and_closed_tasks_cancel(env, caps):
@@ -236,3 +250,79 @@ def test_reopening_clears_acceptance_and_each_new_stop_has_own_event(env, caps):
     assert tasks.get(task['id'], ALICE)['status'] == 'resolved'
     caps.progress.transition(task['id'], ALICE, 'open', '')
     assert caps.progress.read(task['id'], ALICE)['resolution'] == ''
+
+
+def test_task_and_run_status_writes_follow_declared_machines(env, caps):
+    from core.states import IllegalTransition
+    from workflow.states import RUN, UNFINISHED_RUNS, RunStatus
+    tasks, _, _ = env
+    task = room(tasks, 'machine')
+    tasks.stop(task['id'], ALICE)
+    with tasks.engine.begin() as db, pytest.raises(IllegalTransition):
+        tasks.set_status(db, tasks.get(task['id'], ALICE), 'resolved')    # stopped must be reopened first
+    # Closing a task cancels exactly the runs that still occupy its queue.
+    assert all(RUN.allows(status, RunStatus.CANCELLED) for status in UNFINISHED_RUNS)
+    assert set(RUN.terminal) | {RunStatus.FAILED} == set(RunStatus) - set(UNFINISHED_RUNS)
+
+
+def test_close_cleanup_is_atomic_and_reopen_does_not_revive_work(env, caps, monkeypatch):
+    """A failed close rolls back every dependent state; stale workers cannot commit."""
+    from sqlalchemy import select
+    from core.db import task_runs, task_timers
+
+    tasks, _, clock = env
+    task = room(tasks)
+    claim = tasks.claim()
+    timer = caps.reminders.create(task['id'], ALICE, dict(
+        text='稍后复查', due_at=clock.t + 20, wake=True, client_request_id='atomic-close'))
+    original = caps.governance.close_task
+
+    def fail_after_cleanup(db, task):
+        original(db, task)
+        raise RuntimeError('injected close failure')
+
+    monkeypatch.setattr(caps.governance, 'close_task', fail_after_cleanup)
+    with pytest.raises(RuntimeError, match='injected close failure'):
+        tasks.stop(task['id'], ALICE)
+    assert tasks.get(task['id'], ALICE)['status'] == 'open'
+    with tasks.engine.connect() as db:
+        assert db.execute(select(task_runs.c.status).where(task_runs.c.id == claim['id'])).scalar_one() == 'running'
+        assert db.execute(select(task_timers.c.status).where(task_timers.c.id == timer['id'])).scalar_one() == 'pending'
+    assert caps.governance.read(task['id'], ALICE)['attempts'][0]['status'] == 'running'
+
+    monkeypatch.setattr(caps.governance, 'close_task', original)
+    tasks.stop(task['id'], ALICE)
+    assert caps.governance.read(task['id'], ALICE)['attempts'][0]['status'] == 'interrupted'
+    with pytest.raises(LeaseLostError):
+        tasks.finish(claim, {'response': '迟到结果'})
+    caps.progress.transition(task['id'], ALICE, 'open', '')
+    clock.t += 30
+    caps.reminders.poll()
+    assert tasks.claim() is None
+    assert caps.reminders.list(task['id'], ALICE)[0]['status'] == 'cancelled'
+
+
+def test_stale_task_snapshot_cannot_overwrite_new_state(env, caps):
+    tasks, _, _ = env
+    task = room(tasks)
+    with tasks.transaction(task['id'], ALICE) as (db, current):
+        stale = dict(current)
+        tasks.set_status(db, current, 'stopped')
+    with pytest.raises(TaskConflict, match='状态已变化'):
+        with tasks.engine.begin() as db:
+            tasks.set_status(db, stale, 'resolved')
+    assert tasks.get(task['id'], ALICE)['status'] == 'stopped'
+    # ABA: the state name is open again, but the original version is no longer current.
+    caps.progress.transition(task['id'], ALICE, 'open', '')
+    with pytest.raises(TaskConflict, match='状态已变化'):
+        with tasks.engine.begin() as db:
+            tasks.set_status(db, stale, 'resolved')
+    assert tasks.get(task['id'], ALICE)['status'] == 'open'
+
+
+def test_capability_bundle_enforces_budget_without_extra_wiring(env, caps):
+    tasks, _, _ = env
+    task = room(tasks)
+    caps.governance.configure(task['id'], ERIN, token_limit=0, run_limit=0)
+    assert tasks.claim() is None
+    assert tasks.get(task['id'], ALICE)['runs'][0]['status'] == 'held'

@@ -18,7 +18,7 @@ from tooling.executor import ToolExecutor
 
 
 class AgentOrchestrator:
-    def __init__(self, api_key="", base_url=None, model="", skill_manager=None, recognizer=None, rag_tool_manager=None, router=None, **kwargs):
+    def __init__(self, api_key="", base_url=None, model="", skill_manager=None, recognizer=None, rag_tool_manager=None, router=None):
         self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
         self._model = model
         self._intent_recognizer = recognizer or IntentRecognizer(api_key, base_url, model, router=self.router)
@@ -32,18 +32,10 @@ class AgentOrchestrator:
         self._local_tools = agent_tools(lambda: self.directory)
         self.agent = BaseAgent(None, model, skill_manager, router=self.router)
         self.agent.executor = self.tool_executor
-        self.rollouts = None
+        self.registry = None
         self.forced_spec = None
         self._agents = {}
         self._rebuild_tools()
-
-    @property
-    def _llm(self):
-        return self.router.models[self.router.config.routes["agent_write"].candidates[0]]
-
-    @_llm.setter
-    def _llm(self, model):
-        self.router.replace_models(model)
 
     def start(self) -> None:
         """在事件循环内启动后台连接保活（意图识别的 Jev）。"""
@@ -55,8 +47,9 @@ class AgentOrchestrator:
 
     def _rebuild_tools(self) -> None:
         # 本地工具优先于同名的共享/外部工具。
+        tools = {**self._shared_tools, **self._external_tools, **self._local_tools}
         for agent in [self.agent, *self._agents.values()]:
-            agent.set_shared_tools({**self._shared_tools, **self._external_tools, **self._local_tools})
+            agent.set_shared_tools(tools)
 
     def set_shared_tools(self, tools):
         self._shared_tools = dict(tools or {})
@@ -78,12 +71,13 @@ class AgentOrchestrator:
     def agent_for(self, req: Request):
         if self.forced_spec is not None:
             spec = self.forced_spec
-        elif self.rollouts is not None:
-            if req.conversation_state is None:
-                req.conversation_state = {}
-            spec = self.rollouts.choose(req.principal.tenant, req.intent_group, req.principal.scope_key, req.conversation_state)
+        elif self.registry is not None:
+            spec = self.registry.choose(req.principal.tenant, req.intent_group)
         else:
             return self.agent
+        if req.conversation_state is None:
+            req.conversation_state = {}
+        req.conversation_state.update(agent_spec=spec.name, agent_version=spec.version)
         fingerprint = spec.fingerprint
         if fingerprint not in self._agents:
             expected_root = (ROOT / spec.skills.root).resolve()

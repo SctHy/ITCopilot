@@ -22,7 +22,6 @@ from typing import Any, Callable, Dict, FrozenSet, Iterable, Optional, Set
 
 import jwt
 import yaml
-from core.env import multi_tenant_enabled
 from core.scopes import identity_scope
 
 ROLE_EMPLOYEE = "employee"
@@ -30,7 +29,7 @@ ROLE_APPROVER = "approver"
 ROLE_IT_ADMIN = "it_admin"
 ROLE_AUDITOR = "auditor"
 # Operates the deployment itself (skills, retention, every tenant's policy sweep). Counts only for
-# identities of the operator tenant in multi-tenant mode (api.deps.is_platform_admin, ADR 0025).
+# identities of the operator tenant (api.deps.is_platform_admin, ADR 0025).
 ROLE_PLATFORM_ADMIN = "platform_admin"
 KNOWN_ROLES = frozenset({ROLE_EMPLOYEE, ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR, ROLE_PLATFORM_ADMIN})
 
@@ -57,8 +56,8 @@ class Principal:
     # Token issue time (epoch seconds); None for identities not taken from a token (IM mapping,
     # stored records). Not part of identity equality.
     issued_at: Optional[int] = field(default=None, compare=False, repr=False)
-    # Token issuer; None for identities not taken from a token. Bound to the tenant in
-    # multi-tenant mode (core.tenancy, ADR 0023). Not part of identity equality.
+    # Token issuer; None for identities not taken from a token. Bound to the tenant
+    # (core.tenancy, ADR 0023). Not part of identity equality.
     issuer: Optional[str] = field(default=None, compare=False, repr=False)
 
     @property
@@ -141,7 +140,7 @@ def _jwks_client(url: str) -> jwt.PyJWKClient:
     return jwt.PyJWKClient(url, cache_keys=True, lifespan=600)
 
 
-# Further issuers to trust besides OIDC_ISSUER: in multi-tenant mode the API sets this to the
+# Further issuers to trust besides OIDC_ISSUER: the API sets this to the
 # tenant registry's bound issuers (one Keycloak realm per tenant). Which tenant a token may
 # claim is checked against the same binding afterwards (core.tenancy.TenantRegistry.check).
 extra_issuers: Callable[[], Set[str]] = frozenset
@@ -216,11 +215,8 @@ def principal_from_token(token: str) -> Principal:
         raise AuthError("token has no department claim")
     tenant = claims.get("tenant")
     if not tenant:
-        # One-organisation deployments may omit the claim; with several tenants a token that does
-        # not say whose it is must not fall into "default" (ADR 0023).
-        if multi_tenant_enabled():
-            raise AuthError("token has no tenant claim")
-        tenant = "default"
+        # A token that does not say whose it is must not fall into "default" (ADR 0023).
+        raise AuthError("token has no tenant claim")
     employee_id = claims.get("employee_id")
     if isinstance(employee_id, list):
         employee_id = employee_id[0] if employee_id else None

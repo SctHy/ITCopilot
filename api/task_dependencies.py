@@ -1,6 +1,9 @@
 """Shared task transport dependencies; routes never call another route."""
 import asyncio
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
+
+if TYPE_CHECKING:
+    from workflow.task_capabilities import TaskCapabilities
 from fastapi import HTTPException
 from pydantic import StringConstraints
 from api import state
@@ -15,7 +18,7 @@ def wake_task_worker():
         state.task_worker.kick()
 
 
-def service():
+def service() -> "TaskCapabilities":
     if state.task_capabilities is None:
         raise HTTPException(503, 'task capabilities not ready')
     return state.task_capabilities

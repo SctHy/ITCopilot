@@ -10,6 +10,9 @@ from typing import Any, Optional
 
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
+from openai import DefaultAsyncHttpxClient
+from core.model_masking import MaskingTransport
+
 from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, ModelRequestTimeout, ModelServerError, ModelUnavailableError
 from pydantic_ai.messages import ModelRequest
@@ -25,7 +28,8 @@ def build_model(api_key: str = "", base_url: Optional[str] = None, model: str = 
     """构造 PydanticAI Model；参数为空时取 OPENAI_* 环境变量。settings 是厂商相关的模型级默认值（见 core/model_router）。构造过程不发起网络请求。"""
     name = model or os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
     # 本地无鉴权服务不需要 key；空 key 时给占位值，避免 SDK 在构造期报错。
-    provider = OpenAIProvider(base_url=base_url or os.getenv("OPENAI_BASE_URL") or None, api_key=api_key or os.getenv("OPENAI_API_KEY") or "sk-local")
+    provider = OpenAIProvider(base_url=base_url or os.getenv("OPENAI_BASE_URL") or None, api_key=api_key or os.getenv("OPENAI_API_KEY") or "sk-local",
+                              http_client=DefaultAsyncHttpxClient(transport=MaskingTransport()))
     return OpenAIChatModel(name, provider=provider, settings=settings)
 
 

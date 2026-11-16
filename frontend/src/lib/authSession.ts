@@ -1,5 +1,5 @@
 // Who is signed in, and how they sign in. Transport is injected; the server stays the authority on roles.
-import { reactive } from 'vue'
+import { reactive } from './store.ts'
 import { loadCurrent, type RequestState } from './requestState.ts'
 import type { Identity, Role, Settings } from './types.ts'
 

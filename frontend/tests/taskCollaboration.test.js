@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { approvalPermissions } from '../src/lib/approvalActions.ts'
 import { createTaskController } from '../src/lib/taskController.ts'
@@ -181,10 +181,10 @@ test('ambiguous message delivery retains the request key on retry', async () => 
   c.dispose()
 })
 
-test('approval transport binds the selected approval hash and snapshots the caller identity', async (t) => {
+test('approval transport binds the selected approval hash and snapshots the caller identity', async () => {
   const settings = { backend: 'python', endpoints: { python: 'http://api.test' }, accessToken: 'bob-token' }
   const calls = []
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
     calls.push({ url, options }); return new Response(JSON.stringify({ status: 'approved' }))
   })
   const transport = createTaskClient(settings)

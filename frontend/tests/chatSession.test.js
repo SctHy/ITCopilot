@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import { createChatSession, replyMeta } from '../src/lib/chatSession.ts'
 import { normalizeChatResponse } from '../src/api/chat.ts'
@@ -69,4 +69,22 @@ test('related approvals in a reply are loaded through the transport', async () =
   const card = chat.state.messages.at(-1).relatedApprovals[0]
   assert.equal(card.approval.approval_id, 'A9')
   assert.equal(card.summary, 'GitLab 只读')
+})
+
+test('opening a stored conversation restores its messages and continues under its id', async () => {
+  let sent
+  const { chat, settings: s, persisted } = session(async (type, snapshot, message) => { sent = snapshot.conversationId; return reply() })
+  chat.state.messages.push({ id: 'old', role: 'user', content: '旧对话' })
+  chat.open('conv-9', [
+    { request_id: 'r1', role: 'user', content: 'VPN 连不上', meta: {} },
+    { request_id: 'r1', role: 'assistant', content: '请检查账号', meta: { intent: 'vpn_issue', intent_confidence: 0.9, knowledge_used: true, approval_id: 'r1:approval' } }
+  ])
+  assert.equal(s.conversationId, 'conv-9')
+  assert.ok(persisted() >= 1)
+  assert.deepEqual(chat.state.messages.map(m => [m.role, m.content]), [['user', 'VPN 连不上'], ['assistant', '请检查账号']])
+  assert.equal(chat.state.messages[1].meta, 'VPN 故障 · 置信度 90% · RAG')
+  assert.equal(chat.state.messages[1].approvalId, 'r1:approval')
+  chat.state.draft = '还是不行'
+  await chat.send()
+  assert.equal(sent, 'conv-9')
 })

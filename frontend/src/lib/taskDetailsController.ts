@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive } from './store.ts'
 import type { TaskClient } from './taskClient.ts'
 import type { TaskWorkspaceData } from './types.ts'
 

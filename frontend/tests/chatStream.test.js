@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { requestChatStream } from '../src/api/chat.ts'
 
@@ -66,9 +66,9 @@ test('EOF without a terminal event keeps the key and identity changes isolate it
     assert.equal(ids[0], ids[2])
   }))
 
-test('terminal event returns without waiting for transport EOF', async (t) => {
+test('terminal event returns without waiting for transport EOF', async () => {
   let cancelled = false
-  t.mock.method(globalThis, 'fetch', async () => new Response(new ReadableStream({
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new ReadableStream({
     start(c) { c.enqueue(new TextEncoder().encode('event: completed\ndata: {"response":"done"}\n\n')) },
     cancel() { cancelled = true }
   })))

@@ -29,7 +29,6 @@ from pydantic_ai.output import ToolOutput
 
 from core.env import env_float
 from core.states import Machine
-from core.protocols import CacheState, cache_state
 from core.tenant_context import current_tenant
 from core.jev import JevClient
 from core.model_router import ModelRouter
@@ -262,7 +261,7 @@ class MCPToolManager:
             tool.stats.total_latency_ms += latency
             tool.breaker.record_success(generation)
 
-            if use_cache and tool.cache_ttl > 0 and cache_state(True, version_matches=cache_version == self._cache_versions.get(name, 0)) == CacheState.FRESH:
+            if use_cache and tool.cache_ttl > 0 and cache_version == self._cache_versions.get(name, 0):
                 self._set_cache(name, params, data, tool.cache_ttl, context)
 
             return ToolResult(success=True, data=data, tool_name=name, latency_ms=latency)
@@ -515,7 +514,7 @@ class MCPToolManager:
         key = self._cache_key(name, params, context)
         if key in self._cache:
             data, expire_at = self._cache[key]
-            if cache_state(True, expired=time.monotonic() >= expire_at) == CacheState.FRESH:
+            if time.monotonic() < expire_at:
                 return copy.deepcopy(data)
             del self._cache[key]
         return None

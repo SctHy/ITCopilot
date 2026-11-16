@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-from core.protocols import CacheState, cache_state
 
 import json
 import logging
@@ -160,7 +159,7 @@ class VectorCollection:
         version = self.version()
         with self._cache_lock:
             cached = self._matrix_cache.get(cache_key)
-        if cache_state(cached is not None, version_matches=cached is not None and cached[0] == version) == CacheState.FRESH:
+        if cached is not None and cached[0] == version:
             return cached[1], cached[2]
         with read(self._engine) as db:
             # 按 id 排序：重复片段的向量相同，距离打平时的先后不随查询计划变化。

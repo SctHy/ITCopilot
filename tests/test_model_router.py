@@ -2,7 +2,6 @@
 import asyncio
 import copy
 from dataclasses import replace
-import time
 
 import pytest
 import yaml
@@ -59,19 +58,31 @@ def test_compliance_filters_before_preference(tmp_path):
     assert router.pick("agent_read", "regulated").name == "backup"
 
 
-def test_circuit_and_latency_change_selection(tmp_path):
+def test_failure_switches_model_and_recovery_restores_preference(tmp_path):
     router = configured(tmp_path)
     first = router.pick("agent_read", "default")
     for _ in range(5):
-        router.record(first, 1, success=False)
+        router.record(first, success=False)
     assert router.pick("agent_read", "default").name == "backup"
     router.breakers[first.name].opened_at -= 61
     probe = router.pick("agent_read", "default")
-    router.record(probe, 1, success=True)
-    router.latencies[first.name].clear()
-    router.latencies[first.name].append((time.monotonic(), 12))
+    router.record(probe, success=True)
     selected = router.pick("agent_read", "default")
-    assert selected.name == "backup" and selected.reason == "latency_shift"
+    assert selected.name == first.name and selected.reason == "primary"
+
+
+def test_hot_reload_keeps_open_circuit_of_unchanged_model_and_resets_edited_one(tmp_path):
+    router = configured(tmp_path)
+    first = router.pick("agent_read", "default")
+    for _ in range(5):
+        router.record(first, success=False)
+    data = router.config.model_dump()
+    data["routes"]["agent_read"]["max_rounds"] = 4      # unrelated edit
+    router.path.write_text(yaml.safe_dump(data))
+    assert router.pick("agent_read", "default").name == "backup"
+    data["models"][first.name]["data_classes"].append("confidential")   # the model's own settings change
+    router.path.write_text(yaml.safe_dump(data))
+    assert router.pick("agent_read", "default").name == first.name
 
 
 def test_cost_does_not_double_count_cached_input(tmp_path):

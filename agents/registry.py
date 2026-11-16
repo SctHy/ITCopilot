@@ -1,4 +1,8 @@
-"""Immutable Agent specifications and deterministic capability selection."""
+"""Deployment-owned Agent specifications and deterministic capability selection.
+
+Each name has one deployed version. Updating or reverting the deployment selects the
+version; conversations and tasks retain version metadata only for diagnosis.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -57,12 +61,12 @@ class AgentSpec(BaseModel):
 
 class AgentRegistry:
     def __init__(self, directory: Path | str = ROOT / "config/agents", *, tools: set[str], routes: set[str]):
-        self.specs: dict[tuple[str, str], AgentSpec] = {}
+        self.specs: dict[str, AgentSpec] = {}
         for path in sorted(Path(directory).glob("*.yaml")):
             spec = AgentSpec.model_validate(yaml.safe_load(path.read_text()))
             key = spec.name, spec.version
-            if key in self.specs:
-                raise ValueError(f"Duplicate Agent specification: {key}")
+            if spec.name in self.specs:
+                raise ValueError(f"Only one deployed version per Agent name: {spec.name}")
             missing = spec.tools - tools - {"*"}
             if any(tool.startswith("mcp:") and re.fullmatch(r"mcp:[^/\s:]+/[^/\s]+", tool) is None for tool in spec.tools):
                 raise ValueError(f"Malformed external MCP reference: {key}")
@@ -75,15 +79,9 @@ class AgentRegistry:
                 raise ValueError(f"Missing skill directory: {spec.skills.root}")
             if not spec.serves.intent_groups or not spec.tenants:
                 raise ValueError(f"Agent capability scope must not be empty: {key}")
-            self.specs[key] = spec
+            self.specs[spec.name] = spec
         if not self.specs:
             raise ValueError("No Agent specifications")
-        self.names = sorted({name for name, _ in self.specs})
-        for name in self.names:
-            versions = [spec for spec in self.specs.values() if spec.name == name]
-            scopes = {(spec.tenants, spec.serves.intent_groups) for spec in versions}
-            if len(scopes) > 1:
-                raise ValueError(f"Capability scope must agree across versions: {name}")
         tenants = {tenant for spec in self.specs.values() for tenant in spec.tenants} - {"*"}
         groups = {group for spec in self.specs.values() for group in spec.serves.intent_groups} - {"*"}
         for tenant in tenants | {"__other_tenant__"}:
@@ -98,7 +96,7 @@ class AgentRegistry:
             if group not in spec.serves.intent_groups and "*" not in spec.serves.intent_groups:
                 continue
             specificity = (int(group in spec.serves.intent_groups), int(tenant in spec.tenants))
-            candidates[spec.name] = max(candidates.get(spec.name, (-1, -1)), specificity)
+            candidates[spec.name] = specificity
         if not candidates:
             return None
         best = max(candidates.values())
@@ -114,8 +112,10 @@ class AgentRegistry:
         return name
 
     def get(self, name: str, version: str) -> AgentSpec:
-        return self.specs[name, version]
+        spec = self.specs[name]
+        if spec.version != version:
+            raise KeyError((name, version))
+        return spec
 
-    def initial_version(self, name):
-        return min((version for spec_name, version in self.specs if spec_name == name),
-                   key=lambda version: tuple(map(int, version.split("."))))
+    def choose(self, tenant: str, intent_group: str) -> AgentSpec:
+        return self.specs[self.resolve(tenant, intent_group)]

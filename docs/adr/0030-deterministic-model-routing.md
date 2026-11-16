@@ -1,39 +1,5 @@
 # ADR 0030：模型路由：硬约束过滤与评测决定偏好
 
-状态：已采纳
+状态：部分条款已替代，以下为当前保留结论。
 
-## 背景
-
-全局单模型不能表达调用角色、租户数据等级与地域限制，也无法把供应商故障、延迟和预算纳入选择。将候选交给模型自行选择会削弱合规约束，且当前没有真实流量支持在线学习。
-
-## 决定
-
-- `config/model_routes.yaml` 声明模型凭据环境变量引用、能力、地域、数据等级、价格和按角色排列的候选。Pydantic 在加载时拒绝未知字段、非法数值、悬空引用、缺失工具能力和没有合规候选的租户。未单列租户显式继承 `default` 配置。
-- `ModelRouter.pick(route, tenant)` 先过滤合规、地域和熔断，再按配置顺序选择。首选最近五分钟 P95 超出该路由 SLO 时优先健康备选；每个模型复用现有 CircuitBreaker，generation 避免过时的并发结果关闭新熔断。取消释放半开探测。
-- 启动时配置非法直接失败。热加载检查文件 mtime：运行中改出非法配置时拒绝这次修改、继续使用上一份已校验的配置，记录错误日志、`it_copilot_config_reloads_total{outcome=rejected}` 和 `model_route_rejected` 变更事件（同一次修改只报一次）；成功加载写 `model_route` 变更事件。熔断打开也记录事件以供归因。改错一个值不应让所有副本的全部模型调用立即失败。
-- `allowed_writes` 非空或 `None` 走规格的写路由，空集合走只读路由。只有尚未发送任何 `answer_delta` 时，模型不可用才允许切换一次；已发送文本后维持原失败边界。
-- 从 `turn_records` 计算租户 UTC 当日模型成本，缓存60秒。达到 `tenants.quotas.daily_cost_usd` 后，写路由隐藏所有副作用工具并说明预算，只读路由继续。确认已有草稿走确定性路径，记录 `model=none / route=confirmation / cost=0`。
-- Agent、意图、检索改写/重排、摘要、画像、共享事项进度建议及评测模型均通过 router 取得模型。后台画像任务保留提交者 context，以免平台级 worker 丢失租户而使用错误合规配置。
-- 思考档位和轮数只从路由配置读取，移除两个全局 Agent 环境变量。思考开关的厂商协议由模型的 `thinking_api` 声明：`deepseek` 经 `extra_body` 开关，并作为模型级默认值关闭思考（覆盖不经路由设置的 `complete_text` 调用）；`none` 不发送任何思考参数，路由为其配置思考档位时加载失败。`OPENAI_THINKING_TYPE` 已移除。`ModelSettings.timeout` 限制供应商一次尝试；PydanticAI 的 `request_timeout` 则限制含SDK重试及读完流的整个请求。WP6进一步对两者施加整轮剩余时间上限。
-- 版本元数据记录最终候选、路由及选择原因；输入缓存按单独价格计费，从普通输入量中扣除。当前峰值估算见官方价格页，非供应商实际账单。
-- 当前只配置已有凭据的 `deepseek-flash`。价格于2026-11-12从 [DeepSeek官方价格页](https://api-docs.deepseek.com/quick_start/pricing/) 核验：峰值每百万输入/输出/缓存命中为0.30/1.20/0.006美元，非高峰减半。没有引入第二个真实供应商。
-
-## 候选资格与门禁
-
-```sh
-.venv/bin/python scripts/evaluate_model_route.py --route agent_read --model deepseek-flash --repeats 3
-.venv/bin/python scripts/evaluate_model_route.py --route summary --model deepseek-flash --repeats 3
-.venv/bin/python scripts/check_model_routes.py
-```
-
-Agent读/写候选在 `evaluate_application.py` 的应用数据集上运行真实模型及业务oracle。辅助角色不冒充端到端业务成功：summary验证固定事实与ID保留，profile验证字段修订及秘密排除，rewrite/rerank验证关键词覆盖与已知相关项排序，intent对固定严格标签判分，judge对冻结数据库证据及人工标签判分。judge不能覆盖任何应用业务断言。这是对计划中统一应用数据集评测方法的细化，以免不触发某角色时仍得到虚假的资格报告。
-
-每份报告包含实际角色调用数、题集哈希、模型配置哈希、样本量、成功率、Wilson区间、P95和每个成功样本成本。门禁拒绝缺报告、少于3次重复、没有实际角色调用、候选配置变化或不同题集的横向比较；同route候选的Wilson下界须不低于首选下界减3个百分点。报告文件由人审核后提交。
-
-## 后果
-
-健康和P95在单进程内观察，各副本不共享熔断历史；预算统计有最多60秒延迟，并非强一致消费限额。单候选部署不会获得真实供应商故障切换收益；该边界由两个FunctionModel确定性覆盖。辅助角色冻结题规模小，只是资格烟测，不能证明生产质量。BYOK、在线学习和bandit未实现。
-
-## 验证
-
-2026-11-13 已运行 SQLite/PostgreSQL 完整契约测试及七角色真实资格评测。读写报告在独立台账上重新测量，合并两个数据集共 312/330 通过；意图15/15、摘要12/12、画像3/9、改写重排12/12、裁判12/12。check_model_routes 门禁通过。画像字段归类与旧部门保留问题仍存在，未放宽断言；单候选对自身的相对门禁不证明绝对质量。数字、失败样本和限制见 docs/improvement-acceptance.md 与 docs/evaluation.md。
+模型按调用用途配置有序候选，保留地域/合规/工具能力约束、健康过滤、失败切换及预算提示。当前删除自动 P95 排序和强制发布资格门禁；候选评估按需运行，见 [0037](0037-core-runtime-simplification.md)。单候选自比较不证明模型质量；数据见 [评测](../evaluation.md)。

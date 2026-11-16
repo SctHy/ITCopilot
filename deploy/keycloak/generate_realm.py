@@ -33,7 +33,8 @@ def claim_mapper(attr):
 realm = {
     "realm": "it-copilot", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 900, "registrationAllowed": False,
     "roles": {"realm": [{"name": r, "description": d} for r, d in (("employee", "Requests access for own account"),
-              ("approver", "Decides access approvals"), ("it_admin", "Operates IT-Copilot"), ("auditor", "Reads traces and audit logs"))]},
+              ("approver", "Decides access approvals"), ("it_admin", "Operates IT-Copilot"), ("auditor", "Reads traces and audit logs"),
+              ("platform_admin", "Operates the whole deployment (operator tenant only)"))]},
     "clients": [{
         "clientId": "it-copilot-web", "name": "IT-Copilot Web", "publicClient": True, "standardFlowEnabled": True,
         # Password grant only so scripts can obtain sandbox tokens; disable in any shared deployment.
@@ -44,6 +45,10 @@ realm = {
             {"name": "audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
              "config": {"included.custom.audience": "it-copilot", "access.token.claim": "true", "id.token.claim": "false"}},
             claim_mapper("employee_id"), claim_mapper("department"),
+            # One realm per tenant (ADR 0023): the realm says which tenant its tokens speak for.
+            {"name": "tenant", "protocol": "openid-connect", "protocolMapper": "oidc-hardcoded-claim-mapper",
+             "config": {"claim.name": "tenant", "claim.value": "default", "jsonType.label": "String", "access.token.claim": "true",
+                        "id.token.claim": "true", "userinfo.token.claim": "true"}},
             {"name": "roles", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-realm-role-mapper",
              "config": {"claim.name": "roles", "multivalued": "true", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "false"}},
         ],

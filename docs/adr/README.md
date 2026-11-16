@@ -1,6 +1,6 @@
 # 架构决策记录（ADR）
 
-每条记录一个现行的决定：背景、决定、后果。被推翻的决定直接删除，取代关系写在新记录里。
+只按任务读取相关条目；每项保留当前决定与替代关系，不保留实施日志。编号和路径不复用。当前范围以 0036、0037、0040 为准。
 
 | 编号 | 决定 | 状态 |
 |---|---|---|
@@ -22,16 +22,22 @@
 | [0019](0019-token-revocation-watermark.md) | 按身份的令牌吊销水位线 | 已采纳 |
 | [0020](0020-requester-confirms-drafted-requests.md) | 申请人确认 Agent 起草的申请后才进入审批 | 已采纳 |
 | [0021](0021-audit-integrity-and-policy-identity.md) | 审计完整性：来源摘要、管理操作先写意图、审计表只追加、策略按内容识别（修订 0008） | 已采纳 |
-| [0022](0022-multi-tenant-registry-and-isolation-sweep.md) | 多租户阶段 0：租户注册表与开关、跨租户路由巡检、未限定租户的查询静态守卫 | 已采纳 |
-| [0023](0023-tenant-scope-and-row-level-security.md) | 多租户阶段 1：租户作用域、签发方与飞书工作区绑定、审批子表与沙箱目录带 tenant、PostgreSQL 行级安全 | 已采纳 |
+| [0022](0022-multi-tenant-registry-and-isolation-sweep.md) | 租户注册表与路由隔离巡检 | 已采纳，0036 修订 |
+| [0023](0023-tenant-scope-and-row-level-security.md) | 租户作用域与身份绑定；RLS 已移除 | 已采纳，0036 修订 |
 | [0024](0024-per-tenant-knowledge-libraries.md) | 多租户阶段 2：每个租户一个知识库，检索时由代码注入租户，工具缓存 key 包含租户 | 已采纳 |
-| [0025](0025-tenant-policy-overlays-adapters-and-platform-admin.md) | 多租户阶段 3：只能收紧的租户策略覆盖、租户自己的目标系统与凭据、部署级操作需要平台管理员 | 已采纳 |
+| [0025](0025-tenant-policy-overlays-adapters-and-platform-admin.md) | 多租户阶段 3：部署级操作需要平台管理员（策略覆盖、租户执行系统已删除） | 部分保留，见 0036 |
 | [0026](0026-resource-serialization-and-ledger-state.md) | 资源级串行化与台账期望状态 | 已采纳 |
 | [0027](0027-turn-records-and-change-events.md) | 持久回合元数据、版本指纹、工具错误类别与行为变更事件 | 已采纳 |
 | [0028](0028-periodic-reconciliation-and-stuck-work.md) | 周期对账与卡住工作告警 | 已采纳 |
-| [0029](0029-online-badcase-feedback-loop.md) | 反馈、脱敏快照、双人标注与线上回归闭环 | 已采纳 |
+| [0029](0029-online-badcase-feedback-loop.md) | 反馈、脱敏快照、单人标注与回归导出 | 由 0037 精简 |
 | [0034](0034-success-drop-attribution.md) | 成功率波动的切片 rate/mix 分解与变更时间线归因 | 已采纳 |
 | [0031](0031-turn-deadline-and-tail-latency.md) | 整轮截止时间与尾延迟治理 | 实现已采纳，性能目标未达标 |
 | [0032](0032-long-term-memory-governance.md) | 长期记忆写入脱敏、准入、近重复合并及字段时效和本人删除 | 已采纳 |
-| [0033](0033-agent-specifications-and-rollouts.md) | Agent 规格注册、会话粘性、灰度与评测门禁回滚 | 已采纳 |
-| [0030](0030-deterministic-model-routing.md) | 按角色和租户合规确定性选择模型，健康/延迟/预算调整与候选评测门禁 | 已采纳 |
+| [0033](0033-agent-specifications-and-rollouts.md) | 部署级 Agent 规格；旧灰度与门禁已移除 | 由 0037 精简 |
+| [0030](0030-deterministic-model-routing.md) | 按用途有序模型路由、合规、失败切换与预算 | 由 0037 精简 |
+| [0035](0035-tenant-rate-limit-and-fair-queues.md) | 租户限流（先身份后租户）与队列按租户轮转 | 已采纳 |
+| [0036](0036-multi-tenant-scope-reduction.md) | 多租户只保留核心隔离：删除行级安全、静态守卫、策略覆盖、租户执行系统与舱壁；去掉单租户开关，始终多租户 | 已采纳 |
+| [0037](0037-core-runtime-simplification.md) | 部署版本、按用途模型路由、单人标注与核心解耦 | 已采纳 |
+| [0038](0038-private-chat-history.md) | 网页私聊历史：本人可见、写入前脱敏、90 天保留、删除留审计 | 已采纳 |
+| [0039](0039-model-outbound-masking.md) | 模型出站占位符、工具参数恢复、回合隔离与离线验收 | 已采纳，真实模型效果未验证 |
+| [0040](0040-current-contracts-only.md) | 仅支持当前架构、新数据库基线与严格数据契约 | 已采纳 |

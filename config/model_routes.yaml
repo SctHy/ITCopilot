@@ -12,8 +12,8 @@ models:
     thinking_api: deepseek
 routes:
   intent_fallback: {candidates: [deepseek-flash], timeout_s: 3}
-  agent_read: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 3, latency_slo_s: 6, turn_deadline_s: 20}
-  agent_write: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 5, latency_slo_s: 10}
+  agent_read: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 3, turn_deadline_s: 20}
+  agent_write: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 5}
   summary: {candidates: [deepseek-flash]}
   profile: {candidates: [deepseek-flash]}
   rewrite_rerank: {candidates: [deepseek-flash]}

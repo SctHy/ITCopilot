@@ -11,24 +11,19 @@ from workflow.adapters.base import Adapter
 class AdapterRegistry:
     """Routes an action to the adapter owning its system; everything else stays local.
 
-    Per tenant (ADR 0025): a tenant with adapters of its own (``tenants``) uses only those - its own
-    target systems and credentials. ``external`` (the deployment's env-configured adapters) serves
-    the tenants in ``shared_with``; None means everyone (one organisation per deployment). The
-    tenant is the one in scope: the worker enters each action's tenant before routing it.
+    ``external`` (the deployment's env-configured adapters) acts only for the tenants in
+    ``shared_with``; None means everyone (one organisation per deployment). Other tenants get the
+    local sandbox, so one tenant's grants never land in another organisation's systems. The tenant
+    is the one in scope: the worker enters each action's tenant before routing it (ADR 0025).
     """
 
-    def __init__(self, local: Adapter, external: Optional[Dict[str, Adapter]] = None, *,
-                 tenants: Optional[Dict[str, Dict[str, Adapter]]] = None, shared_with: Optional[Set[str]] = None):
+    def __init__(self, local: Adapter, external: Optional[Dict[str, Adapter]] = None, *, shared_with: Optional[Set[str]] = None):
         self.local = local
         self.external = dict(external or {})   # policy system -> adapter
-        self.tenants = {t: dict(a) for t, a in (tenants or {}).items()}
         self.shared_with = shared_with
 
     def _external(self) -> Dict[str, Adapter]:
-        tenant = current_tenant()
-        if tenant in self.tenants:
-            return self.tenants[tenant]
-        if self.shared_with is None or tenant in self.shared_with:
+        if self.shared_with is None or current_tenant() in self.shared_with:
             return self.external
         return {}
 
@@ -44,5 +39,4 @@ class AdapterRegistry:
         raise KeyError(name)
 
     def all(self) -> Iterable[Adapter]:
-        tenant_adapters = [a for adapters in self.tenants.values() for a in adapters.values()]
-        return dict.fromkeys((self.local, *self.external.values(), *tenant_adapters)).keys()
+        return dict.fromkeys((self.local, *self.external.values())).keys()

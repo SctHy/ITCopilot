@@ -13,18 +13,19 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import replace, dataclass, field
 from typing import Any, Dict, FrozenSet, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.usage import RunUsage
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 
+from agents.intent.explicit import explicit_access_systems, explicit_write_requests, readonly_requested
 from agents.intent.entities import clean_entities, extract_entities, merge_entities
 from agents.intent.taxonomy import (
     CATEGORY_GUIDE,
     INTENT_GROUPS,
-    INTENT_WRITE_ACTION,
     KEYWORDS,
     REPRESENTATIVE_INTENTS,
     REQUIRED_SLOTS,
@@ -35,7 +36,6 @@ from agents.intent.taxonomy import (
     jev_state,
 )
 from core.env import env_float
-from core.protocols import CacheState, cache_state
 from core.jev import JevClient, top_choice
 from core.model_router import ModelRouter
 from monitor import metrics
@@ -92,6 +92,7 @@ class IntentResult:
     # 只有 Jev 给出判断时才有值；None 表示不知道，调用方按原行为处理（不预取、不限制写操作）。
     requested_actions: Optional[FrozenSet[str]] = None
     needs_knowledge: Optional[bool] = None
+    token_usage: Dict[str, int] = field(default_factory=dict)
 
 
 def _fresh_metrics() -> Dict[str, Any]:
@@ -145,8 +146,8 @@ class IntentRecognizer:
     async def recognize(self, message: str, history: Optional[List[Dict[str, str]]] = None, previous_intent_group: Optional[str] = None) -> IntentResult:
         key = self._cache_key(message, history, previous_intent_group)
         metrics.CACHE_LOOKUPS.labels(cache="intent", result="hit" if key in self._cache else "miss").inc()
-        if cache_state(key in self._cache) == CacheState.FRESH:
-            return self._cache[key]
+        if key in self._cache:
+            return replace(self._cache[key], token_usage={})
 
         pattern = self._pattern(message)
         jev = None
@@ -161,7 +162,10 @@ class IntentRecognizer:
                 llm = await self._llm(message, history)
                 if jev and str(llm.get("_source", "")).startswith("fallback"):
                     # LLM 也失败时，低置信度的 Jev 答案仍远好于关键词规则（intent_v3 上规则约 30%）。
-                    llm = {**jev, "_source": "jev_low_confidence"}
+                    fallback_usage = llm.get('_usage', {})
+                    combined = {name: jev.get('_usage', {}).get(name, 0) + fallback_usage.get(name, 0)
+                                for name in jev.get('_usage', {}).keys() | fallback_usage.keys()}
+                    llm = {**jev, "_source": "jev_low_confidence", "_usage": combined}
                 elif jev:
                     llm["_jev_confidence"] = jev["confidence"]
         else:
@@ -169,6 +173,10 @@ class IntentRecognizer:
             self._metrics["fallback_disabled"] += 1
             llm = _fallback_vote("fallback_disabled")
 
+        usage = dict(llm.get('_usage', {}))
+        if jev and llm is not jev and llm.get('_source') != 'jev_low_confidence':
+            for name, amount in jev.get('_usage', {}).items():
+                usage[name] = usage.get(name, 0) + amount
         intent, confidence, scores = self.select(llm, pattern)
         if "_jev_confidence" in llm:
             scores["jev"] = llm["_jev_confidence"]
@@ -180,13 +188,19 @@ class IntentRecognizer:
         group = INTENT_GROUPS.get(intent, "general")
 
         entities = merge_entities(extract_entities(message), llm.get("entities", {}))
+        if not entities.get("system") and (systems := explicit_access_systems(message)):
+            entities["system"] = systems
         missing = self._missing_slots(intent, entities)
         low_confidence = confidence < self._clarify_threshold
-        if low_confidence and not missing:
+        explicit = explicit_write_requests(message)
+        # An explicitly stated request is not a vague message: asking "请补充具体问题" would block it.
+        # Fields the request actually lacks are still in ``missing``.
+        if low_confidence and not missing and not explicit:
             missing = ["请补充具体 IT 问题或上下文"]
 
         result = IntentResult(
             intent=intent,
+            token_usage=usage,
             confidence=confidence,
             intent_group=group,
             source_scores=scores,
@@ -199,15 +213,16 @@ class IntentRecognizer:
             llm_used=bool(llm.get("_llm_used")),
             recognition_source=llm.get("_source", "fallback"),
         )
-        # 意图本身就是写操作时也算用户要求了。
-        implied = {INTENT_WRITE_ACTION[intent]} if intent in INTENT_WRITE_ACTION else set()
+        # 业务类别不是办理授权；以独立的动作判断和明确请求为准。
         if jev:
             # 即使意图转给了 LLM，Jev 的这两项判断仍然可用。
-            result.requested_actions = frozenset(jev["_actions"] | implied)
+            result.requested_actions = frozenset(jev["_actions"] | explicit)
             result.needs_knowledge = jev["_needs_sop"]
         elif llm.get("_actions") is not None:
             # Jev 不可用（超时/未配置）时由 LLM 分类给出；LLM 没填这一项时保持 None（不拦写操作）。
-            result.requested_actions = frozenset(llm["_actions"] | implied)
+            result.requested_actions = frozenset(llm["_actions"] | explicit)
+        if readonly_requested(message):
+            result.requested_actions = explicit
         metrics.INTENT_RECOGNITIONS.labels(source=result.recognition_source, intent_group=group).inc()
         if result.clarification_needed:
             metrics.INTENT_CLARIFICATIONS.labels(intent_group=group).inc()
@@ -255,7 +270,9 @@ class IntentRecognizer:
             self._metrics["jev_input_tokens"] += int(response.usage.get("input_tokens") or 0)
             intent, confidence = top_choice(answers["intent"])
             result = {"intent": IntentCategory(intent), "confidence": confidence, "urgency": UrgencyLevel(answers["urgency"]["choice"]),
-                      "entities": {}, "reasoning": "", "_llm_used": True, "_source": "jev"}
+                      "entities": {}, "reasoning": "", "_llm_used": True, "_source": "jev",
+                      "_usage": {"requests": 1, "input_tokens": int(response.usage.get("input_tokens") or 0),
+                                 "output_tokens": int(response.usage.get("output_tokens") or 0)}}
         except Exception as exc:
             self._metrics["jev_errors"] += 1
             self._metrics["jev_last_error"] = type(exc).__name__
@@ -270,7 +287,7 @@ class IntentRecognizer:
         # 拿不准时预取：本地检索只要几十毫秒，漏取则要多一轮模型调用。
         result["_needs_sop"] = noul("needs_sop") >= .4
         # LLM 会从历史里读出编号（如上一轮回复里的工单号）；Jev 路径用正则补上，当前消息里的编号仍优先合并。
-        past = extract_entities("\n".join(str(item.get("content", "")) for item in (history or [])[-4:]))
+        past = extract_entities("\n".join(str(item.get("content", "")) for item in (history or [])[-20:]))
         for slot in ("employee_id", "ticket_id", "device_id"):
             if past.get(slot):
                 result["entities"][slot] = past[slot][-1:]
@@ -281,13 +298,15 @@ class IntentRecognizer:
 无论用户是在提 IT 问题，还是打招呼（greeting）、闲聊（chitchat）或超出范围（out_of_scope），都必须完整填写所有字段。
 confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80-0.95；greeting/chitchat/out_of_scope 也必须填合理值，建议 0.80-0.95；绝对不能留空、填 null 或填 0。
 {CATEGORY_GUIDE}
+结合历史解析“最开始那个”等指代；历史里的助手建议不等于用户办理意愿。查询进度、总结已有申请不属于新的写操作。
 用户消息：{message}
-历史：{json.dumps(history[-4:] if history else [], ensure_ascii=False)}"""
+历史：{json.dumps(history[-20:] if history else [], ensure_ascii=False)}"""
         self._metrics["llm_calls"] += 1
+        measured = RunUsage()
         try:
             routed = self.router.pick("intent_fallback")
             settings = {**routed.settings, "max_tokens": max(1024, int(os.getenv("IT_INTENT_MAX_TOKENS", "1024"))), "temperature": 0.}
-            run = self._classifier.run(prompt, model=routed.model, model_settings=settings)
+            run = self._classifier.run(prompt, model=routed.model, model_settings=settings, usage=measured)
             data: IntentClassification = (await self.router.run(routed, asyncio.wait_for(
                 run, timeout=self.router.config.routes["intent_fallback"].timeout_s))).output
         except Exception as exc:
@@ -295,7 +314,8 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
             self._metrics["fallback_errors"] += 1
             self._metrics["last_error"] = type(exc).__name__
             logger.info("IT intent tool fallback: %s", type(exc).__name__)
-            return {**_fallback_vote("fallback_exception"), "_error_type": type(exc).__name__}
+            return {**_fallback_vote("fallback_exception"), "_error_type": type(exc).__name__,
+                    "_usage": {"requests": measured.requests, "input_tokens": measured.input_tokens, "output_tokens": measured.output_tokens}}
 
         confidence = float(data.confidence or 0.)
         if confidence <= 0:
@@ -304,6 +324,8 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
         return {
             "intent": data.intent, "confidence": confidence, "urgency": data.urgency, "reasoning": data.reasoning[:500],
             "entities": clean_entities(data.entities.model_dump()), "_llm_used": True, "_source": "llm_tool_use",
+            "_usage": {"requests": measured.requests, "input_tokens": measured.input_tokens, "output_tokens": measured.output_tokens,
+                       "cache_read_tokens": measured.cache_read_tokens},
             "_actions": None if data.requested_actions is None else set(data.requested_actions) & set(WRITE_ACTIONS),
         }
 
@@ -339,4 +361,4 @@ confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80
 
     @staticmethod
     def _cache_key(message: str, history: Optional[List[Dict[str, str]]], previous_intent_group: Optional[str] = None) -> str:
-        return json.dumps([message, history[-4:] if history else [], previous_intent_group], ensure_ascii=False, sort_keys=True)
+        return json.dumps([message, history[-20:] if history else [], previous_intent_group], ensure_ascii=False, sort_keys=True)

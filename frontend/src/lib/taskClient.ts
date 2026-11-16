@@ -13,7 +13,7 @@ export function createTaskClient(settings: Settings) {
     history: (params: Params) => requestTaskHistory(snapshot.backend, snapshot, params),
     linked: (id: string) => request<Page<any>>(id, '/links'),
     continue: (id: string, payload: unknown) => continueTask(snapshot.backend, snapshot, id, payload),
-    list: (params: Params) => requestTaskInbox(snapshot.backend, snapshot, params) as Promise<Page<TaskListItem>>,
+    list: (params: Params, signal?: AbortSignal) => requestTaskInbox(snapshot.backend, snapshot, params, signal) as Promise<Page<TaskListItem>>,
     get: (id: string) => request<TaskRoom>(id, '?event_limit=50'),
     create: (payload: unknown) => request<TaskRoom>('', '', payload),
     directory: (id: string) => request<Page<any>>(id, '/directory'),

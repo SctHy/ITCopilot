@@ -49,7 +49,8 @@ def test_prompt_and_tool_budgets(orchestrator):
     prompt = orchestrator.agent._build_system_prompt(Request("x"))
     # 每条规则都对应评测里出现过的失败（先查 SOP、不主动提交、引用时重新检索等）。
     # 300 → 320：加“不先写过渡语”（深度评测：26 轮里 8 轮先输出过渡语再调工具，前端清掉但照样计费）。
-    assert len(prompt) <= 320 and prompt.endswith(AGENT_RULES)
+    # 320 → 500：混合诉求评测复现漏办和追问工具外字段，补充参数边界与逐项回复规则。
+    assert len(prompt) <= 500 and prompt.endswith(AGENT_RULES)
     specs = orchestrator.agent.get_tools().values()
     assert all(len(spec.description) <= 80 for spec in specs)
     payload = [{"name": s.name, "description": s.description, "parameters": s.input_schema} for s in specs]
