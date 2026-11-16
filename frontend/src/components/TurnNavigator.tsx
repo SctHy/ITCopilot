@@ -60,7 +60,7 @@ export function TurnNavigator({ turns, scrollRef }: { turns: Turn[]; scrollRef: 
                     aria-current={turn.index === active ? 'step' : undefined}
                     className="group flex h-2.5 w-7 cursor-pointer items-center outline-none" />}>
                 <span className={cn(
-                  'h-0.5 rounded-full transition-all duration-150',
+                  'h-0.5 rounded-full transition-colors duration-150',
                   turn.index === active ? 'w-6 bg-foreground/70' : 'w-3.5 bg-muted-foreground/35 group-hover:w-5 group-hover:bg-foreground/50 group-focus-visible:w-5 group-focus-visible:bg-foreground/50',
                 )} />
               </HoverCardTrigger>

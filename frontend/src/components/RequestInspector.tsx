@@ -16,7 +16,7 @@ function Step({ icon, title, text, done, active }: { icon: ReactNode; title: str
       </span>
       <div className="min-w-0">
         <p className="text-[13px] leading-5">{title}{done && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-success align-middle" />}</p>
-        <p className="font-mono text-xs break-words text-muted-foreground">{text}</p>
+        <p className="text-xs break-words text-muted-foreground">{text}</p>
       </div>
     </li>
   )
@@ -24,9 +24,9 @@ function Step({ icon, title, text, done, active }: { icon: ReactNode; title: str
 
 function Metric({ label, value, tone = '' }: { label: string; value: ReactNode; tone?: string }) {
   return (
-    <div className="rounded-md border border-border px-2.5 py-2">
+    <div className="py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 font-mono text-[15px] tabular-nums ${tone}`}>{value}</p>
+      <p className={`mt-0.5 text-[15px] tabular-nums ${tone}`}>{value}</p>
     </div>
   )
 }
@@ -43,8 +43,8 @@ export function RequestInspector({ lastResponse, lastTrace, busy, monitorData, o
       <section>
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-[13px] font-medium">请求追踪</h3>
-          <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-            {busy ? <Spinner className="size-4 size-3" /> : <span className={`size-1.5 rounded-full ${done ? 'bg-success' : 'bg-muted'}`} />}
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {busy ? <Spinner className="size-3" /> : <span className={`size-1.5 rounded-full ${done ? 'bg-success' : 'bg-muted'}`} />}
             {busy ? '处理中' : lastResponse ? '已完成' : '待开始'}
           </span>
         </div>
@@ -60,7 +60,7 @@ export function RequestInspector({ lastResponse, lastTrace, busy, monitorData, o
           <Metric label="意图置信度" value={lastResponse ? formatPercent(lastResponse.intentConfidence) : '—'} />
         </div>
         {lastTrace?.trace && (
-          <Collapse className="mt-3" triggerClassName="" panelClassName="grid gap-2 pt-2" trigger={<><span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">{calls.length} 个工具调用</span></>}>
+          <Collapse className="mt-3" triggerClassName="" panelClassName="grid gap-2 pt-2" trigger={<><span className="flex items-center gap-2 text-xs text-muted-foreground">{calls.length} 个工具调用</span></>}>
                 {calls.map((call, index) => (
                   <div key={index} className="rounded-md border border-border p-3">
                     <div className="mb-2 flex items-center justify-between text-[13px]">

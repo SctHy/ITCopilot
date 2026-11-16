@@ -134,16 +134,16 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8">
-      <PageHeader kicker="Knowledge" title="知识库" description="管理 IT 知识，为每次回答提供可追溯依据。"
+      <PageHeader title="知识库" description="检索、添加和管理 IT 知识文档。"
         actions={
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+          <div className="flex items-center gap-3">
             <BookOpenIcon className="size-5 text-primary" />
             <div><p className="text-xl leading-none font-semibold tabular-nums">{count}</p><p className="mt-1 text-xs text-muted-foreground">知识片段</p></div>
           </div>
         } />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Panel kicker="Retrieval" title="检索知识" icon={<SearchIcon />}>
+        <Panel title="检索知识" icon={<SearchIcon />}>
           <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); perform('search', search) }}>
             <TextInput ariaLabel="检索问题" value={query} onChange={setQuery} placeholder="例如：VPN 连不上怎么办" />
             <Button type="submit" className="shrink-0" aria-busy={pending === 'search'} disabled={busy || !query.trim()}>
@@ -152,14 +152,14 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
           </form>
           <div className="mt-4">
             {results.length ? (
-              <ol className="grid gap-2.5">
+              <ol className="divide-y divide-border">
                 {results.map((item, index) => (
-                  <li key={item.id || index} className="fade-up flex gap-3 rounded-md border border-border p-3.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-muted text-[13px] font-semibold text-muted-foreground tabular-nums">{String(index + 1).padStart(2, '0')}</span>
+                  <li key={item.id || index} className="flex gap-3 py-4 first:pt-0 last:pb-0">
+                    <span className="w-6 shrink-0 text-sm text-muted-foreground tabular-nums">{index + 1}.</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <strong className="text-sm">{item.title || '未命名文档'}</strong>
-                        <Badge variant="outline" className="font-mono">相关度 {typeof item.score === 'number' ? item.score.toFixed(3) : '—'}</Badge>
+                        <span className="text-xs text-muted-foreground tabular-nums">相关度 {typeof item.score === 'number' ? item.score.toFixed(3) : '—'}</span>
                       </div>
                       <p className="mt-1.5 line-clamp-4 text-sm leading-relaxed text-muted-foreground">{item.content}</p>
                     </div>
@@ -173,7 +173,7 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
           </div>
         </Panel>
 
-        <Panel kicker="Ingestion" title="添加知识" icon={<FileTextIcon />}>
+        <Panel title="添加知识" icon={<FileTextIcon />}>
           <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); perform('import', submit) }}>
             <TextInput label="文档标题" value={title} onChange={setTitle} isRequired placeholder="例如：VPN 排障补充 SOP" />
             <TextAreaInput label="知识内容" value={content} onChange={setContent} isRequired rows={7} placeholder="输入 IT 规范、系统说明或排障流程" />
@@ -188,7 +188,7 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
       </div>
 
       {isAdmin && (
-        <Panel className="mt-5" kicker="Documents" title="文档管理" icon={<FileTextIcon />}
+        <Panel className="mt-5" title="文档管理" icon={<FileTextIcon />}
           actions={<Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => loadDocs()}><RefreshCwIcon className="size-3.5" />刷新</Button>}>
           {!docs.length ? <p className="text-sm text-muted-foreground">知识库中还没有文档。</p> : (
             <ul className="divide-y divide-border">
@@ -210,21 +210,20 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
         </Panel>
       )}
 
-      <Panel className="mt-5" kicker="Loaded Skills" title="已加载能力" icon={<SparklesIcon />}
+      <Panel className="mt-5" title="已加载能力" icon={<SparklesIcon />}
         actions={<Button type="button" size="sm" variant="ghost" aria-busy={pending === 'skills'} disabled={busy} onClick={() => perform('skills', reload)}><RefreshCwIcon className="size-3.5" />重新加载</Button>}>
         {skills.skills?.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="divide-y divide-border">
             {skills.skills.map(skill => (
-              <div key={skill.name} className="rounded-md border border-border p-3.5">
+              <li key={skill.name} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex items-center gap-2">
-                  <span className="size-2 rounded-full bg-success" />
                   <strong className="truncate text-sm">{skill.name}</strong>
                 </div>
-                <p className="mt-1.5 line-clamp-2 text-[13px] text-muted-foreground">{skill.description || '业务规范能力'}</p>
-                <p className="mt-2 text-xs text-muted-foreground tabular-nums">{skill.content_chars || 0} chars</p>
-              </div>
+                <p className="mt-1.5 line-clamp-2 text-[13px] text-muted-foreground">{skill.description || '暂无说明'}</p>
+                <p className="mt-2 text-xs text-muted-foreground tabular-nums">{skill.content_chars || 0} 字符</p>
+              </li>
             ))}
-          </div>
+          </ul>
         ) : <p className="text-sm text-muted-foreground">暂无已加载能力，连接服务后刷新查看。</p>}
       </Panel>
     </section>

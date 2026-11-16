@@ -35,12 +35,12 @@ export function ChatMessage({ item, identity, backendLabel, userInitial, onAppro
   return (
     <article className="fade-up group min-w-0">
       <div>
-        <div className="mb-1.5 flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{backendLabel.toLowerCase()} agent</span>
           {item.meta && !item.error && <span className="truncate">· {item.meta}</span>}
           {item.error && <StatusChip tone="danger">请求失败</StatusChip>}
         </div>
-        <div className={`text-[15px] leading-7 ${item.error ? 'rounded-lg border border-destructive/30 bg-destructive/8 px-3.5 py-2.5 text-destructive-foreground' : ''}`}>
+        <div className={`text-[15px] leading-7 ${item.error ? 'rounded-lg border border-border bg-card px-3.5 py-2.5 text-destructive-foreground' : ''}`}>
           <p className="prose-reply">{formatBody(item.content)}</p>
           {!!item.taskReferences?.length && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">

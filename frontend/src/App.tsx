@@ -258,7 +258,7 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
                 active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}`}>
               {view.icon}
               <span className="flex-1">{view.label}</span>
-              {view.id === 'chat' && chatState.messages.length > 0 && <span className="font-mono text-xs text-muted-foreground">{chatState.messages.length}</span>}
+              {view.id === 'chat' && chatState.messages.length > 0 && <span className="text-xs tabular-nums text-muted-foreground">{chatState.messages.length}</span>}
             </SidebarMenuButton></SidebarMenuItem>
           )
         })}
@@ -336,7 +336,7 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <MessagesSquareIcon className="size-3" />
                   <span className="truncate">{item.requester_name}</span>
-                  {!!item.unread && <span className="ml-auto grid h-4 min-w-4 place-items-center rounded bg-foreground px-1 font-mono text-[10px] text-background">{item.unread}</span>}
+                  {!!item.unread && <span className="ml-auto grid h-4 min-w-4 place-items-center rounded bg-foreground px-1 text-[10px] tabular-nums text-background">{item.unread}</span>}
                 </span>
                 <span className="line-clamp-1 text-sm text-foreground">{item.title}</span>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

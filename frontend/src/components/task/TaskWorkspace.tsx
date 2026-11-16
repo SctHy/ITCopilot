@@ -106,7 +106,7 @@ export function TaskWorkspace({ settings, identity, requestedTask = null, onChan
               <Card className="gap-3 p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <h2 className="text-base font-semibold tracking-tight">{room.title}</h2>
+                    <h2 className="text-xl font-semibold tracking-tight">{room.title}</h2>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
                       申请人 {room.requester_name}
                       <StatusChip tone={phaseTones[room.phase] || 'default'}>{phases[room.phase] || room.phase}</StatusChip>
@@ -132,7 +132,7 @@ export function TaskWorkspace({ settings, identity, requestedTask = null, onChan
                     <p role="status" className="flex items-center gap-2 text-[13px] text-muted-foreground"><Spinner className="size-4" />Agent 正在处理，可以继续讨论或离开页面，结果会保留在这里。</p>
                   )}
                   {failedRuns.map(run => (
-                    <div key={run.id} className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive-foreground">
+                    <div key={run.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3 text-sm text-destructive-foreground">
                       <span>有一个 Agent 回合处理失败。</span>
                       {room.can_write !== false && <Button type="button" size="sm" variant="destructive" disabled={state.busy || room.status !== 'open'} onClick={() => controller.retry(run.id)}><RefreshCwIcon className="size-3.5" />重新处理</Button>}
                     </div>

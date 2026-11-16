@@ -17,12 +17,11 @@ import { cn } from '@/lib/utils'
 
 export type Tone = 'default' | 'accent' | 'success' | 'warning' | 'danger'
 
-export function PageHeader({ kicker, title, description, actions }: { kicker?: string; title: string; description?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
     <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        {kicker && <p className="mb-1 text-xs text-muted-foreground">{kicker}</p>}
-        <h1 className="font-semibold text-xl tracking-tight">{title}</h1>
+        <h1 className="font-semibold text-2xl tracking-tight">{title}</h1>
         {description && <p className="mt-1.5 max-w-3xl text-muted-foreground text-sm leading-relaxed">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
@@ -30,8 +29,8 @@ export function PageHeader({ kicker, title, description, actions }: { kicker?: s
   )
 }
 
-export function Panel({ title, kicker, icon, actions, children, className = '', bodyClassName = '' }: {
-  title?: ReactNode; kicker?: string; icon?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string
+export function Panel({ title, icon, actions, children, className = '', bodyClassName = '' }: {
+  title?: ReactNode; icon?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string
 }) {
   return (
     <Card className={cn('gap-0 py-0', className)}>
@@ -39,8 +38,7 @@ export function Panel({ title, kicker, icon, actions, children, className = '', 
         <CardHeader className="flex h-12 flex-row items-center justify-between gap-3 border-b px-4 py-0">
           <div className="flex min-w-0 items-center gap-2 text-muted-foreground [&>svg]:size-4">
             {icon}
-            {title && <CardTitle className="truncate font-medium text-foreground text-sm">{title}</CardTitle>}
-            {kicker && <span className="hidden text-muted-foreground text-xs sm:inline">{kicker}</span>}
+            {title && <CardTitle className="truncate font-semibold text-foreground text-base">{title}</CardTitle>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </CardHeader>
@@ -50,12 +48,12 @@ export function Panel({ title, kicker, icon, actions, children, className = '', 
   )
 }
 
-const toneClass = { default: '', accent: 'text-info-foreground border-info/30 bg-info/10', success: 'text-success-foreground border-success/30 bg-success/10', warning: 'text-warning-foreground border-warning/30 bg-warning/10', danger: 'text-destructive border-destructive/30 bg-destructive/10' } as const
+const toneClass = { default: '', accent: '[&>svg]:text-info-foreground', success: '[&>svg]:text-success-foreground', warning: '[&>svg]:text-warning-foreground', danger: '[&>svg]:text-destructive' } as const
 const toneDot: Record<Tone, string> = { default: 'bg-muted-foreground/60', accent: 'bg-info', success: 'bg-success', warning: 'bg-warning', danger: 'bg-destructive' }
 
 export function StatusChip({ tone = 'default', children }: { tone?: Tone; children: ReactNode; size?: 'sm' | 'md' }) {
   return (
-    <Badge variant="outline" className={cn("gap-1.5 font-normal", toneClass[tone])}>
+    <Badge variant="outline" className="gap-1.5 bg-card font-normal text-foreground">
       <span className={cn('size-1.5 rounded-full', toneDot[tone])} />{children}
     </Badge>
   )
@@ -83,8 +81,8 @@ export function InfoAlert({ children, title, status = 'default' }: { children: R
 
 export function Empty({ icon, title, description, children }: { icon?: ReactNode; title: string; description?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-6 py-12 text-center">
-      {icon && <span className="mb-2 flex size-9 items-center justify-center rounded-md border bg-card text-muted-foreground [&>svg]:size-4.5">{icon}</span>}
+    <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-8 text-center">
+      {icon && <span className="mb-2 text-muted-foreground [&>svg]:size-4.5">{icon}</span>}
       <p className="font-medium text-sm">{title}</p>
       {description && <p className="max-w-sm text-muted-foreground text-sm">{description}</p>}
       {children}
@@ -239,7 +237,7 @@ export function Gauge({ value, label, valueText, tone = 'default', className = '
       {(label || valueText) && (
         <div className="flex items-center justify-between gap-2 text-sm">
           <span className="text-muted-foreground">{label}</span>
-          <span className="font-mono text-xs tabular-nums">{valueText}</span>
+          <span className="text-xs tabular-nums">{valueText}</span>
         </div>
       )}
       <Progress value={Math.max(0, Math.min(100, value))} aria-label={typeof label === 'string' ? label : '进度'} className={cn('[&_[data-slot=progress-indicator]]:bg-current', { default: 'text-primary', success: 'text-success', warning: 'text-warning', danger: 'text-destructive' }[tone])} />
