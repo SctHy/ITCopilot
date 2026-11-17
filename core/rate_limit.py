@@ -60,7 +60,7 @@ class Decision:
 def _gcra(tat: float, now: float, rule: RateRule) -> tuple[Decision, Optional[float]]:
     """Returns the decision and the new theoretical arrival time to store (None when denied)."""
     tat = max(tat, now)
-    allow_at = tat + rule.interval - rule.period_s
+    allow_at = tat - (rule.period_s - rule.interval)
     if now < allow_at:
         return Decision(False, allow_at - now), None
     return Decision(True), tat + rule.interval
@@ -73,7 +73,7 @@ local interval = tonumber(ARGV[1])
 local period = tonumber(ARGV[2])
 local tat = tonumber(redis.call('GET', KEYS[1]) or now)
 if tat < now then tat = now end
-local allow_at = tat + interval - period
+local allow_at = tat - (period - interval)
 if now < allow_at then
   return {0, tostring(allow_at - now)}
 end

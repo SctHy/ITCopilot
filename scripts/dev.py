@@ -143,7 +143,7 @@ def commands(profile, tests=()):
         result += [("lint", [py, "-m", "ruff", "check", "."], "."),
                    ("backend", pytest + list(tests), ".")]
     if profile in ("frontend", "local"):
-        result += [("frontend-" + name, ["npm", "run", name], "frontend")
+        result += [("frontend-" + name.replace(":", "-"), ["npm", "run", name], "frontend")
                    for name in ("typecheck", "test", "test:ui", "build")]
     if profile == "postgres":
         result.append(("postgres", pytest + [f"tests/test_{name}.py" for name in POSTGRES_TESTS], "."))

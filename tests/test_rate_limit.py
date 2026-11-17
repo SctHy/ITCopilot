@@ -50,6 +50,12 @@ def test_burst_then_steady_rate_and_denials_do_not_consume_capacity():
     assert asyncio.run(limiter.check("unknown_bucket", "a")).allowed
 
 
+def test_first_turn_is_allowed_at_a_fractional_clock_reading():
+    limiter = MemoryRateLimiter({AGENT_TURN: RateRule(1, 60)}, clock=lambda: 0.0000001)
+    assert asyncio.run(limiter.check(AGENT_TURN, "alice")).allowed
+    assert not asyncio.run(limiter.check(AGENT_TURN, "alice")).allowed
+
+
 def test_redis_backend_shares_one_budget_across_processes():
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     rules = {AGENT_TURN: RateRule(2, 60)}
