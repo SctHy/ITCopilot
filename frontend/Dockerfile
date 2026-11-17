@@ -11,6 +11,7 @@ FROM nginx:1.31.8-alpine
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN sed 's/name="python-api-url" content=""/name="python-api-url" content="$PYTHON_API_URL"/' /usr/share/nginx/html/index.html > /etc/nginx/index.html.template
 COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh

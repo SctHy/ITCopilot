@@ -14,18 +14,11 @@ export class ApiError extends Error {
   }
 }
 
-interface RuntimeConfig { pythonApiUrl?: string }
-
-function runtimeConfig(): RuntimeConfig {
-  if (typeof window === 'undefined') return {}
-  return (window as Window & { __IT_COPILOT_CONFIG__?: RuntimeConfig }).__IT_COPILOT_CONFIG__ || {}
-}
-
 export const DEFAULT_BACKENDS: Record<string, BackendMeta> = {
   python: {
     id: 'python',
     label: 'Python',
-    baseUrl: runtimeConfig().pythonApiUrl || import.meta.env?.VITE_PYTHON_API_URL || 'http://127.0.0.1:8001',
+    baseUrl: globalThis.document?.querySelector<HTMLMetaElement>('meta[name="python-api-url"]')?.content || import.meta.env?.VITE_PYTHON_API_URL || 'http://127.0.0.1:8001',
     port: '8001'
   }
 }

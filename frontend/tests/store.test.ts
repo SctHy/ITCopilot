@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { reactive, subscribe, version } from '../src/lib/store.ts'
 
 test('writes anywhere in the tree notify the root, and nested reads keep their identity', () => {
-  const state = reactive({ messages: [], room: null, busy: {} })
+  const state = reactive<{ messages: { id: string; content: string }[]; room: { events: { id: number }[] } | null; busy: Record<string, boolean> }>({ messages: [], room: null, busy: {} })
   let calls = 0
   const stop = subscribe(state, () => { calls++ })
   state.messages.push({ id: 'a', content: '' })
-  const message = state.messages[0]
+  const message = state.messages[0]!
   assert.equal(state.messages.indexOf(message), 0, 'the same proxy is returned on every read')
   const before = version(state)
   message.content += '已'
@@ -24,10 +24,10 @@ test('writes anywhere in the tree notify the root, and nested reads keep their i
 })
 
 test('assigning a proxy stores the raw object and non-plain values pass through', () => {
-  const state = reactive({ items: [], file: null })
+  const state = reactive<{ items: { id: string }[]; file: Blob | null }>({ items: [], file: null })
   const item = reactive({ id: 'x' })
   state.items.push(item)
-  assert.equal(state.items[0].id, 'x')
+  assert.equal(state.items[0]!.id, 'x')
   const blob = new Blob(['a'])
   state.file = blob
   assert.equal(state.file, blob)

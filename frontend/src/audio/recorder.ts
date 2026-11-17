@@ -1,4 +1,4 @@
-import workletUrl from './pcm-worklet.js?url'
+import workletUrl from './pcm-worklet.ts?worker&url'
 
 export function encodeWav(chunks: Float32Array[], sampleRate: number): Blob {
   const count = chunks.reduce((n, chunk) => n + chunk.length, 0)

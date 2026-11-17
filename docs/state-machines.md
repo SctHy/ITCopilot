@@ -21,4 +21,4 @@
 
 `TaskStore.configure_extensions` 在启动时接入权限、用量和生命周期；调度失败契约在 `workflow/task_ports.py`。不要把业务规则散入 API 或用额外容器包裹现有组合根。
 
-验证：`test_protocol_regressions.py`、`test_workflow.py`、`test_task_capabilities.py`、`test_task_execution.py`、`test_shared_tasks.py`、`chatStream.test.js`；执行方法见 [开发入口](../CONTRIBUTING.md)。
+验证：`test_protocol_regressions.py`、`test_workflow.py`、`test_task_capabilities.py`、`test_task_execution.py`、`test_shared_tasks.py`、`chatStream.test.ts`；执行方法见 [开发入口](../CONTRIBUTING.md)。

@@ -1,3 +1,4 @@
+import { deferred } from './fixtures.ts'
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import { createRequestState, loadCurrent } from '../src/lib/requestState.ts'
@@ -32,8 +33,7 @@ for (const fail of [false, true]) {
   test(`loadCurrent: stale ${fail ? 'error' : 'success'} cannot overwrite switched state`, async () => {
     const settings = state()
     const requests = createRequestState(settings)
-    let resolve, reject
-    const pending = new Promise((a, b) => { resolve = a; reject = b })
+    const { promise: pending, resolve, reject } = deferred<string>()
     const field = { value: 'new' }
     const task = loadCurrent(requests, 'stats', () => pending, value => { field.value = value }, () => { field.value = 'failed' })
     settings.endpoints.python = '/other'; requests.invalidate()
@@ -46,7 +46,7 @@ for (const fail of [false, true]) {
 test('loadCurrent applies a current result with the request snapshot, and reports current errors', async () => {
   const settings = state()
   const requests = createRequestState(settings)
-  const seen = []
+  const seen: unknown[] = []
   await loadCurrent(requests, 'approvals', (backend, snapshot) => Promise.resolve([backend, snapshot.endpoints.python]),
     (value, request) => seen.push(value, request.backend))
   await loadCurrent(requests, 'approvals', () => Promise.reject(new Error('down')), () => seen.push('applied'), error => seen.push(error.message))
@@ -64,9 +64,9 @@ test('changing identity invalidates responses even when the endpoint stays the s
 test('approval inbox discards a response from the previous identity', async () => {
   const settings = { ...state(), accessToken: 'alice' }
   const requestState = createRequestState(settings)
-  let resolve
-  const pending = new Promise(r => { resolve = r })
-  const inbox = { value: [] }
+  type Entry = { approval_id: string }
+  const { promise: pending, resolve } = deferred<{ items: Entry[] }>()
+  const inbox: { value: Entry[] } = { value: [] }
   const task = loadCurrent(requestState, 'approvals', () => pending, body => { inbox.value = body.items })
   settings.accessToken = 'bob'
   requestState.invalidate()

@@ -4,15 +4,22 @@ import { requestChatStream } from '../src/api/chat.ts'
 
 const settings = { backend: 'python', endpoints: { python: 'http://api.test' }, conversationId: 'c1', accessToken: '' }
 
-function sse(...events) {
+function sse(...events: [string, string, Record<string, unknown>][]) {
   const text = events.map(([id, event, data]) => `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')
   return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(text)); c.close() } }), { status: 200 })
 }
 
-function withFetch(responses, fn) {
-  const calls = []
+type FetchCall = { url: string; headers: Headers; body: string }
+
+function withFetch(responses: Response[], fn: (calls: FetchCall[]) => Promise<void>) {
+  const calls: FetchCall[] = []
   const original = globalThis.fetch
-  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return responses.shift() }
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), headers: new Headers(init?.headers), body: String(init?.body) })
+    const response = responses.shift()
+    assert.ok(response, 'unexpected request')
+    return response
+  }
   return fn(calls).finally(() => { globalThis.fetch = original })
 }
 
@@ -23,8 +30,8 @@ test('resumes with Last-Event-ID after the stream ends without a terminal event'
   ], async (calls) => {
     const result = await requestChatStream('python', settings, '你好')
     assert.equal(result.requestId, 'r1')
-    assert.match(calls[1].url, /\/chat\/stream\/r1$/)
-    assert.equal(calls[1].init.headers.get('Last-Event-ID'), '1-1')
+    assert.match(calls[1]!.url, /\/chat\/stream\/r1$/)
+    assert.equal(calls[1]!.headers.get('Last-Event-ID'), '1-1')
   }))
 
 test('an abandoned run is reported as interrupted and a resend starts a new request', () =>
@@ -34,7 +41,7 @@ test('an abandoned run is reported as interrupted and a resend starts a new requ
   ], async (calls) => {
     await assert.rejects(requestChatStream('python', settings, '再来'), /服务端处理中断/)
     await requestChatStream('python', settings, '再来')
-    const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
+    const ids = calls.map(c => JSON.parse(c.body).client_request_id)
     assert.notEqual(ids[0], ids[1])
   }))
 
@@ -47,7 +54,7 @@ test('subscriber timeout keeps the request key until an authoritative completion
     await assert.rejects(requestChatStream('python', settings, 'timeout-recovery'), /续接原请求/)
     await requestChatStream('python', settings, 'timeout-recovery')
     await requestChatStream('python', settings, 'timeout-recovery')
-    const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
+    const ids = calls.map(c => JSON.parse(c.body).client_request_id)
     assert.equal(ids[0], ids[1])
     assert.notEqual(ids[1], ids[2])
   }))
@@ -61,7 +68,7 @@ test('EOF without a terminal event keeps the key and identity changes isolate it
     await assert.rejects(requestChatStream('python', settings, 'eof-recovery', () => {}, { maxResumes: 0 }), /续接原请求/)
     await requestChatStream('python', { ...settings, accessToken: 'another-identity' }, 'eof-recovery')
     await requestChatStream('python', settings, 'eof-recovery')
-    const ids = calls.map(c => JSON.parse(c.init.body).client_request_id)
+    const ids = calls.map(c => JSON.parse(c.body).client_request_id)
     assert.notEqual(ids[0], ids[1])
     assert.equal(ids[0], ids[2])
   }))

@@ -44,7 +44,7 @@ test('returns empty lists for an empty or missing trace without throwing', () =>
 
 test('knowledge search maps the API list into visible results and surfaces failures', async () => {
   const { requestSearch } = await import('../src/api/knowledge.ts')
-  const settings = { endpoints: { python: 'http://api.test' }, accessToken: '' }
+  const settings = { backend: 'python', conversationId: '', endpoints: { python: 'http://api.test' }, accessToken: '' }
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify([{ title: 'VPN' }]), { status: 200 }))
   assert.deepEqual((await requestSearch('python', settings, 'VPN')).results, [{ title: 'VPN' }])
   globalThis.fetch = async () => new Response(JSON.stringify({ items: [], error: 'search failed', fallback: true }), { status: 200 })
