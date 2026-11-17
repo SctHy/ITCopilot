@@ -359,20 +359,23 @@ class WorkflowStore:
         if not ids:
             return []
         with schema.read(self.engine) as db:
-            rows = db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings().all()
-            decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
-                                   .order_by(approval_decisions.c.id)).mappings().all()
-            operations = db.execute(select(actions).where(actions.c.approval_id.in_(ids))
-                                    .order_by(actions.c.seq)).mappings().all()
-            conflicts = {tenant: self._open_resources(db, tenant) for tenant in {r['tenant'] for r in rows}}
-            by_id = {r['id']: r for r in rows}
-            grouped_decisions, grouped_operations = {}, {}
-            for item in decisions:
-                grouped_decisions.setdefault(item['approval_id'], []).append(item)
-            for item in operations:
-                grouped_operations.setdefault(item['approval_id'], []).append(item)
-            return [self._body(by_id[i], grouped_decisions.get(i, []), grouped_operations.get(i, []),
-                               conflicts[by_id[i]['tenant']]) for i in ids if i in by_id]
+            return self._get_many(db, ids)
+
+    def _get_many(self, db, ids):
+        rows = db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings().all()
+        decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
+                               .order_by(approval_decisions.c.id)).mappings().all()
+        operations = db.execute(select(actions).where(actions.c.approval_id.in_(ids))
+                                .order_by(actions.c.seq)).mappings().all()
+        conflicts = {tenant: self._open_resources(db, tenant) for tenant in {r['tenant'] for r in rows}}
+        by_id = {r['id']: r for r in rows}
+        grouped_decisions, grouped_operations = {}, {}
+        for item in decisions:
+            grouped_decisions.setdefault(item['approval_id'], []).append(item)
+        for item in operations:
+            grouped_operations.setdefault(item['approval_id'], []).append(item)
+        return [self._body(by_id[i], grouped_decisions.get(i, []), grouped_operations.get(i, []),
+                           conflicts[by_id[i]['tenant']]) for i in ids if i in by_id]
 
     def _body(self, row, decisions, rows, open_resources) -> Dict[str, Any]:
         payload = dict(row["payload"])
@@ -656,7 +659,8 @@ class WorkflowStore:
                 approvals.c.tenant == principal.tenant, approvals.c.requester == principal.subject, approvals.c.conv_id == conv_id,
                 approvals.c.status == ApprovalStatus.DRAFT, approvals.c.expires_at > self.clock(),
             ).order_by(approvals.c.created_at, approvals.c.id)).scalars().all()
-        return [{**body, "description": _describe(body["action_requests"])} for body in map(self.get, ids)]
+            return [{**body, "description": _describe(body["action_requests"])}
+                    for body in self._get_many(db, ids)] if ids else []
 
     def requester_items(self, principal: Principal, limit: int = 5) -> List[Dict[str, Any]]:
         """What this person could act on right now: own drafts (confirm or cancel), own pending

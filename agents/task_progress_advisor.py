@@ -8,7 +8,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.output import ToolOutput
 from pydantic_ai.usage import RunUsage, UsageLimits
 from workflow.task_suggestions import SuggestedStep
-from workflow.task_brief import TaskBrief
+from workflow.task_brief import TaskBrief, source_sentence
 from core.model_router import ModelRouter
 
 
@@ -23,31 +23,18 @@ class TaskAdvice(BaseModel):
     next_action: str = Field(default='', max_length=4000)
 
 
-CAUTIOUS_NETWORK = '现有证据不足以排除网络因素，仍需结合响应来源和日志核验'
+def check_network_claims(text):
+    for clause in re.split(r'[。；;\n]', text):
+        exclusive = re.search(r'网络.{0,20}(?:不是|并非|不可能是)唯一', clause)
+        attributed = '权限' in clause and '网络' in clause and re.search(r'(?:这|来源)(?:能|可以|能够|即可)区分', clause)
+        excluded = (re.search(r'网络.{0,80}(?:不能解释|无法解释|不足以解释|已排除|被排除|不是原因|(?:问题|根因|推断).{0,8}不(?:再)?成立)', clause)
+                    and not re.search(r'不能排除|未排除|不应排除|无法排除', clause))
+        if exclusive or attributed or excluded:
+            raise ModelRetry(f'证据不足以排除网络因素或断定根因。请限定推断，保留同句中仍待核验的信息：{clause}')
 
 
-def cautious_network_text(text: str) -> str:
-    def repair(match):
-        clause = match.group()
-        if re.search(r'网络.{0,20}(?:不是|并非|不可能是)唯一', clause):
-            return CAUTIOUS_NETWORK
-        if '权限' in clause and '网络' in clause and re.search(r'(?:这|来源)(?:能|可以|能够|即可)区分', clause):
-            return '响应来源可提供拦截层级线索，但不能单独确定根因或排除其他因素'
-        if (re.search(r'网络.{0,80}(?:不能解释|无法解释|不足以解释|已排除|被排除|不是原因|(?:问题|根因|推断).{0,8}不(?:再)?成立)', clause)
-                and not re.search(r'不能排除|未排除|不应排除|无法排除', clause)):
-            return CAUTIOUS_NETWORK
-        return clause
-    return re.sub(r'[^。；;\n]+', repair, text)
-
-
-def validate_readonly_advice(ctx: RunContext[dict], output: TaskAdvice) -> TaskAdvice:
-    if not ctx.deps.get('allow_reply_revision'):
-        return output
-    if not output.reviewed_response or not output.reviewed_response.strip():
-        raise ModelRetry('只读回复不能为空。根据用户原话生成最终回复。')
-    if output.progress_changed is None:
-        raise ModelRetry('必须明确判断progress_changed，措辞改变或继续等待为false。')
-    human = [e['text'] for e in ctx.deps.get('discussion_evidence', [])
+def _advice_rules(evidence):
+    human = [e['text'] for e in evidence
              if e['kind'] in {'requester', 'collaborator', 'approver', 'todo_answer'}]
     member_report = next((text for text in reversed(human) if '成员页' in text), '')
     member_page_unavailable = bool(re.search(r'成员页.{0,20}(?:只显示.{0,8}403|打不开|无法打开)', member_report))
@@ -55,12 +42,12 @@ def validate_readonly_advice(ctx: RunContext[dict], output: TaskAdvice) -> TaskA
     home_member_unavailable = any('家庭网络' in text and re.search(r'成员页.{0,25}403', text) for text in human)
     office_member_visible = ('办公网' in member_report and not member_page_unavailable
                             and bool(re.search(r'(?:能打开|可打开|可访问).{0,25}成员页|成员页.{0,25}(?:能打开|可打开|可访问)', member_report)))
-    actor_names = {e.get('actor_name') for e in ctx.deps.get('discussion_evidence', []) if e.get('actor_name')}
+    actor_names = {e.get('actor_name') for e in evidence if e.get('actor_name')}
     login_reported = any(re.search(r'(?:登录账号|账号)(?:为|是|[:：])\s*[\w.@-]+', text)
                          or any(re.search(r'登录\s*' + re.escape(name) + r'(?=[，。；\s]|$)', text) for name in actor_names)
                          for text in human)
 
-    def repair_known_question(clause):
+    def repeated_question(clause):
         role_query = re.search(r'(?:查看|核对|对照|确认|提供|等待|尚缺|获取)[^。；;\n]{0,120}(?:角色|成员状态|成员关系)|(?:角色|成员状态|成员关系)[^。；;\n]{0,25}(?:什么|如何|[?？])', clause)
         if (member_page_unavailable and role_query
                 and not re.search(r'(?:请|让|由|交给).{0,12}(?:协作者|管理员|有权限|能访问)', clause)):
@@ -72,42 +59,74 @@ def validate_readonly_advice(ctx: RunContext[dict], output: TaskAdvice) -> TaskA
         if (role_reported and re.search(r'(?:尚缺|等待|核对|对照|查看|确认|提供).{0,80}(?:实际授权角色|实际授权|角色是什么|成员身份)', clause)
                 and not re.search(r'授权日志|权限配置|网关策略|仓库可见性|路径设置|保护规则', clause)):
             return '成员页角色已由用户提供，无需重复确认'
-        return clause
+        return None
 
     def normalize(text):
-        text = cautious_network_text(text)
+        check_network_claims(text)
         if home_member_unavailable and office_member_visible:
             text = re.sub(r'(两种网络下[^。；;\n]{0,50}而)(首页|项目首页)(.{0,20}成员页.{0,15}(?:可打开|可访问|能打开))',
                           r'\1办公网下\2\3', text)
-        return re.sub(r'[^。；;\n]+', lambda match: repair_known_question(match.group()), text)
+        return text
+
+    return repeated_question, normalize
+
+
+def validate_readonly_advice(ctx: RunContext[dict], output: TaskAdvice) -> TaskAdvice:
+    if not ctx.deps.get('allow_reply_revision'):
+        return output
+    if not output.reviewed_response or not output.reviewed_response.strip():
+        raise ModelRetry('只读回复不能为空。根据用户原话生成最终回复。')
+    if output.progress_changed is None:
+        raise ModelRetry('必须明确判断progress_changed，措辞改变或继续等待为false。')
+    repeated_question, normalize = _advice_rules(ctx.deps.get('discussion_evidence', []))
+    brief = output.brief
+
+    def retry_if_repeated(text):
+        for clause in re.split(r'[。；;\n]', text):
+            if reason := repeated_question(clause):
+                raise ModelRetry(f'{reason}。将已答事实记入 brief.answered，拆开复合追问。'
+                                 f'在 brief.questions 中逐项保留仍缺的信息及引用，再更新回复与进度。原文：{clause}')
+
+    # A sentence can contain both a known answer and an outstanding question.
+    # Correct the structured items before composing the reply; never erase the sentence by pattern.
+    for text in [output.next_action, output.blocker, *(step.title for step in output.steps)]:
+        retry_if_repeated(text)
+    if brief:
+        for item in brief.questions:
+            retry_if_repeated(item.text)
+    repeated_reply = any(repeated_question(clause) for clause in re.split(r'[。；;\n]', output.reviewed_response))
+    if repeated_reply and not (brief and brief.answered and brief.questions):
+        retry_if_repeated(output.reviewed_response)
 
     draft = output.reviewed_response
     for field in ('reviewed_response', 'next_action', 'blocker'):
         setattr(output, field, normalize(getattr(output, field)))
     for step in output.steps:
         step.title = normalize(step.title)
-    if output.brief:
-        summary_changed = False
-        for category in ('hypotheses', 'questions'):
-            items = getattr(output.brief, category)
-            for item in items:
-                normalized = normalize(item.text)
-                summary_changed |= normalized != item.text
-                item.text = normalized
-            setattr(output.brief, category, [item for item in items if item.sources and not (
-                category == 'questions' and item.text.rstrip('。') in {
-                    '登录账号已由用户提供，无需重复确认', '成员页角色已由用户提供，无需重复确认'})])
-        if (output.reviewed_response != draft or summary_changed) and output.brief.hypotheses:
-            # Once a draft was repaired, render from the same normalized summary to
-            # avoid leftover instructions referring to questions we just removed.
-            output.reviewed_response = '\n\n'.join(item.text for item in output.brief.hypotheses[:2])
+    if brief:
+        changed = output.reviewed_response != draft
+        for item in [*brief.hypotheses, *brief.questions]:
+            normalized = normalize(item.text)
+            changed |= normalized != item.text
+            item.text = normalized
+        if repeated_reply or (changed and brief.hypotheses):
+            parts = [item.text for item in brief.hypotheses]
+            if brief.answered:
+                # Quote the human evidence here, as the stored summary does.
+                human = {e['id']: e['text'] for e in ctx.deps.get('discussion_evidence', [])
+                         if e['kind'] in {'requester', 'collaborator', 'approver', 'todo_answer'} and not e.get('truncated')}
+                answers = dict.fromkeys(source_sentence(human[source.event_id], source.quote)
+                                        for item in brief.answered for source in item.sources if source.event_id in human)
+                if any(answers):
+                    parts.insert(0, '已提供的信息：' + '；'.join(filter(None, answers)))
+            if brief.questions:
+                parts.append('待核验（仅只读）：\n' + '\n'.join(
+                    f'{i}. {item.text}' for i, item in enumerate(brief.questions, 1)))
             if output.progress_changed is False and ctx.deps.get('steps'):
-                output.reviewed_response += '\n\n本轮进度保持不变，继续等待已有核查结果。'
-            elif output.brief.questions:
-                output.reviewed_response += '\n\n待核验（仅只读）：\n' + '\n'.join(
-                    f'{index}. {item.text}' for index, item in enumerate(output.brief.questions[:2], 1))
-            output.reviewed_response += '\n\n以上仅依据本事项提供的信息，不执行变更。'
-            output.reviewed_response = output.reviewed_response[:5000]
+                parts.append('本轮进度保持不变，继续等待已有核查结果。')
+            output.reviewed_response = '\n\n'.join(parts)
+            if len(output.reviewed_response) > 5000:
+                raise ModelRetry('请简化各条表述，保留每一个待核验问题，使最终回复不超过5000字。')
         # These two categories may cite the current assistant response. When its
         # wording changes, cite the new exact wording if it was rendered; never
         # retarget human evidence or manufacture a quote absent from the final reply.
@@ -118,9 +137,9 @@ def validate_readonly_advice(ctx: RunContext[dict], output: TaskAdvice) -> TaskA
                     if (source.event_id == ctx.deps.get('response_evidence_id')
                             and source.quote not in output.reviewed_response and item.text in output.reviewed_response):
                         source.quote = item.text[:500]
-                item.sources = [s for s in item.sources if s.event_id != ctx.deps.get('response_evidence_id')
-                                or s.quote in output.reviewed_response]
-            setattr(output.brief, category, [item for item in items if item.sources])
+                if any(s.event_id == ctx.deps.get('response_evidence_id') and s.quote not in output.reviewed_response
+                       for s in item.sources):
+                    raise ModelRetry('待核验项或假设的引用与最终回复不一致，请引用对应原始证据或最终文字。')
         # Catch mismatched source ids while the model still has one correction attempt.
         # The persistence layer remains authoritative for tenant, task and sequence scope.
         evidence = {e['id']: e['text'] for e in ctx.deps.get('discussion_evidence', []) if not e.get('truncated')}
@@ -226,6 +245,7 @@ class TaskProgressAdvisor:
                   'brief是更新后的完整讨论摘要：reported为用户已提供但未经核验的信息，hypotheses为推测，questions为仍待确认的问题。'
                   'reported的text仅逐字摘录完整原句，保留问号、否定和限定，不写改述；这些是原话记录，不是当前事实清单。'
                   'answered记录已回答的问题及答案（包括明确没有、无法提供或仍在等待），附用户答复来源；questions只能列尚缺信息。'
+                  '每个questions项只放一个可单独作答的问题；一句话同时询问已知账号和未知请求编号时，账号归answered、编号归questions。'
                   '同一问题不能同时放answered和questions；新条件下复测必须明确条件变化。'
                   '每项含text和sources，每个source含event_id与对应消息的逐字quote。reported只能引用人的消息，不能引用Agent回复。'
                   'response_evidence_id对应最终reviewed_response（不允许修订时对应latest_response）；引用这条回复时必须引用最终文字，不能引用已删除的草稿句子。'

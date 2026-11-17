@@ -3,10 +3,10 @@
 Only this adapter knows both task and approval schemas. The task store/worker and
 the Agent depend on ports; they do not poll or execute approval business logic.
 """
-from sqlalchemy import String, and_, cast, select
+from sqlalchemy import JSON, String, and_, cast, column, func, literal, or_, select
 
 from core import db as schema
-from core.db import approvals, approval_decisions, service_tasks, task_events
+from core.db import approvals, approval_decisions, service_tasks, task_events, task_members, task_reviewers
 from workflow.tasks import TaskForbidden, key
 from core.identity import principal_from_record
 
@@ -15,6 +15,32 @@ STATUS = {"draft": "待申请人确认", "pending": "待审批", "approved": "�
           "withdrawn": "申请人已撤回"}
 EXECUTION = {"not_executed": "尚未执行", "queued": "排队中", "executing": "执行中", "succeeded": "执行成功",
              "failed": "执行失败", "manual_review": "需人工核对"}
+
+
+def pending_approval_count(principal, dialect):
+    if not principal.has_any('approver', 'it_admin'):
+        return literal(0)
+
+    # Only the frozen action payload identifies every beneficiary of a pending request.
+    expand = func.json_array_elements if dialect == 'postgresql' else func.json_each
+    actions = expand(approvals.c.payload['action_requests']).table_valued(column('value', JSON))
+    beneficiary = actions.c.value['arguments']['employee_id'].as_string()
+    own_action = select(1).select_from(actions).where(
+        cast(beneficiary, String).is_not_distinct_from(principal.employee_id)).correlate(approvals).exists()
+    voted = select(1).where(approval_decisions.c.approval_id == approvals.c.id,
+                            approval_decisions.c.actor == principal.subject).exists()
+    assigned = select(1).where(task_reviewers.c.task_id == service_tasks.c.id).correlate(service_tasks)
+    read_only = select(1).where(task_members.c.task_id == service_tasks.c.id,
+                                task_members.c.subject == principal.subject,
+                                task_members.c.role.in_(['observer', 'revoked'])).correlate(service_tasks).exists()
+    eligible = select(func.count()).select_from(approvals).where(
+        approvals.c.conv_id == 'task:' + service_tasks.c.id,
+        approvals.c.tenant == service_tasks.c.tenant, approvals.c.department == service_tasks.c.department,
+        approvals.c.requester == service_tasks.c.requester, approvals.c.requester != principal.subject,
+        approvals.c.status == 'pending', or_(principal.is_admin, ~read_only), ~own_action, ~voted,
+        or_(~assigned.exists(), assigned.where(task_reviewers.c.subject == principal.subject).exists()),
+    )
+    return eligible.correlate(service_tasks).scalar_subquery()
 
 
 class TaskApprovalEffects:

@@ -1,4 +1,5 @@
 """Composition of independent task extensions and approval read models."""
+from workflow.task_approvals import pending_approval_count
 from workflow.task_lifecycle import TaskLifecycle, business_ready
 from workflow.task_progress import TaskProgressService
 from workflow.task_collaboration import TaskCollaborationService
@@ -18,7 +19,7 @@ from workflow.task_brief import TaskBriefService
 
 class TaskCapabilities:
     def __init__(self, tasks, approval_view, goal_verifier=None):
-        self.tasks, self.approval_view = tasks, approval_view
+        self.tasks = tasks
         self.plan_store = TaskPlanStore(tasks)
         self.goals = TaskGoalService(tasks, goal_verifier or AccessGoalVerifier(), business_ready)
         self.collaboration = TaskCollaborationService(tasks)
@@ -30,7 +31,7 @@ class TaskCapabilities:
         tasks.configure_extensions(access=self.access, governance=self.governance, on_status=self.lifecycle.changed)
         self.progress = TaskProgressService(tasks, self.lifecycle.can_resolve)
         self.history = TaskHistory(tasks, self.progress, approval_view)
-        self.query = TaskQuery(tasks, self.annotate)
+        self.query = TaskQuery(tasks, pending_approval_count)
         self.files = TaskFiles(tasks)
         self.suggestions = TaskSuggestions(tasks, self.progress)
         self.brief = TaskBriefService(tasks)
@@ -48,17 +49,3 @@ class TaskCapabilities:
 
     def inbox(self, principal):
         return self.query.page(principal, limit=100)
-
-    def annotate(self, items, principal):
-        items = self.collaboration.inbox(principal, items)
-        for item in items:
-            decisions = self.approval_view(item).get('approvals', [])
-            assigned = self.access.reviewers(item['id'], principal)
-            with self.tasks.read(item['id'], principal) as (db, task):
-                writable = self.access.writable(db, task, principal)
-            item['pending_approvals'] = sum(1 for a in decisions if a['status'] == 'pending'
-                and writable and (not assigned or principal.subject in assigned)
-                and principal.has_any('approver', 'it_admin') and a['requester'] != principal.subject
-                and not any(d['actor'] == principal.subject for d in a['decisions'])
-                and not any(str(r['arguments'].get('employee_id')) == str(principal.employee_id) for r in a['action_requests']))
-        return items

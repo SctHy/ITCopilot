@@ -257,3 +257,39 @@ def test_identity_observe_is_cached_and_never_fails_authentication(env, product,
         raise RuntimeError('database is locked')
     monkeypatch.setattr(state, 'task_capabilities', SimpleNamespace(access=SimpleNamespace(observe=broken)))
     assert authenticate('Bearer ' + issue_dev_token('alice')).subject  # /chat etc. must not 500
+
+
+def test_inbox_counts_before_pagination_and_bounds_query_count(env, product):
+    from sqlalchemy import event
+
+    tasks, workflow, clock = env
+    older = room(tasks)
+    tasks.finish(tasks.claim(), proposal())
+    draft = tasks.get(older['id'], ALICE)['approvals'][0]
+    workflow.confirm(draft['approval_id'], ALICE, draft['payload_hash'])
+    product.collaboration.create(older['id'], BOB, dict(assignee=ALICE.subject, question='阶段？', due_at=None, client_request_id='q'))
+    clock.t += 60
+    for i in range(30):
+        tasks.create(ALICE, f'new-{i}', 'plain', str(i))
+
+    statements = []
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith('SELECT'):
+            statements.append(statement)
+
+    event.listen(tasks.engine, 'before_cursor_execute', observe)
+    try:
+        page = product.query.page(ALICE, limit=1)
+    finally:
+        event.remove(tasks.engine, 'before_cursor_execute', observe)
+    assert page['total'] == 31 and page['items'][0]['id'] != older['id']
+    assert len(statements) <= 2
+    for category in ('unread', 'answer'):
+        page = product.query.page(ALICE, category=category, limit=1)
+        assert page['total'] == 1 and page['items'][0]['id'] == older['id']
+    assert product.query.page(BOB, category='approval')['items'][0]['pending_approvals'] == 1
+    assert product.query.page(ALICE, category='approval')['total'] == 0
+    assert product.query.page(replace(BOB, employee_id=ALICE.employee_id), category='approval')['total'] == 0
+    product.access.assign(older['id'], ERIN, [CAROL.subject])
+    assert product.query.page(BOB, category='approval')['total'] == 0
+    assert product.query.page(CAROL, category='approval')['total'] == 1

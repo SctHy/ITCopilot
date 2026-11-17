@@ -301,3 +301,25 @@ def test_card_withdrawal_overrides_old_typed_confirmation_history():
         conversation_approvals=[{"approval_id": "a", "status": "withdrawn",
                                  "confirmed_at": 123, "actions": ["request_access"]}])
     assert claim_problems("这条权限申请已撤回。", SimpleNamespace(traces=[]), req) == []
+
+
+def test_drafts_batch_reads_preserve_order_and_requester(env):
+    from sqlalchemy import event
+
+    store, _, clock, _ = env
+    for i, system in enumerate(('GitLab', 'Jira')):
+        draft(store, str(i), [access(system=system)])
+        clock.t += 1
+    statements = []
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith('SELECT'):
+            statements.append(statement)
+    event.listen(store.engine, 'before_cursor_execute', observe)
+    try:
+        items = store.drafts(ALICE, 'c')
+    finally:
+        event.remove(store.engine, 'before_cursor_execute', observe)
+    assert [d['approval_id'] for d in items] == ['0', '1']
+    assert all(d['description'] and d['requester'] == ALICE.subject for d in items)
+    assert len(statements) == 5
+    assert store.drafts(BOB, 'c') == []

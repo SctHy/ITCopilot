@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 
 import pytest
+from pydantic_ai import ModelRetry
 from fastapi.testclient import TestClient
 from api import state
 from api.main import app
@@ -225,15 +226,32 @@ def test_excerpts_of_one_answer_do_not_duplicate_the_displayed_sentence():
     assert all(x['text'] == evidence['a']['text'] for x in result['answered'])
 
 
-def test_known_login_identity_is_not_requested_again():
-    from types import SimpleNamespace
-    from agents.task_progress_advisor import TaskAdvice, validate_readonly_advice
-    context = SimpleNamespace(deps={'allow_reply_revision': True, 'discussion_evidence': [
-        {'kind': 'requester', 'actor_name': 'alice', 'text': '用无痕窗口登录 alice，仓库显示403。'}]})
-    output = TaskAdvice(**{**suggestion(), 'reviewed_response': '只读核对页面显示的实际登录身份，以及响应来源。', 'progress_changed': True})
-    assert validate_readonly_advice(context, output).reviewed_response == '登录账号已由用户提供，无需重复确认。'
-    output.reviewed_response = '已记录登录 alice。只读查看403的响应来源。'
-    assert validate_readonly_advice(context, output).reviewed_response == output.reviewed_response
+@pytest.mark.parametrize('missing', ['代理服务器返回的请求编号', '403 的响应来源'])
+def test_known_login_does_not_erase_independent_question(missing):
+    from agents.task_progress_advisor import TaskProgressAdvisor
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    actor = {'id': 'login', 'kind': 'requester', 'actor_name': 'alice', 'text': '无痕窗口登录 alice，仓库显示403。'}
+    calls = []
+
+    def model(messages, info):
+        calls.append(messages)
+        question = f'请提供{missing}。'
+        reply = f'请确认实际登录身份，以及{missing}。'
+        source = {'event_id': 'login', 'quote': actor['text']}
+        brief = None if len(calls) == 1 else {
+            'answered': [{'text': '登录账号是 alice', 'sources': [source]}],
+            'questions': [{'text': question, 'sources': [source]}]}
+        return ModelResponse(parts=[ToolCallPart('draft_progress', {
+            **suggestion(brief), 'reviewed_response': reply, 'progress_changed': True})])
+
+    output, _ = asyncio.run(TaskProgressAdvisor(FunctionModel(model)).suggest(
+        {'allow_reply_revision': True, 'discussion_evidence': [actor]},
+        {'tenant': 'default', 'title': '排查'}, actor, '草稿', 'reply'))
+    assert len(calls) == 2
+    assert '请确认实际登录身份' not in output['reviewed_response']
+    assert missing in output['reviewed_response'] and 'alice' in output['reviewed_response']
+    assert missing in output['brief']['questions'][0]['text']
 
 
 def test_logging_into_a_service_does_not_supply_a_login_identity():
@@ -252,7 +270,8 @@ def test_reported_role_is_answered_but_new_permission_configuration_can_be_check
     context = SimpleNamespace(deps={'allow_reply_revision': True, 'discussion_evidence': [
         {'kind': 'collaborator', 'text': '成员页显示 alice 为 Reporter。'}]})
     output = TaskAdvice(**{**suggestion(), 'reviewed_response': '尚缺：实际授权角色的只读对照结果，目前仅有转述。', 'progress_changed': True})
-    assert validate_readonly_advice(context, output).reviewed_response == '成员页角色已由用户提供，无需重复确认。'
+    with pytest.raises(ModelRetry, match='成员页角色已由用户提供'):
+        validate_readonly_advice(context, output)
     output.reviewed_response = '角色已记录；只读核对网关策略与路径设置是否限制该角色。'
     assert validate_readonly_advice(context, output).reviewed_response == output.reviewed_response
 
@@ -390,40 +409,43 @@ def test_known_unavailable_page_is_not_requested_again(bad_advice):
         {'id': 'u', 'kind': 'requester', 'text': '仓库和成员页都只显示“403 Forbidden”，无法查看角色。'}]}
     output, _ = asyncio.run(TaskProgressAdvisor(FunctionModel(model)).suggest(
         context, {'tenant': 'default', 'title': '只读排查'}, {'id': 'u', 'text': '成员页也打不开'}, '草稿', 'reply'))
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert '请能访问的协作者' in output['reviewed_response']
 
 
 def test_two_network_failures_cannot_exclude_network_causes():
-    from agents.task_progress_advisor import CAUTIOUS_NETWORK, TaskProgressAdvisor
+    from agents.task_progress_advisor import TaskProgressAdvisor
     from pydantic_ai.models.function import FunctionModel
     from pydantic_ai.messages import ModelResponse, ToolCallPart
     calls = []
 
     def model(messages, info):
         calls.append(messages)
-        text = '网络差异只解释首页，不能解释代码403。' if len(calls) == 1 else '切换网络未恢复代码访问，网络与权限因素都尚未排除。'
+        text = ('网络差异只解释首页，不能解释代码403，请提供请求编号。' if len(calls) == 1
+                else '切换网络未恢复代码访问，网络与权限因素都尚未排除。请提供请求编号。')
         return ModelResponse(parts=[ToolCallPart('draft_progress', {
             **suggestion(), 'progress_changed': True, 'reviewed_response': text})])
 
     output, _ = asyncio.run(TaskProgressAdvisor(FunctionModel(model)).suggest(
         {'allow_reply_revision': True}, {'tenant': 'default', 'title': '只读排查'},
         {'id': 'u', 'text': '更正：办公网下代码仍403'}, '草稿', 'reply'))
-    assert len(calls) == 1
-    assert output['reviewed_response'] == CAUTIOUS_NETWORK + '。'
+    assert len(calls) == 2
+    assert output['reviewed_response'] == '切换网络未恢复代码访问，网络与权限因素都尚未排除。请提供请求编号。'
 
 
 @pytest.mark.parametrize('claim', ['网络路径不是唯一因素。', '网络并非唯一原因。', '网络不是唯一解释。',
     '网络差异不足以解释代码403。', '“家庭网络是根因”的推断不再成立。'])
 def test_network_exclusion_variants_stay_unverified(claim):
-    from agents.task_progress_advisor import cautious_network_text, CAUTIOUS_NETWORK
-    assert cautious_network_text(claim) == CAUTIOUS_NETWORK + '。'
+    from agents.task_progress_advisor import check_network_claims
+    with pytest.raises(ModelRetry, match='证据不足'):
+        check_network_claims(claim)
 
 
 def test_response_source_does_not_determine_root_cause():
-    from agents.task_progress_advisor import cautious_network_text
-    assert cautious_network_text('这能区分权限问题与网络路径问题。') == '响应来源可提供拦截层级线索，但不能单独确定根因或排除其他因素。'
-    assert cautious_network_text('网络与权限因素都尚未排除。') == '网络与权限因素都尚未排除。'
+    from agents.task_progress_advisor import check_network_claims
+    with pytest.raises(ModelRetry, match='证据不足'):
+        check_network_claims('这能区分权限问题与网络路径问题。')
+    check_network_claims('网络与权限因素都尚未排除。')
 
 
 def test_normalizing_a_claim_replaces_its_obsolete_self_quote_with_rendered_text():
@@ -433,7 +455,11 @@ def test_normalizing_a_claim_replaces_its_obsolete_self_quote_with_rendered_text
         'text': '网络差异不能解释代码403。',
         'sources': [{'event_id': 'reply', 'quote': '网络差异不能解释代码403。'}],
     }]}), 'reviewed_response': '网络差异不能解释代码403。', 'progress_changed': True})
-    result = validate_readonly_advice(SimpleNamespace(deps={'allow_reply_revision': True, 'response_evidence_id': 'reply'}), output)
+    context = SimpleNamespace(deps={'allow_reply_revision': True, 'response_evidence_id': 'reply'})
+    with pytest.raises(ModelRetry, match='证据不足'):
+        validate_readonly_advice(context, output)
+    output.reviewed_response = output.brief.hypotheses[0].text = '证据不足以排除网络因素。'
+    result = validate_readonly_advice(context, output)
     assert result.brief.hypotheses[0].sources[0].quote in result.reviewed_response
     assert '不能解释' not in result.brief.hypotheses[0].sources[0].quote
     assert '不足以排除' in result.reviewed_response
@@ -485,6 +511,11 @@ def test_repaired_reply_and_summary_share_the_same_followups():
         'progress_changed': True})
     context = SimpleNamespace(deps={'allow_reply_revision': True, 'discussion_evidence': [
         {'id': 'u', 'kind': 'requester', 'text': source['quote']}]})
+    with pytest.raises(ModelRetry):
+        validate_readonly_advice(context, output)
+    output.next_action = '请能访问的协作者查看角色。'
+    output.brief.answered = [output.brief.hypotheses[0].model_copy(update={'text': source['quote']})]
+    output.brief.questions[0].text = output.next_action
     result = validate_readonly_advice(context, output)
     assert '请说明' not in result.reviewed_response and '补充这两项' not in result.reviewed_response
     assert result.brief.questions[0].text in result.reviewed_response
@@ -500,7 +531,15 @@ def test_repairing_self_citations_does_not_discard_all_readonly_next_steps():
     }), 'reviewed_response': '原因尚未确定。请查看成员页角色。', 'progress_changed': True})
     context = SimpleNamespace(deps={'allow_reply_revision': True, 'response_evidence_id': 'reply',
         'discussion_evidence': [{'id': 'u', 'kind': 'requester', 'text': '成员页只显示403，无法查看角色。'}]})
+    with pytest.raises(ModelRetry):
+        validate_readonly_advice(context, output)
+    from workflow.task_brief import BriefItem
+    output.next_action = '请能访问的协作者查看角色。'
+    output.brief.answered = [BriefItem(text='成员页不可读', sources=[{'event_id': 'u', 'quote': '成员页只显示403，无法查看角色。'}])]
+    output.brief.questions[0].text = '请能访问的协作者查看角色。'
+    output.brief.questions.append(BriefItem(text='响应来源是什么？', sources=[{'event_id': 'reply', 'quote': '响应来源是什么？'}]))
     result = validate_readonly_advice(context, output)
+    assert '响应来源是什么' in result.reviewed_response
     assert result.brief.questions and '请能访问的协作者' in result.reviewed_response
     assert result.brief.questions[0].sources[0].quote in result.reviewed_response
 

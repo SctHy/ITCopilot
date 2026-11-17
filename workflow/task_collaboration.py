@@ -78,12 +78,3 @@ class TaskCollaborationService:
                 db.execute(update(task_reads).where(where).values(seq=max(seq, old['seq'])))
             else:
                 db.execute(insert(task_reads).values(task_id=task_id, actor=principal.subject, seq=seq))
-
-    def inbox(self, principal, items=None):
-        items = self.tasks.list(principal) if items is None else items
-        with self.tasks.engine.connect() as db:
-            for item in items:
-                seen = db.execute(select(task_reads.c.seq).where(task_reads.c.task_id == item['id'], task_reads.c.actor == principal.subject)).scalar() or 0
-                item['unread'] = db.execute(select(func.count()).select_from(task_events).where(task_events.c.task_id == item['id'], task_events.c.seq > seen, task_events.c.actor != principal.subject)).scalar()
-                item['pending_answers'] = db.execute(select(func.count()).select_from(task_todos).where(task_todos.c.task_id == item['id'], task_todos.c.assignee == principal.subject, task_todos.c.status == 'open')).scalar()
-        return items
