@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Button } from '@/components/ui/button'
 import { Sidebar, SidebarInset, SidebarProvider, SidebarMenu, SidebarMenuItem, SidebarMenuButton, useSidebar } from '@/components/ui/sidebar'
 import { Header } from '@/components/layout/header'
-import { Outlet, useNavigate, useRouterState, useSearch } from '@tanstack/react-router'
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { createServerQueryClient } from './lib/queryClient'
 import { viewPaths, viewForPath, type ViewId } from './lib/navigation'
 import { Toaster, toast } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { BookOpenIcon, ChartColumnIcon, ExternalLinkIcon, FileTextIcon, FilterIcon, MessageSquareIcon, MessagesSquareIcon, MoonIcon, PanelRightIcon, PencilIcon, PlusIcon, SearchIcon, ShieldCheckIcon, SlidersHorizontalIcon, SquarePenIcon, SunIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { BookOpenIcon, ChartColumnIcon, ExternalLinkIcon, FileTextIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PencilIcon, SearchIcon, ShieldCheckIcon, SlidersHorizontalIcon, SquarePenIcon, SunIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useStore } from './hooks/useStore.ts'
 import { backendMeta } from './api/http.ts'
 import { createInitialSettings, saveSettings } from './api/settings.ts'
@@ -21,14 +21,12 @@ import { completeOidcLogin, oidcLogout, startOidcLogin, storeToken } from './lib
 import { createAuthSession } from './lib/authSession.ts'
 import { createChatSession } from './lib/chatSession.ts'
 import { createRequestState, loadCurrent } from './lib/requestState.ts'
-import { createTaskClient } from './lib/taskClient.ts'
 import { applyApprovalAction } from './lib/approvalDecision.ts'
 import { formatRoles } from './lib/format.ts'
 import { reactive } from './lib/store.ts'
 import type { Identity, MonitorData, Settings } from './lib/types.ts'
-import { CheckInput, Hint, SelectInput } from './components/ui.tsx'
+import { Hint } from './components/ui.tsx'
 import { ConnectionDialog, type ConnectionDraft, type HealthState } from './components/ConnectionDialog.tsx'
-import { TaskWorkspace } from './components/task/TaskWorkspace.tsx'
 import { ApprovalsView } from './views/ApprovalsView.tsx'
 import { ChatView } from './views/ChatView.tsx'
 import { KnowledgeView } from './views/KnowledgeView.tsx'
@@ -36,7 +34,6 @@ import { OperationsView } from './views/OperationsView.tsx'
 
 const views: { id: ViewId; label: string; icon: ReactNode; hint: string }[] = [
   { id: 'chat', label: '对话', icon: <MessageSquareIcon />, hint: '私人 IT 服务对话' },
-  { id: 'tasks', label: '共享事项', icon: <MessagesSquareIcon />, hint: '申请人、Agent 与审批人协作' },
   { id: 'knowledge', label: '知识库', icon: <BookOpenIcon />, hint: '检索与管理 IT 知识' },
   { id: 'approvals', label: '审批', icon: <ShieldCheckIcon />, hint: '确认、审批与回收' },
   { id: 'evaluation', label: '运行状态', icon: <ChartColumnIcon />, hint: 'SLO、告警与组件健康度' }
@@ -91,7 +88,7 @@ function AppRuntime() {
 function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof createRuntime>; identity: Identity | null }) {
   const routeNavigate = useNavigate()
   const pathname = useRouterState({ select: state => state.location.pathname })
-  const search = useSearch({ strict: false })
+
   const activeView = viewForPath(pathname)
   const { setOpenMobile } = useSidebar()
   const { requestState, persist, chat, auth } = runtime
@@ -99,12 +96,9 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
 
   const [health, setHealth] = useState<HealthState>({ ok: false, label: '未检查', detail: '' })
   const [connectionOpen, setConnectionOpen] = useState(false)
-  const [recentQuery, setRecentQuery] = useState({ q: '', category: 'all', status: '', archived: false, limit: 20 })
+  const [historyQuery, setHistoryQuery] = useState('')
   const [searchText, setSearchText] = useState('')
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [listTab, setListTab] = useState<'chats' | 'tasks'>(() => activeView === 'tasks' ? 'tasks' : 'chats')
   const [chatsLimit, setChatsLimit] = useState(30)
-  const requestedTask = useMemo(() => search.task || search.new ? { id: search.task || '', at: Date.now() } : null, [search.task, search.new])
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelDrawer, setPanelDrawer] = useState(false)
   const [dark, setDark] = useState(() => localStorage.getItem(THEME_KEY) === 'dark' ||
@@ -113,7 +107,6 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   const currentBackend = backendMeta(settings.backend, settings)
   // Pages keyed by connection + identity remount (and drop their data) whenever either changes.
   const viewKey = `${currentBackend.baseUrl}:${settings.accessToken}`
-  const taskHistoryClient = useMemo(() => createTaskClient(settings), [viewKey])  // eslint-disable-line react-hooks/exhaustive-deps
   const currentView = views.find(view => view.id === activeView)!
   const userInitial = (identity?.username || '?').slice(0, 1).toUpperCase()
   const chatState = useStore(chat.state)
@@ -129,22 +122,16 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   const monitorData = monitorQuery.isError ? emptyMonitor() : monitorQuery.data || emptyMonitor()
   const loadMonitor = useCallback(async () => { if (authenticated) await monitorQuery.refetch() }, [authenticated, monitorQuery.refetch])
   runtime.monitor.load = loadMonitor
-  const recentResult = useQuery({ queryKey: ['tasks', recentQuery], enabled: authenticated,
-    queryFn: ({ signal }) => taskHistoryClient.list({ ...recentQuery, offset: 0 }, signal), refetchInterval: 20_000 }, queryClient)
-  const recent = recentResult.isError ? [] : recentResult.data?.items || []
-  const recentMore = !recentResult.isError && !!recentResult.data?.has_more
-  const loadRecent = useCallback(async () => { await queryClient.invalidateQueries({ queryKey: ['tasks'] }) }, [queryClient])
   useEffect(() => {
-    const timer = setTimeout(() => setRecentQuery(query => query.q === searchText.trim() ? query : { ...query, q: searchText.trim(), limit: 20 }), 300)
+    const timer = setTimeout(() => setHistoryQuery(searchText.trim()), 300)
     return () => clearTimeout(timer)
   }, [searchText])
-  const chatsResult = useQuery({ queryKey: ['conversations', recentQuery.q, chatsLimit], enabled: authenticated,
-    queryFn: ({ signal }) => listConversations(snapshot.backend, snapshot, { q: recentQuery.q, limit: chatsLimit }, signal) }, queryClient)
+  const chatsResult = useQuery({ queryKey: ['conversations', historyQuery, chatsLimit], enabled: authenticated,
+    queryFn: ({ signal }) => listConversations(snapshot.backend, snapshot, { q: historyQuery, limit: chatsLimit }, signal) }, queryClient)
   const chats = chatsResult.isError ? [] : chatsResult.data?.items || []
   const chatsMore = !chatsResult.isError && !!chatsResult.data?.has_more
   const loadChats = useCallback(async () => { await queryClient.invalidateQueries({ queryKey: ['conversations'] }) }, [queryClient])
   runtime.history.load = loadChats
-  useEffect(() => { if (activeView === 'tasks') setListTab('tasks'); else if (activeView === 'chat') setListTab('chats') }, [activeView])
 
   const conversationRead = useRef(0)
   useEffect(() => () => { conversationRead.current++ }, [])
@@ -200,19 +187,8 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
 
   function navigate(view: ViewId) {
     void routeNavigate({ to: viewPaths[view], search: {} }); setOpenMobile(false)
-    if (view === 'chat') setListTab('chats')
-    if (view === 'tasks') setListTab('tasks')
   }
 
-  function openTask(id: string) {
-    void routeNavigate({ to: '/tasks', search: { task: id } })
-    setOpenMobile(false)
-  }
-
-  function newTask() {
-    void routeNavigate({ to: '/tasks', search: { new: true } })
-    setOpenMobile(false)
-  }
 
   function togglePanel() {
     if (window.matchMedia('(min-width: 1280px)').matches) setPanelOpen(open => !open)
@@ -239,8 +215,6 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
 
   const statusText = health.ok ? '已连接' : health.label === '未检查' ? '连接中' : '未连接'
 
-  const taskFiltered = recentQuery.category !== 'all' || recentQuery.status !== '' || recentQuery.archived
-  const selectedTask = activeView === 'tasks' ? search.task : null
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between px-4">
@@ -265,44 +239,18 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
       </SidebarMenu></nav>
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <div className="flex rounded-lg bg-accent/70 p-0.5 text-[13px]" role="tablist" aria-label="列表">
-            {([['chats', '对话'], ['tasks', '共享事项']] as const).map(([id, label]) => (
-              <button key={id} type="button" role="tab" aria-selected={listTab === id} onClick={() => { setListTab(id); setFiltersOpen(false) }}
-                className={`h-7 rounded-md px-3 transition-colors ${listTab === id ? 'bg-card font-medium text-foreground shadow-[0_0_0_1px_var(--border)]' : 'text-muted-foreground hover:text-foreground'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center">
-            {listTab === 'tasks' && (
-              <Hint label={<>筛选</>}><Button type="button" size="icon" variant={filtersOpen || taskFiltered ? 'secondary' : 'ghost'} aria-label="筛选事项" className="size-7" onClick={() => setFiltersOpen(open => !open)}><FilterIcon className="size-3.5" /></Button></Hint>
-            )}
-            <Hint label={<>{listTab === 'chats' ? '新对话' : '新建共享事项'}</>}><Button type="button" size="icon" variant="ghost" aria-label={listTab === 'chats' ? '新对话' : '新建共享事项'} className="size-7"
-                onClick={() => { if (listTab === 'chats') newConversation(); else newTask() }}><PlusIcon className="size-4" /></Button></Hint>
-          </div>
+          <span className="text-sm font-medium">对话记录</span>
         </div>
         <div className="flex flex-col gap-2 px-3 pb-2">
           <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-2.5 text-muted-foreground focus-within:border-ring">
             <SearchIcon className="size-3.5 shrink-0" />
             <input value={searchText} onChange={event => setSearchText(event.target.value)} maxLength={200}
-              placeholder={listTab === 'chats' ? '搜索对话' : '搜索标题与讨论'} aria-label={listTab === 'chats' ? '搜索对话' : '搜索共享事项'}
+              placeholder="搜索对话" aria-label="搜索对话"
               className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground" />
             {searchText && <button type="button" aria-label="清除搜索" onClick={() => setSearchText('')} className="text-muted-foreground hover:text-foreground"><XIcon className="size-3" /></button>}
           </label>
-          {listTab === 'tasks' && filtersOpen && (
-            <div className="fade-up flex flex-col gap-2 rounded-lg border border-border p-2">
-              <SelectInput ariaLabel="分类" value={recentQuery.category} onChange={category => setRecentQuery(query => ({ ...query, category, limit: 20 }))}
-                options={[{ id: 'all', label: '全部事项' }, { id: 'unread', label: '未读' }, { id: 'answer', label: '待我补充' }, { id: 'approval', label: '待我审批' }]} />
-              <SelectInput ariaLabel="状态" value={recentQuery.status || 'all'} onChange={value => setRecentQuery(query => ({ ...query, status: value === 'all' ? '' : value, limit: 20 }))}
-                options={[{ id: 'all', label: '全部状态' }, { id: 'open', label: '跟进中' }, { id: 'resolved', label: '已解决' }, { id: 'stopped', label: '已停止' }]} />
-              <CheckInput isSelected={recentQuery.archived} onChange={archived => setRecentQuery(query => ({ ...query, archived, limit: 20 }))}>只看我的归档</CheckInput>
-              {taskFiltered && <Button type="button" size="sm" variant="ghost" onClick={() => setRecentQuery(query => ({ ...query, category: 'all', status: '', archived: false, limit: 20 }))}>清除筛选</Button>}
-            </div>
-          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
-          {listTab === 'chats' ? (
-            <>
               {chats.map(item => {
                 const active = activeView === 'chat' && settings.conversationId === item.conv_id
                 return (
@@ -325,32 +273,6 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
               {chatsResult.isError && <p role="alert" className="px-2.5 py-2 text-xs text-destructive">对话记录加载失败：{chatsResult.error.message}</p>}
               {!chatsResult.isError && !chats.length && <p className="px-2.5 py-3 text-xs text-muted-foreground">{!identity ? '登录后显示对话记录' : searchText ? '没有匹配的对话' : '还没有对话记录，发送第一条消息后会出现在这里。'}</p>}
               {chatsMore && <Button type="button" size="sm" variant="ghost" className="w-full mt-1 text-muted-foreground" onClick={() => setChatsLimit(limit => limit + 30)}>加载更多</Button>}
-            </>
-          ) : (
-            <>
-          {recent.map(item => {
-            const active = selectedTask === item.id
-            return (
-              <button key={item.id} type="button" onClick={() => openTask(item.id)}
-                className={`mb-0.5 flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors ${active ? 'bg-accent' : 'hover:bg-accent/60'}`}>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <MessagesSquareIcon className="size-3" />
-                  <span className="truncate">{item.requester_name}</span>
-                  {!!item.unread && <span className="ml-auto grid h-4 min-w-4 place-items-center rounded bg-foreground px-1 text-[10px] tabular-nums text-background">{item.unread}</span>}
-                </span>
-                <span className="line-clamp-1 text-sm text-foreground">{item.title}</span>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className={`size-1.5 rounded-full ${item.status === 'open' ? 'bg-warning' : item.status === 'resolved' ? 'bg-success' : 'bg-muted'}`} />
-                  {item.status === 'open' ? '跟进中' : item.status === 'resolved' ? '已解决' : '已停止'}
-                </span>
-              </button>
-            )
-          })}
-          {recentResult.isError && <p role="alert" className="px-2.5 py-2 text-xs text-destructive">共享事项加载失败：{recentResult.error.message}</p>}
-          {!recentResult.isError && !recent.length && <p className="px-2.5 py-3 text-xs text-muted-foreground">{!identity ? '登录后显示共享事项' : searchText || taskFiltered ? '没有符合条件的事项' : '暂无共享事项'}</p>}
-          {recentMore && <Button type="button" size="sm" variant="ghost" className="w-full mt-1 text-muted-foreground" onClick={() => setRecentQuery(query => ({ ...query, limit: query.limit + 20 }))}>加载更多</Button>}
-            </>
-          )}
         </div>
       </div>
       <div className="flex flex-col gap-0.5 border-t border-border p-2.5">
@@ -373,10 +295,8 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   let page: ReactNode
   if (activeView === 'chat') {
     page = <ChatView key={viewKey} session={chat} settings={settings} identity={identity} backendLabel={currentBackend.label} monitorData={monitorData}
-      taskHistoryClient={taskHistoryClient} onOpenTask={openTask} onRefreshMonitor={loadMonitor} onToast={showToast}
+      onRefreshMonitor={loadMonitor} onToast={showToast}
       panelOpen={panelOpen} panelDrawer={panelDrawer} onPanelDrawerChange={setPanelDrawer} />
-  } else if (activeView === 'tasks') {
-    page = <TaskWorkspace key={`${viewKey}:${search.task || ''}:${!!search.new}`} settings={settings} identity={identity} requestedTask={requestedTask} onChanged={loadRecent} />
   } else if (activeView === 'knowledge') {
     page = <KnowledgeView key={viewKey} requestState={requestState} identity={identity} onToast={showToast} onStatus={detail => setHealth(current => ({ ...current, detail }))} />
   } else if (activeView === 'approvals') {
@@ -386,7 +306,7 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
     page = <OperationsView key={viewKey} settings={settings} identity={identity} monitorData={monitorData} onRefresh={loadMonitor} />
   }
   if (pathname !== '/' && !Object.values(viewPaths).some(path => path === pathname.replace(/\/$/, ''))) page = <Outlet />
-  const fullBleed = activeView === 'chat' || activeView === 'tasks'
+  const fullBleed = activeView === 'chat'
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -8,8 +8,8 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from core.llm import build_model, close_model, complete_text
-from core.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope
+from it_copilot.agent.llm import build_model, close_model, complete_text
+from it_copilot.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope
 
 
 class Bytes(httpx2.AsyncByteStream):
@@ -230,7 +230,7 @@ def test_short_password_does_not_replace_normal_words():
 
 
 def test_jev_state_is_masked():
-    from core.jev import JevClient
+    from it_copilot.agent.jev import JevClient
     async def run():
         client = JevClient("synthetic")
         await client._client.aclose()
@@ -249,7 +249,7 @@ def test_jev_state_is_masked():
 
 @pytest.mark.parametrize("tool", [False, True])
 def test_every_placeholder_split_and_escaped_restoration(tool):
-    from core.model_masking import _TextBuffer
+    from it_copilot.agent.masking.model_masking import _TextBuffer
     session = MaskingSession()
     raw = 'quoted"back\\slash'
     token = session.remember(raw, "SECRET")
@@ -261,7 +261,7 @@ def test_every_placeholder_split_and_escaped_restoration(tool):
 
 
 def test_stream_plain_brace_and_incomplete_placeholder():
-    from core.model_masking import _ResponseStream
+    from it_copilot.agent.masking.model_masking import _ResponseStream
     session = MaskingSession()
     response = httpx2.Response(200)
     stream = _ResponseStream(response, session)
@@ -281,12 +281,12 @@ def test_connection_password_does_not_swallow_hostname_or_ssh_remote():
     assert masked.startswith("postgres://app:{{PASSWORD_")
     assert masked.endswith("@db.example.com/main")
     assert session.restore(masked, tool=True) == original
-    from core.redaction import redact_text
+    from it_copilot.agent.masking.redaction import redact_text
     assert redact_text("ssh git@github.com:org/project.git") == "ssh git@github.com:org/project.git"
 
 
 def test_restored_tool_values_are_scrubbed_when_stored():
-    from core.redaction import redact
+    from it_copilot.agent.masking.redaction import redact
     with masking_scope("tenant:alice", "c") as session:
         session.learn("password=CustomOpaqueValue")
         assert redact({"input": {"code": "CustomOpaqueValue"}, "trace": "工具用了 CustomOpaqueValue"}) == {

@@ -1,11 +1,11 @@
 import asyncio
 
-from agents.conversation_state import merge_state
-from agents.intent.entities import extract_entities
-from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import IntentCategory, UrgencyLevel
-from evaluation.evaluator import load_intent_cases
-from memory.conversation_memory import MemoryManager
+from it_copilot.agent.conversation_state import merge_state
+from it_copilot.agent.intent.entities import extract_entities
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
+from tests.support.evaluator import load_intent_cases
+from it_copilot.agent.memory.conversation_memory import MemoryManager
 
 
 def test_state_tracks_entities_and_missing_slots():
@@ -23,7 +23,7 @@ def test_profile_normalization_removes_sensitive_values():
 
 
 def test_memory_budget_and_profile_merge():
-    from memory.conversation_memory import MemoryManager
+    from it_copilot.agent.memory.conversation_memory import MemoryManager
     values = MemoryManager._budget_texts(["a" * 300, "b" * 300, "c" * 300], 128)
     assert len(values) == 1
     merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部", "work": "GitLab"}), MemoryManager._normalize_profile({"work": "GitLab 与 Jira"}))
@@ -31,7 +31,7 @@ def test_memory_budget_and_profile_merge():
 
 
 def test_profile_revision_replaces_outdated_field():
-    from memory.conversation_memory import MemoryManager
+    from it_copilot.agent.memory.conversation_memory import MemoryManager
     merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部"}), MemoryManager._normalize_profile({"background": "产品部"}))
     assert merged["background"] == "产品部" and "研发" not in str(merged)
 
@@ -62,13 +62,13 @@ def test_slot_given_in_earlier_turn_is_not_asked_again():
 
 
 def test_agent_receives_accumulated_entities_current_turn_wins():
-    from agents.conversation_state import known_entities
+    from it_copilot.agent.conversation_state import known_entities
     state = {"entities": {"employee_id": ["E1001"], "system": ["Jira"]}}
     assert known_entities(state, {"system": ["GitLab"], "device_id": []}) == {"employee_id": ["E1001"], "system": ["GitLab"]}
 
 
 def test_hard_intent_suite_labels_are_valid():
-    from evaluation.reporting import DATASETS_DIR
+    from tests.support.reporting import DATASETS_DIR
     cases = load_intent_cases(str(DATASETS_DIR / "intent_v3.json"))
     valid = {item.value for item in IntentCategory}
     assert len(cases) >= 150
@@ -80,8 +80,8 @@ def test_hard_intent_suite_labels_are_valid():
 
 
 def test_intent_evaluator_credits_acceptable_intents():
-    from agents.intent.recognizer import IntentResult
-    from evaluation.evaluator import IntentEvaluator, IntentTestCase
+    from it_copilot.agent.intent.recognizer import IntentResult
+    from tests.support.evaluator import IntentEvaluator, IntentTestCase
 
     class Fixed:
         def reset_metrics(self): pass
@@ -109,7 +109,7 @@ def test_followup_inheritance_keeps_specific_llm_intent():
 
 
 def _jev_answers(intent, prob, urgency="normal", system="none", role="none"):
-    from core.jev import JevResponse
+    from it_copilot.agent.jev import JevResponse
     return JevResponse(model="jev-1.14.0", usage={"input_tokens": 400, "output_tokens": 2}, answers={
         "intent": {"choice": intent, "confidence": prob, "probabilities": {intent: prob}},
         "urgency": {"choice": urgency, "probabilities": {urgency: .9}},

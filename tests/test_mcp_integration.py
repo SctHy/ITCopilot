@@ -8,11 +8,11 @@ import time
 import pytest
 import uvicorn
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.types import Request
-from tooling.mcp_client import MCPServerConfig, StandardMCPClient, load_servers
-from tooling.mcp_server import create_http_app, create_server
-from tooling.tool_manager import MCPToolManager
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.types import Request
+from it_copilot.agent.tooling.mcp_client import MCPServerConfig, StandardMCPClient, load_servers
+from it_copilot.agent.tooling.mcp_server import create_http_app, create_server
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -74,7 +74,7 @@ def test_client_discovers_registers_and_calls_remote_tool(mcp_url):
 
             cached = await spec.handler(Request("VPN 连不上"), {"query": "VPN-691", "top_k": 1})
             assert cached["cached"] is True                                   # 走治理层 TTL 缓存
-            from tooling.executor import ToolRemoteFailure
+            from it_copilot.agent.tooling.executor import ToolRemoteFailure
             with pytest.raises(ToolRemoteFailure, match="Schema") as invalid:
                 await spec.handler(Request("x"), {"query": ""})
             assert invalid.value.category == "input_invalid"    # 远端 schema 在本地校验
@@ -120,8 +120,8 @@ def test_unreachable_server_degrades_without_blocking():
 
 @pytest.mark.parametrize("governed", [False, True])
 def test_anonymous_mcp_can_only_retrieve_public_documents(tmp_path, monkeypatch, governed):
-    from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
-    from tooling.tool_manager import Tool
+    from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
+    from it_copilot.agent.tooling.tool_manager import Tool
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
     kb = KnowledgeBase(f"sqlite:///{tmp_path / 'mcp.sqlite3'}")
     kb.add_documents([

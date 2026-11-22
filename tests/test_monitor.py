@@ -3,15 +3,15 @@ import asyncio
 
 import pytest
 
-from agents.agent_orchestrator import AgentOrchestrator
-from monitor.performance_monitor import (
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.infra.monitor.performance_monitor import (
     AlertManager,
     Condition,
     PerformanceMonitor,
     SLOTracker,
     Thresholds,
 )
-from tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
 
 T0 = 100_000.0
 

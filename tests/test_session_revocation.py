@@ -5,14 +5,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import insert
 
-import api.main as api
-from api import state
-from core import identity
-from core.db import task_identities
-from core.identity import principal_from_token
-from core.session_revocation import SessionRevocations
+from tests import runtime as api
+from tests.runtime import state
+from it_copilot.infra import identity
+from it_copilot.infra.db import login_identities
+from it_copilot.infra.identity import principal_from_token
+from it_copilot.infra.session_revocation import SessionRevocations
 from tests.conftest import auth
-from workflow.store import WorkflowStore
+from it_copilot.workflow.store import WorkflowStore
 
 
 def token_at(monkeypatch, username, at, **overrides):
@@ -83,7 +83,7 @@ def test_admin_revokes_a_person_and_old_tokens_stop_everywhere(env, monkeypatch)
 def test_revocation_by_username_and_tenant_isolation(env, monkeypatch):
     http, store, _, now = env
     with store.engine.begin() as db:
-        db.execute(insert(task_identities).values(tenant="default", subject="kc-uuid-1", profile={"username": "alice"}))
+        db.execute(insert(login_identities).values(tenant="default", subject="kc-uuid-1", profile={"username": "alice"}))
     assert http.post("/admin/sessions/revoke", json={"username": "nobody"}, headers=auth("erin")).status_code == 404
     assert http.post("/admin/sessions/revoke", json={}, headers=auth("erin")).status_code == 422
     assert http.post("/admin/sessions/revoke", json={"username": "alice"}, headers=auth("erin")).json()["subject"] == "kc-uuid-1"

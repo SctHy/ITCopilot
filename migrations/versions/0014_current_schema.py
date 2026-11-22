@@ -6,7 +6,7 @@ Includes append-only audit enforcement and tenant/resource concurrency constrain
 import time
 from alembic import op
 import sqlalchemy as sa
-import core.db
+import it_copilot.infra.db
 
 revision = "0014"
 down_revision = None
@@ -571,7 +571,7 @@ def upgrade():
     sa.Column('id', sa.String(length=200), nullable=False),
     sa.Column('document', sa.Text(), nullable=False),
     sa.Column('meta', sa.JSON(), nullable=False),
-    sa.Column('embedding', core.db.Embedding(), nullable=False),
+    sa.Column('embedding', it_copilot.infra.db.Embedding(), nullable=False),
     sa.Column('model', sa.String(length=120), nullable=False),
     sa.Column('updated_at', sa.Float(), nullable=False),
     sa.PrimaryKeyConstraint('collection', 'id', name='pk_vector_documents')

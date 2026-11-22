@@ -7,10 +7,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.agent_stats import AgentStats
-from agents.types import Request
-from tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.agent_stats import AgentStats
+from it_copilot.agent.types import Request
+from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
 from tests.conftest import with_read_tool
 
 
@@ -101,7 +101,7 @@ def test_tool_manager_metrics_label_every_outcome():
 
 
 def test_intent_metrics_count_source_and_clarification(monkeypatch):
-    from agents.intent.recognizer import IntentRecognizer
+    from it_copilot.agent.intent.recognizer import IntentRecognizer
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
     before = (sample("it_copilot_intent_recognitions_total", source="fallback_disabled", intent_group="access"), sample("it_copilot_intent_clarifications_total", intent_group="access"))
     asyncio.run(IntentRecognizer("sk-local").recognize("帮我重置密码"))
@@ -112,8 +112,8 @@ def test_intent_metrics_count_source_and_clarification(monkeypatch):
 def test_metrics_endpoint_exposes_new_series():
     from fastapi.testclient import TestClient
 
-    import api.main
-    text = TestClient(api.main.app).get("/metrics").text
+    import tests.runtime
+    text = TestClient(tests.runtime.app).get("/metrics").text
     for name in ("it_copilot_agent_requests_total", "it_copilot_tool_calls_total", "it_copilot_intent_recognitions_total", "it_copilot_slo_burn_rate"):
         assert name in text
 
@@ -123,7 +123,7 @@ def test_metrics_endpoint_exposes_new_series():
 def test_tracing_nests_agent_spans_under_chat_without_content():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    from monitor import telemetry
+    from it_copilot.infra.monitor import telemetry
 
     async def respond(messages, info):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):

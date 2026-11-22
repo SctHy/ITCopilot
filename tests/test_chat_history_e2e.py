@@ -3,8 +3,8 @@ import asyncio
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, UserPromptPart
 
-from evaluation.application import application
-from evaluation.fake_model import scripted_model
+from tests.support.application import application
+from tests.support.fake_model import scripted_model
 
 LONG_ANSWER = "请先确认账号未锁定。" + "补充说明。" * 200
 

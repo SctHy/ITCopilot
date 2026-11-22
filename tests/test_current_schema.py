@@ -8,7 +8,7 @@ from alembic.util.exc import CommandError
 from sqlalchemy import inspect, insert, select, text
 from sqlalchemy.exc import DatabaseError, IntegrityError
 
-from core.db import admin_audit, make_engine, metadata, migrate, tenants
+from it_copilot.infra.db import admin_audit, make_engine, metadata, migrate, tenants
 
 
 def config(url):
@@ -26,7 +26,7 @@ def test_fresh_schema_contains_current_tables_and_constraints(db_url):
         assert set(schema.get_table_names()) - {"alembic_version"} == set(metadata.tables)
         assert "agent_rollouts" not in schema.get_table_names()
         assert "policy_ref" not in {c["name"] for c in schema.get_columns("tenants")}
-        assert "second_label" not in {c["name"] for c in schema.get_columns("badcases")}
+        assert "badcases" not in schema.get_table_names()
         for name, table in metadata.tables.items():
             actual = {c["name"]: c for c in schema.get_columns(name)}
             assert set(actual) == set(table.c.keys()), name
@@ -36,7 +36,7 @@ def test_fresh_schema_contains_current_tables_and_constraints(db_url):
         resource = indexes["uq_actions_resource_executing"]
         assert resource["unique"] and resource["column_names"] == ["resource_key"]
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0014"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0015"
             assert db.execute(select(tenants.c.id, tenants.c.status)).all() == [("default", "active")]
             if engine.dialect.name == "postgresql":
                 assert db.execute(text("SELECT policyname FROM pg_policies WHERE schemaname = current_schema()")).all() == []

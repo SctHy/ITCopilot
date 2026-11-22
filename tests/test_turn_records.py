@@ -7,24 +7,24 @@ from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from sqlalchemy import func, select
 
-import api.main as api
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.base_agent import BaseAgent
-from agents.outcome import turn_outcome
-from agents.types import AgentRunDeps, Request
-from api import state
-from core.change_log import record_deploy, record_change
-from core.db import change_events, turn_records
-from core.events import InMemoryEventBus
-from core.retention import RetentionPolicy
-from core.skill_loader import SkillManager
-from core.tenant_context import tenant_scope
-from core.turn_records import build_sha
-from evaluation.fake_model import scripted_model
+from tests import runtime as api
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.base_agent import BaseAgent
+from it_copilot.agent.outcome import turn_outcome
+from it_copilot.agent.types import AgentRunDeps, Request
+from tests.runtime import state
+from it_copilot.infra.change_log import record_deploy, record_change
+from it_copilot.infra.db import change_events, turn_records
+from it_copilot.infra.events import InMemoryEventBus
+from it_copilot.infra.retention import RetentionPolicy
+from it_copilot.agent.skill_loader import SkillManager
+from it_copilot.infra.tenant_context import tenant_scope
+from it_copilot.infra.turn_records import build_sha
+from tests.support.fake_model import scripted_model
 from tests.conftest import auth, with_read_tool
 from tests.test_workflow import ALICE
-from tooling.tool_spec import make_tool
-from workflow.store import WorkflowStore
+from it_copilot.agent.tooling.tool_spec import make_tool
+from it_copilot.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def test_chat_settles_body_free_record_with_complete_versions(store, monkeypatch
     orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator.agent._llm = orchestrator._intent_recognizer.llm = model
     for name, value in {"orchestrator": orchestrator, "workflow": store, "memory": None, "kb": None,
-                        "task_recall": None, "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
+                        "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
         monkeypatch.setattr(state, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
     http = TestClient(api.app, headers=auth("alice"))

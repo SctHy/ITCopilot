@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.base import AmbiguousError
-from workflow.adapters.local import LocalDirectoryAdapter
-from core.identity import Principal
-from workflow.policy import PolicyViolation
-from workflow.store import ApprovalConflict, ApprovalForbidden, WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.base import AmbiguousError
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.infra.identity import Principal
+from it_copilot.workflow.policy import PolicyViolation
+from it_copilot.workflow.store import ApprovalConflict, ApprovalForbidden, WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 
 ALICE = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
 BOB = Principal("dev:bob", "bob", "engineering", frozenset({"employee", "approver"}), "2001")
@@ -223,10 +223,10 @@ def test_worker_crash_after_effect_is_recovered_without_repeating(db_url):
     store.decide("a", "approved", BOB, pending["payload_hash"])
     script = """
 import asyncio, os, sys
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 store = WorkflowStore(sys.argv[1], clock=lambda: float(sys.argv[2]))
 adapter = LocalDirectoryAdapter(store.engine)
 original = adapter.apply

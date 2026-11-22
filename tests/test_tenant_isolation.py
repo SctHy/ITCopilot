@@ -1,6 +1,6 @@
 """Cross-tenant sweep over every HTTP route (ADR 0022).
 
-Tenant ``default`` owns a room, a room approval, a private approval, knowledge documents, a token
+Tenant ``default`` owns a private approval, knowledge documents, a token
 revocation and admin-audit entries, all carrying ``MARK``. Four people of tenant ``intruder`` - an
 IT admin, an auditor, an approver and an employee with *the same subject as the owner* - call every
 route against those objects. A route passes when the answer is 403/404 (object routes) or carries
@@ -19,18 +19,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-import api.main as api
-from api import state
-from core import admin_audit
-from core.db import approval_decisions, approvals
-from core.retention import RetentionPolicy, RetentionSweeper
-from core.session_revocation import SessionRevocations
+from tests import runtime as api
+from tests.runtime import state
+from it_copilot.infra import admin_audit
+from it_copilot.infra.db import approval_decisions, approvals
+from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
+from it_copilot.infra.session_revocation import SessionRevocations
 from tests.conftest import auth
-from tests.test_shared_tasks import env  # noqa: F401  (fixture)
-from tests.test_task_execution import caps  # noqa: F401  (fixture)
 from tests.test_workflow import ALICE, ERIN, access
-from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
-from tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
+from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
 
 MARK = "TENANT-A-7F3E"
 INTRUDERS = ("erin", "grace", "bob", "alice")   # it_admin, auditor, approver, owner's own subject
@@ -71,49 +69,9 @@ PROBES: Dict[Tuple[str, str], Tuple[Request, str]] = {
     ("GET", "/knowledge/documents"): (get("/knowledge/documents"), "list"),
     ("DELETE", "/knowledge/documents/{document_id}"): (delete("/knowledge/documents/{doc}"), "deny"),
     ("POST", "/search"): (post("/search", query=MARK), "list"),
-    ("POST", "/chat/{request_id}/feedback"): (post("/chat/r-tenant-a/feedback", {"rating": -1}), "deny"),
-    ("POST", "/tasks/{task_id}/events/{event_id}/feedback"): (post(T + "/events/missing/feedback", {"rating": -1}), "deny"),
-    ("GET", "/admin/badcases"): (get("/admin/badcases"), "list"),
-    ("GET", "/admin/badcases/{case_id}"): (get("/admin/badcases/missing"), "deny"),
-    ("POST", "/admin/badcases/{case_id}/label"): (post("/admin/badcases/missing/label", {"root_cause": "false_claim", "severity": "P2", "expected": {"forbid_text": ["已执行"]}}), "deny"),
-    ("POST", "/admin/badcases/{case_id}/dismiss"): (post("/admin/badcases/missing/dismiss"), "deny"),
-    ("POST", "/admin/badcases/{case_id}/promote"): (post("/admin/badcases/missing/promote"), "deny"),
     ("GET", "/admin/changes"): (get("/admin/changes"), "list"),
     ("GET", "/admin/audit"): (get("/admin/audit", limit=500), "list"),
     ("GET", "/admin/sessions/revocations"): (get("/admin/sessions/revocations"), "list"),
-    ("GET", "/tasks"): (get("/tasks"), "list"),
-    ("GET", "/task-inbox"): (get("/task-inbox"), "list"),
-    ("GET", "/task-history"): (get("/task-history", q=MARK), "list"),
-    ("GET", "/task-history/{task_id}"): (get("/task-history/{task}"), "deny"),
-    ("POST", "/task-history/{task_id}/continue"): (post("/task-history/{task}/continue", {"message": "继续", "client_request_id": "x"}), "deny"),
-    ("GET", "/tasks/{task_id}"): (get(T), "deny"),
-    ("POST", "/tasks/{task_id}/messages"): (post(T + "/messages", {"message": "hi", "client_request_id": "x"}), "deny"),
-    ("POST", "/tasks/{task_id}/stop"): (post(T + "/stop"), "deny"),
-    ("POST", "/tasks/{task_id}/runs/{run_id}/retry"): (post(T + "/runs/r1/retry"), "deny"),
-    ("POST", "/tasks/{task_id}/approvals/{approval_id}"): (post(T + "/approvals/{room_approval}", {"decision": "approved", "payload_hash": "{room_hash}"}), "deny"),
-    ("GET", "/tasks/{task_id}/workspace"): (get(T + "/workspace"), "deny"),
-    ("POST", "/tasks/{task_id}/progress"): (post(T + "/progress", {"version": 0, "goal": "g", "steps": []}), "deny"),
-    ("POST", "/tasks/{task_id}/lifecycle"): (post(T + "/lifecycle", {"status": "resolved"}), "deny"),
-    ("POST", "/tasks/{task_id}/todos"): (post(T + "/todos", {"question": "q", "assignee": "dev:bob", "client_request_id": "x"}), "deny"),
-    ("POST", "/tasks/{task_id}/todos/{todo_id}/answer"): (post(T + "/todos/t1/answer", {"answer": "a"}), "deny"),
-    ("POST", "/tasks/{task_id}/read"): (post(T + "/read", {"seq": 1}), "deny"),
-    ("POST", "/tasks/{task_id}/reminders"): (post(T + "/reminders", {"text": "r", "due_at": 4102444800, "client_request_id": "x"}), "deny"),
-    ("POST", "/tasks/{task_id}/reminders/{timer_id}/cancel"): (post(T + "/reminders/t1/cancel"), "deny"),
-    ("POST", "/tasks/{task_id}/budget"): (post(T + "/budget", {"token_limit": 1, "run_limit": 1}), "deny"),
-    ("POST", "/tasks/{task_id}/todos/{todo_id}/change"): (post(T + "/todos/t1/change", {"action": "cancel", "reason": "r", "client_request_id": "x"}), "deny"),
-    ("GET", "/tasks/{task_id}/directory"): (get(T + "/directory"), "deny"),
-    ("POST", "/tasks/{task_id}/members"): (post(T + "/members", {"subject": "dev:alice", "role": "collaborator"}), "deny"),
-    ("POST", "/tasks/{task_id}/reviewers"): (post(T + "/reviewers", {"subjects": ["dev:bob"]}), "deny"),
-    ("POST", "/tasks/{task_id}/archive"): (post(T + "/archive", {"archived": True}), "deny"),
-    ("GET", "/tasks/{task_id}/events"): (get(T + "/events"), "deny"),
-    ("POST", "/tasks/{task_id}/files"): (lambda ids: ("POST", f"/tasks/{ids['task']}/files", {"params": {"name": "a.txt", "client_request_id": "x"}, "content": b"x"}), "deny"),
-    ("GET", "/tasks/{task_id}/files/{file_id}"): (get(T + "/files/f1"), "deny"),
-    ("POST", "/tasks/{task_id}/suggestions/{suggestion_id}"): (post(T + "/suggestions/s1", {"accept": True}), "deny"),
-    ("POST", "/tasks/{task_id}/notifications"): (post(T + "/notifications", {"channel": "email", "enabled": True}), "deny"),
-    ("POST", "/tasks/{task_id}/goal"): (post(T + "/goal", {"version": 0, "checks": []}), "deny"),
-    ("POST", "/tasks/{task_id}/verify"): (post(T + "/verify", {"client_request_id": "x"}), "deny"),
-    ("GET", "/tasks/{task_id}/links"): (get(T + "/links"), "deny"),
-    ("POST", "/tasks/{task_id}/links"): (post(T + "/links", {"target_id": "{other_task}"}), "deny"),
 }
 
 # Known cross-tenant leaks: route -> (probe, kind, plan phase that closes it).
@@ -123,14 +81,13 @@ GAPS: Dict[Tuple[str, str], Tuple[Request, str, str]] = {}
 # the owner's data afterwards, and the routes' own tests cover the rest.
 OWN_SCOPE = {
     ("GET", "/memory/me"), ("DELETE", "/memory/me"), ("DELETE", "/memory/me/episodic/{episodic_id}"),
-    ("POST", "/tasks"), ("GET", "/auth/me"), ("POST", "/auth/logout-all"), ("POST", "/admin/sessions/revoke"),
+    ("GET", "/auth/me"), ("POST", "/auth/logout-all"), ("POST", "/admin/sessions/revoke"),
     ("POST", "/knowledge/add"), ("POST", "/knowledge/upload"), ("GET", "/knowledge/stats"),
     ("GET", "/policy"), ("POST", "/policy/revalidate"),   # caller's tenant policy; platform admins sweep all
 }
 
 # Isolation tested elsewhere with a same-subject, other-tenant caller.
 COVERED = {
-    ("POST", "/speech/transcribe"): "test_tenant_isolation::test_speech_transcribes_only_each_callers_upload",
     ("POST", "/chat"): "test_isolation_and_history::test_private_working_and_cross_conversation_memory_are_scoped",
     ("POST", "/chat/stream"): "test_isolation_and_history::test_same_subject_other_tenant_cannot_resume_stream_or_read_trace",
     ("GET", "/chat/stream/{request_id}"): "test_isolation_and_history::test_same_subject_other_tenant_cannot_resume_stream_or_read_trace",
@@ -148,7 +105,6 @@ COVERED = {
 PLATFORM = {
     ("GET", "/admin/agents"): "Global version configuration; operator platform admin only",
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
-    ("POST", "/channels/feishu/events"): "signed by Feishu; tenant mapping in 阶段 1",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",
     ("GET", "/skills"): "", ("POST", "/skills/reload"): "仅运营方租户的平台管理员（ADR 0025）",
     ("POST", "/ops/retention/run"): "同上",
@@ -156,8 +112,9 @@ PLATFORM = {
 
 
 @pytest.fixture
-def world(env, caps, db_url, monkeypatch):  # noqa: F811
-    tasks, workflow, _ = env
+def world(db_url, monkeypatch):  # noqa: F811
+    from it_copilot.workflow.store import WorkflowStore
+    workflow = WorkflowStore(db_url)
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
     kb = KnowledgeBase(db_url)
     tools = MCPToolManager("sk-local")
@@ -166,26 +123,21 @@ def world(env, caps, db_url, monkeypatch):  # noqa: F811
         return await kb.search_handler(params, ctx)
     tools.register(Tool(name="knowledge_search", description="kb", handler=knowledge, schema=KNOWLEDGE_SEARCH_SCHEMA, cache_ttl=60))  # as in production
     sessions = SessionRevocations(workflow.engine, cache_ttl_s=0)
-    for name, value in {"workflow": workflow, "tasks": tasks, "task_capabilities": caps, "task_worker": None, "worker": None,
+    for name, value in {"workflow": workflow, "worker": None,
                         "kb": kb, "tool_manager": tools, "sessions": sessions, "memory": None, "tenants": None,
                         "retention": RetentionSweeper(workflow.engine, RetentionPolicy())}.items():
         monkeypatch.setattr(state, name, value)
 
-    room = tasks.create(ALICE, f"{MARK} GitLab 权限", f"{MARK} 申请 GitLab 只读权限", "tenant-a")
-    tasks.finish(tasks.claim(), {"response": "请审批", "proposal": {"action_requests": [access(reason=MARK)]}})
-    draft = tasks.get(room["id"], ALICE)["approvals"][0]
-    other = tasks.create(ALICE, f"{MARK} 第二个事项", f"{MARK} 关联目标", "tenant-a-2")
-    workflow.confirm(draft["approval_id"], ALICE, draft["payload_hash"])
     private = workflow.create("ap-tenant-a", request_id="r-tenant-a", conv_id="conv-tenant-a", principal=ALICE,
                               action_requests=[access(role="reporter", reason=MARK)])
     kb.add_documents([{"title": f"{MARK} VPN SOP", "content": f"{MARK} VPN 证书排障"},
                       {"title": f"{MARK} 研发 SOP", "content": f"{MARK} 研发专用", "department": "engineering"}], tenant="default")
     sessions.revoke("default", f"dev:{MARK}", actor=ERIN.subject, reason=MARK)
     admin_audit.record(workflow.engine, ERIN, "knowledge_added", MARK, {"titles": [MARK]})
-    ids = {"task": room["id"], "other_task": other["id"], "room_approval": draft["approval_id"], "room_hash": draft["payload_hash"],
+    ids = {
            "private": private["approval_id"], "private_hash": private["payload_hash"],
            "doc": next(d["document_id"] for d in kb.list_documents(tenant="default") if d["title"] == f"{MARK} VPN SOP")}
-    return TestClient(api.app), ids, workflow, tasks, kb, sessions
+    return TestClient(api.app), ids, workflow, kb, sessions
 
 
 def approval_rows(workflow):
@@ -195,12 +147,10 @@ def approval_rows(workflow):
     return sorted(map(tuple, rows)), votes
 
 
-def snapshot(workflow, tasks, kb, sessions, ids):
+def snapshot(workflow, kb, sessions, ids):
     """What tenant A owns, as tenant A sees it."""
-    room = tasks.get(ids["task"], ALICE)
     return {
         "approvals": approval_rows(workflow),
-        "room": (room["status"], len(room["events"]), room.get("archived")),
         "documents": sorted(d["document_id"] for d in kb.list_documents(tenant="default")),
         "revocations": [r["subject"] for r in sessions.list("default")],
     }
@@ -234,43 +184,18 @@ def test_every_route_is_classified():
     assert classified - routes() == set(), "classified route no longer exists"
 
 
-def test_speech_transcribes_only_each_callers_upload(world, monkeypatch):
-    """Same subject in two tenants gets only its request's transcript, without stored writes."""
-    from core import speech
-
-    client, ids, workflow, tasks, kb, sessions = world
-    before = snapshot(workflow, tasks, kb, sessions, ids)
-    received = []
-
-    async def transcribe(audio, key):
-        received.append(audio)
-        return {"text": audio.decode()}
-
-    monkeypatch.setattr(speech, "api_key", lambda: "test-only")
-    monkeypatch.setattr(speech, "transcribe", transcribe)
-    for tenant, audio in (("default", MARK), ("intruder", "B-ONLY-VOICE"), ("default", "A-SECOND")):
-        response = client.post("/speech/transcribe", content=audio.encode(),
-                               headers={**auth("alice", tenant=tenant), "Content-Type": "audio/wav"})
-        assert response.status_code == 200
-        assert response.json() == {"text": audio}
-    assert received == [MARK.encode(), b"B-ONLY-VOICE", b"A-SECOND"]
-    assert client.post("/speech/transcribe", content=b"unauthenticated",
-                       headers={"Content-Type": "audio/wav"}).status_code == 401
-    assert len(received) == 3
-    assert snapshot(workflow, tasks, kb, sessions, ids) == before
 
 
 def test_no_route_reaches_another_tenants_objects(world):
-    client, ids, workflow, tasks, kb, sessions = world
-    before = snapshot(workflow, tasks, kb, sessions, ids)
+    client, ids, workflow, kb, sessions = world
+    before = snapshot(workflow, kb, sessions, ids)
     assert dict((r[0], r[1]) for r in before["approvals"][0])[ids["private"]] == "pending" and len(before["documents"]) == 2 and before["revocations"] == [f"dev:{MARK}"]
     for who in ("alice", "erin"):  # the owner's tenant sees the marked data, so the sweep would notice a leak
-        assert MARK in client.get("/tasks", headers=auth(who)).text
         # Also warms the knowledge_search result cache: an intruder's identical query must not hit it.
         assert MARK in client.post("/search", params={"query": MARK}, headers=auth(who)).text
     failures = [f for request, kind in PROBES.values() for f in probe(client, request, kind, ids)]
     assert failures == [], "\n".join(failures)
-    assert snapshot(workflow, tasks, kb, sessions, ids) == before
+    assert snapshot(workflow, kb, sessions, ids) == before
 
 
 @pytest.mark.parametrize("route", sorted(GAPS), ids=lambda r: f"{r[0]} {r[1]}")
@@ -284,19 +209,16 @@ def test_known_gap(world, route):
 
 
 def test_own_scope_writes_stay_in_the_callers_tenant(world):
-    client, ids, workflow, tasks, kb, sessions = world
-    before = snapshot(workflow, tasks, kb, sessions, ids)
+    client, ids, workflow, kb, sessions = world
+    before = snapshot(workflow, kb, sessions, ids)
     erin, alice = auth("erin", tenant="intruder"), auth("alice", tenant="intruder")
-    created = client.post("/tasks", headers=alice, json={"title": "B 的事项", "message": "B", "client_request_id": "tenant-a"})
-    assert created.status_code == 201, created.text
-    assert created.json()["id"] != ids["task"]                      # same subject and client id, different tenant
     assert client.get("/auth/me", headers=alice).json()["tenant"] == "intruder"
     assert client.post("/admin/sessions/revoke", headers=erin, json={"subject": f"dev:{MARK}", "reason": "b"}).status_code == 200
     assert client.post("/auth/logout-all", headers=alice).status_code == 200
-    after = snapshot(workflow, tasks, kb, sessions, ids)
+    after = snapshot(workflow, kb, sessions, ids)
     assert after == before
     assert sorted(r["subject"] for r in sessions.list("intruder")) == sorted(["dev:alice", f"dev:{MARK}"])
-    assert client.get("/tasks", headers=auth("alice")).status_code == 200   # A's alice was not signed out
+    assert client.get("/auth/me", headers=auth("alice")).status_code == 200   # A's alice was not signed out
     # Knowledge flows neither way: B's upload is searchable in B only, and A's stats do not count it.
     stats = client.get("/knowledge/stats", headers=auth("alice")).json()["total_chunks"]
     added = client.post("/knowledge/add", headers=erin, json={"documents": [{"title": "B-ONLY-91C SOP", "content": "B-ONLY-91C 证书"}]})

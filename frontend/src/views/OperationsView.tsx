@@ -1,10 +1,7 @@
 // TanStack Query owns the shared monitor cache and its 15s polling in App.
-import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ActivityIcon, CpuIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react'
-import { BadcasePanel } from '../components/BadcasePanel.tsx'
 import { Empty, Gauge, PageHeader, Panel, StatusChip, type Tone } from '../components/ui.tsx'
 import { formatPercent, formatTime } from '../lib/format.ts'
 import type { Identity, MonitorData, MonitorSummary, Settings } from '../lib/types.ts'
@@ -23,28 +20,17 @@ function Stat({ label, value, tone = 'default', hint }: { label: string; value: 
   )
 }
 
-export function OperationsView({ monitorData, settings, identity, onRefresh }: {
+export function OperationsView({ monitorData, onRefresh }: {
   monitorData: MonitorData; settings: Settings; identity: Identity | null; onRefresh: () => void
 }) {
-  const [tab, setTab] = useState('monitor')
   const summary: MonitorSummary = monitorData.monitor || { status: 'unknown', slos: [], alerts: [], recent_resolved: [], last_tick: null }
   const status = statusMap[summary.status] || { label: monitorData.loaded ? '未知' : '未连接', tone: 'default' as Tone }
   const agent = monitorData.agent || {}
-  const isAdmin = !!identity?.roles.includes('it_admin')
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8">
       <PageHeader title="运行状态" description="实时 SLO 燃烧率、告警与 Agent 健康度，每 15 秒自动刷新。"
         actions={<Button type="button" variant="secondary" onClick={onRefresh}><RefreshCwIcon className="size-4" />刷新</Button>} />
-      {isAdmin && (
-        <Tabs value={tab} onValueChange={value => setTab(String(value))} className="mb-5">
-          <TabsList aria-label="运行管理">
-            <TabsTrigger value="monitor">监控</TabsTrigger>
-            <TabsTrigger value="badcases">Badcase 标注</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      )}
-      {tab === 'badcases' && isAdmin ? <BadcasePanel settings={settings} /> : (
         <div className="flex flex-col gap-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="服务状态" value={status.label} tone={status.tone} hint={summary.last_tick ? `最近评估 ${formatTime(summary.last_tick)}` : '等待监控首次评估'} />
@@ -96,7 +82,6 @@ export function OperationsView({ monitorData, settings, identity, onRefresh }: {
             </Panel>
           </div>
         </div>
-      )}
     </section>
   )
 }

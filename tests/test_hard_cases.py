@@ -17,14 +17,14 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.conversation_state import with_login_employee
-from agents.intent.entities import extract_entities
-from agents.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, history_messages
-from agents.types import Request
-from evaluation.fake_model import scripted_model
-from memory.conversation_memory import MemoryContext, Message, MsgRole
-from tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.conversation_state import with_login_employee
+from it_copilot.agent.intent.entities import extract_entities
+from it_copilot.agent.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, history_messages
+from it_copilot.agent.types import Request
+from tests.support.fake_model import scripted_model
+from it_copilot.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
+from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
 from tests.conftest import with_read_tool
 
 # ── 编号抽取：对抗输入 ──────────────────────────────────────────────────────────
@@ -157,12 +157,12 @@ def test_tool_cache_never_leaks_results_across_departments():
 # ── 故障注入：预取失败不能拖垮整轮 ───────────────────────────────────────────────
 
 def test_chat_turn_survives_a_crashing_knowledge_prefetch(monkeypatch):
-    from agents.intent.recognizer import IntentResult
-    from agents.intent.taxonomy import IntentCategory
-    from api import state
-    from api.routes import chat as chat_routes
-    from api.schemas import ChatRequest
-    from core.identity import Principal
+    from it_copilot.agent.intent.recognizer import IntentResult
+    from it_copilot.agent.intent.taxonomy import IntentCategory
+    from tests.runtime import state
+    from it_copilot.api.routes import chat as chat_routes
+    from it_copilot.api.schemas import ChatRequest
+    from it_copilot.infra.identity import Principal
 
     class BrokenTools:
         async def search(self, *args, **kwargs):
@@ -181,7 +181,7 @@ def test_chat_turn_survives_a_crashing_knowledge_prefetch(monkeypatch):
     for name, value in {"orchestrator": Orchestrator(), "memory": None, "tool_manager": BrokenTools()}.items():
         monkeypatch.setattr(state, name, value)
     alice = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
-    asyncio.run(chat_routes._run_turn(ChatRequest(message="VPN 报 691"), alice, "r", "c", chat_routes._Stages()))
+    asyncio.run(chat_routes._run_turn(state, ChatRequest(message="VPN 报 691"), alice, "r", "c", chat_routes._Stages()))
     assert Orchestrator.seen is not None and Orchestrator.seen.knowledge == []
 
 
@@ -201,7 +201,7 @@ def test_streamed_deltas_after_last_reset_equal_final_answer_for_random_chunking
             return ModelResponse(parts=[TextPart(final)])
 
         chunk = rng.randint(1, 9)
-        monkeypatch.setattr("evaluation.fake_model.STREAM_CHUNK", chunk)
+        monkeypatch.setattr("tests.support.fake_model.STREAM_CHUNK", chunk)
         events = []
 
         async def emit(event, data):
@@ -251,7 +251,7 @@ def test_device_ids_are_not_mistaken_for_error_codes(message, device, errors):
 
 def test_episodic_memory_drops_unrelated_rows_and_ranks_by_relevance():
     """深度评测：情景记忆原先没有相关度门槛，且只按重要度排序；老用户每轮都会带上无关旧对话。"""
-    from memory.conversation_memory import MemoryManager
+    from it_copilot.agent.memory.conversation_memory import MemoryManager
     results = {"documents": [["打印机排队", "VPN-691 认证失败", "GitLab 权限"]],
                "metadatas": [[{"importance": 0.9}, {"importance": 0.5}, {"importance": 0.5}]],
                "distances": [[0.9, 0.2, 0.55]]}

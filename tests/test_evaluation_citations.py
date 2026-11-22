@@ -1,4 +1,4 @@
-from scripts.evaluate_application import distractor_citations_excluded
+from tests.support.evaluate_application import distractor_citations_excluded
 
 
 def test_exclusion_and_its_citation_share_a_paragraph():

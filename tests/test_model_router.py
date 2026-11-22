@@ -9,15 +9,15 @@ from pydantic import ValidationError
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.base_agent import BaseAgent
-from agents.types import Request
-from core.model_router import DEFAULT_CONFIG, ModelRouter, RoutingConfig
-from core.tenancy import TenantRegistry
-from core.tenant_context import tenant_scope
-from evaluation.fake_model import scripted_model
+from it_copilot.agent.base_agent import BaseAgent
+from it_copilot.agent.types import Request
+from it_copilot.agent.model_router import DEFAULT_CONFIG, ModelRouter, RoutingConfig
+from it_copilot.infra.tenancy import TenantRegistry
+from it_copilot.infra.tenant_context import tenant_scope
+from tests.support.fake_model import scripted_model
 from tests.test_workflow import ALICE
-from tooling.tool_spec import make_tool
-from workflow.store import WorkflowStore
+from it_copilot.agent.tooling.tool_spec import make_tool
+from it_copilot.workflow.store import WorkflowStore
 
 
 async def okay(messages, info):
@@ -144,7 +144,7 @@ def test_budget_hides_write_tools_but_allows_reads(tmp_path, db_url):
 
 
 def test_invalid_hot_reload_keeps_last_good_config_and_valid_reload_applies(tmp_path, db_url):
-    from core.db import change_events
+    from it_copilot.infra.db import change_events
     from sqlalchemy import select
     store = WorkflowStore(db_url)
     router = configured(tmp_path, engine=store.engine)

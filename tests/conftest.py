@@ -31,7 +31,7 @@ def release_agent_spec(request):
 
 
 def auth(username: str = "alice", **overrides) -> dict:
-    from core.identity import issue_dev_token
+    from it_copilot.infra.identity import issue_dev_token
 
     return {"Authorization": "Bearer " + issue_dev_token(username, overrides=overrides or None)}
 
@@ -60,7 +60,7 @@ def db_url(tmp_path):
 
 def with_read_tool(orchestrator):
     """给编排器加一个测试专用的只读工具 diagnose：总是成功，不依赖台账或外部服务。"""
-    from tooling.tool_spec import make_tool
+    from it_copilot.agent.tooling.tool_spec import make_tool
 
     tool = make_tool("diagnose", "测试用只读诊断。", {"code": {"type": "string"}},
                      lambda req, args: {"code": args.get("code", ""), "meaning": "测试诊断结果"}, required=["code"])
@@ -73,7 +73,7 @@ def run_in_tenant(coro, tenant: str = "default"):
     sandbox directory directly (an out-of-band change in the target system) say whose it is."""
     import asyncio
 
-    from core.tenant_context import tenant_scope
+    from it_copilot.infra.tenant_context import tenant_scope
 
     async def scoped():
         with tenant_scope(tenant):
@@ -84,7 +84,7 @@ def run_in_tenant(coro, tenant: str = "default"):
 @pytest.fixture
 def default_tenant():
     """Run a unit test inside the ``default`` tenant's scope, as a request from that tenant would."""
-    from core.tenant_context import tenant_scope
+    from it_copilot.infra.tenant_context import tenant_scope
 
     with tenant_scope("default"):
         yield "default"

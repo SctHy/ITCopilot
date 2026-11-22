@@ -4,16 +4,15 @@ from enum import StrEnum
 
 import pytest
 
-from api import state
-from api.routes import chat as chat_routes
-from core.events import InMemoryEventBus
-from core.states import IllegalTransition, Machine
-from intake.im import INBOX, OUTBOX
-from memory.conversation_memory import MemoryContext, MemoryManager
-from monitor.performance_monitor import ALERT, AlertManager, Condition
-from tooling.mcp_client import CONNECTION
-from workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, ApprovalStatus, Execution, GrantStatus
-from workflow.store import WorkflowStore
+from tests.runtime import state
+from it_copilot.api.routes import chat as chat_routes
+from it_copilot.infra.events import InMemoryEventBus
+from it_copilot.infra.states import IllegalTransition, Machine
+from it_copilot.agent.memory.conversation_memory import MemoryContext, MemoryManager
+from it_copilot.infra.monitor.performance_monitor import ALERT, AlertManager, Condition
+from it_copilot.agent.tooling.mcp_client import CONNECTION
+from it_copilot.workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, ApprovalStatus, Execution, GrantStatus
+from it_copilot.workflow.store import WorkflowStore
 
 
 class Light(StrEnum):
@@ -31,7 +30,7 @@ def test_machine_rejects_undeclared_edges_and_allows_staying():
         Machine(Light, "a -> missing")
 
 
-@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, INBOX, OUTBOX, CONNECTION, ALERT])
+@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, CONNECTION, ALERT])
 def test_every_state_is_reachable_from_the_initial_one(machine):
     initial = next(iter(machine.edges))
     seen, frontier = {initial}, [initial]
@@ -73,7 +72,7 @@ def test_stream_without_terminal_event_is_reported_abandoned(monkeypatch):
     async def run():
         await bus.claim("chat:r", "alice")
         await bus.publish("chat:r", "status", {"stage": "started"})  # the run dies after this
-        return [chunk async for chunk in chat_routes._subscribe("chat:r", None)]
+        return [chunk async for chunk in chat_routes._subscribe(state, "chat:r", None)]
 
     chunks = asyncio.run(run())
     assert chunks[0].startswith("id:") and "event: status" in chunks[0]

@@ -1,7 +1,7 @@
 """External-corpus adapter invariants, independent of detection predictions."""
 import pytest
 
-from evaluation.external_pii import digest, select_rows, validate_spans
+from tests.support.external_pii import digest, select_rows, validate_spans
 
 
 def test_original_unicode_offsets_and_duplicate_annotations():
@@ -35,7 +35,7 @@ def test_selection_is_hash_based_and_excludes_prior_duplicates_before_sampling()
 
 def test_comparison_preserves_distinct_rows_with_reused_source_uid(tmp_path):
     import json
-    from scripts.compare_masking_runs import read
+    from tests.support.compare_masking_runs import read
     path = tmp_path / "metrics.json"
     path.write_text(json.dumps({"overall": {}}))
     docs = tmp_path / "documents.jsonl"
@@ -48,7 +48,7 @@ def test_comparison_preserves_distinct_rows_with_reused_source_uid(tmp_path):
 
 def test_comparison_does_not_report_zero_false_positive_rate_without_negatives(tmp_path):
     import json
-    from scripts.compare_masking_runs import compare
+    from tests.support.compare_masking_runs import compare
     row = {"id": 1, "hash": "fixed", "gold_spans": [[0, 1, "ID"]], "full_flags": [True],
            "tp": 1, "gold": 1, "predicted": 1, "fully_covered": 1}
     overall = dict.fromkeys(["f1", "full_coverage_rate", "precision", "recall"], 1)
@@ -66,16 +66,16 @@ def test_frozen_source_overlay_loads_the_hashed_implementation(tmp_path):
     import sys
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    (tmp_path / "core").mkdir()
-    for name in ("redaction", "pii_rules", "local_pii", "model_masking"):
-        shutil.copy2(root / "core" / (name + ".py"), tmp_path / "core" / (name + ".py"))
-    with (tmp_path / "core/pii_rules.py").open("a") as stream:
+    import os
+    package = Path("src/it_copilot/agent/masking")
+    shutil.copytree(root / "src/it_copilot", tmp_path / "src/it_copilot")
+    with (tmp_path / package / "pii_rules.py").open("a") as stream:
         stream.write('\nOVERLAY_TEST_MARKER = "frozen"\n')
     subprocess.run([sys.executable, "-c", """
 import sys
 sys.argv = ['evaluation', '--source-root', sys.argv[1]]
-import scripts.evaluate_masking_external as evaluator
+import tests.support.evaluate_masking_external as evaluator
 evaluator.source_hashes()
-from core import pii_rules
+from it_copilot.agent.masking import pii_rules
 assert pii_rules.OVERLAY_TEST_MARKER == 'frozen'
-""", str(tmp_path)], cwd=root, check=True, capture_output=True, text=True)
+""", str(tmp_path)], cwd=root, env={**os.environ, "PYTHONPATH": str(tmp_path / "src")}, check=True, capture_output=True, text=True)

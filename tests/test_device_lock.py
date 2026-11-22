@@ -4,13 +4,12 @@ from tests.conftest import run_in_tenant
 
 import pytest
 
-from agents.tools import lock_device
-from agents.types import Request
-from intake.im import _results_text
+from it_copilot.agent.tools import lock_device
+from it_copilot.agent.types import Request
 from tests.test_workflow import ALICE, BOB, ERIN, env, run  # noqa: F401 (env is a fixture)
-from workflow.approval import approval_from_traces
-from workflow.policy import PolicyViolation
-from workflow.store import ApprovalForbidden
+from it_copilot.workflow.approval import approval_from_traces
+from it_copilot.workflow.policy import PolicyViolation
+from it_copilot.workflow.store import ApprovalForbidden
 
 
 def lock(device="DEV-1001", employee="1001"):
@@ -46,7 +45,6 @@ def test_approved_lock_is_applied_once_and_reported(env):  # noqa: F811
     body = store.get("a")
     assert body["execution"] == "succeeded" and body["results"][0]["device_id"] == "DEV-1001"
     assert devices(store) == {"DEV-1001": True} and devices(store, "1002") == {"DEV-1002": False}
-    assert _results_text(body["results"]) == "：设备 DEV-1001 已远程锁定"
     # Re-applying the same action id returns the recorded effect instead of repeating it.
     adapter = worker.registry.local
     again = run_in_tenant(adapter.apply(body["results"][0]["operation_id"], lock()))

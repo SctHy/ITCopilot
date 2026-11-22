@@ -4,14 +4,14 @@ import asyncio
 import fakeredis.aioredis
 import pytest
 
-from core.events import InMemoryEventBus, RedisEventBus, StreamConflict, request_fingerprint
-from core.states import IllegalTransition
-from tooling.executor import ToolExecutor
-from tooling.tool_spec import make_tool
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.infra.events import InMemoryEventBus, RedisEventBus, StreamConflict, request_fingerprint
+from it_copilot.infra.states import IllegalTransition
+from it_copilot.agent.tooling.executor import ToolExecutor
+from it_copilot.agent.tooling.tool_spec import make_tool
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 from tests.test_workflow import BOB, Clock, create
 
 
@@ -88,7 +88,7 @@ def test_worker_expires_unattended_approval_once_at_deadline(db_url):
 
 @pytest.mark.asyncio
 async def test_renewal_loss_cancels_work_and_parent_cancellation_is_preserved():
-    from core.concurrency import LeaseLostError, run_leased
+    from it_copilot.infra.concurrency import LeaseLostError, run_leased
     cancelled = asyncio.Event()
 
     async def work():
@@ -118,7 +118,7 @@ async def test_renewal_loss_cancels_work_and_parent_cancellation_is_preserved():
 
 @pytest.mark.asyncio
 async def test_transient_renewal_error_is_retried_but_persistent_errors_cancel_before_expiry():
-    from core.concurrency import LeaseLostError, run_leased
+    from it_copilot.infra.concurrency import LeaseLostError, run_leased
     attempts = []
 
     async def flaky():
@@ -148,7 +148,7 @@ async def test_transient_renewal_error_is_retried_but_persistent_errors_cancel_b
 
 
 def test_expired_worker_cannot_commit_or_renew_even_before_reclaim(db_url):
-    from workflow.store import LeaseLost
+    from it_copilot.workflow.store import LeaseLost
     clock = Clock()
     store = WorkflowStore(db_url, clock=clock)
     try:
@@ -167,7 +167,7 @@ def test_expired_worker_cannot_commit_or_renew_even_before_reclaim(db_url):
 
 @pytest.mark.asyncio
 async def test_archive_outbox_survives_compression_failure_and_replays_without_new_chat(db_url):
-    from memory.conversation_memory import MemoryManager
+    from it_copilot.agent.memory.conversation_memory import MemoryManager
     from pydantic_ai.messages import ModelResponse, TextPart
     from pydantic_ai.models.function import FunctionModel
 
@@ -209,7 +209,7 @@ async def test_archive_outbox_survives_compression_failure_and_replays_without_n
 @pytest.mark.asyncio
 async def test_pending_archive_replay_uses_the_committed_index_without_scanning(db_url):
     import json
-    from memory.conversation_memory import MemoryManager
+    from it_copilot.agent.memory.conversation_memory import MemoryManager
     manager = MemoryManager(redis_url="redis://localhost:1/0", database_url=db_url, api_key="sk-local")
     manager._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     stored, scans = [], []
@@ -241,7 +241,7 @@ async def test_pending_archive_replay_uses_the_committed_index_without_scanning(
 def test_document_replacement_rolls_back_if_stale_chunk_removal_fails(db_url):
     import numpy as np
     from sqlalchemy import event
-    from core.vector_store import VectorStore
+    from it_copilot.infra.vector_store import VectorStore
 
     class Embedder:
         model_name = "test"
@@ -268,18 +268,21 @@ def test_document_replacement_rolls_back_if_stale_chunk_removal_fails(db_url):
 
 
 @pytest.mark.asyncio
-async def test_partial_startup_closes_acquired_resources(monkeypatch):
+async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
+    monkeypatch.setenv("IT_COPILOT_DATABASE_URL", db_url)
     from types import SimpleNamespace
-    import agents.agent_orchestrator
-    import api.main
-    from api import state
-    import memory.conversation_memory
-    import monitor.telemetry
-    import tooling.knowledge_base
+    import it_copilot.agent.agent_orchestrator
+    import tests.runtime
+    import it_copilot.api.app
+    from tests.runtime import state
+    import it_copilot.agent.memory.conversation_memory
+    import it_copilot.infra.monitor.telemetry
+    import it_copilot.agent.tooling.knowledge_base
 
     closed = []
 
     class Orchestrator:
+        registry = None
         def __init__(self, **kwargs):
             pass
 
@@ -299,16 +302,16 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch):
         async def close(self):
             closed.append("memory")
 
-    for key in ("lifecycle", "profile_updater", "channels", "feishu", "mcp_client", "tracing", "skills", "tool_manager", "kb", "orchestrator", "memory"):
+    for key in ("lifecycle", "mcp_client", "tracing", "skills", "tool_manager", "kb", "orchestrator", "memory"):
         monkeypatch.setattr(state, key, None)
     monkeypatch.setenv("IT_COPILOT_REQUIRE_REDIS", "true")
-    monkeypatch.setattr(agents.agent_orchestrator, "AgentOrchestrator", Orchestrator)
-    monkeypatch.setattr(memory.conversation_memory, "MemoryManager", Memory)
-    monkeypatch.setattr(tooling.knowledge_base, "KnowledgeBase", lambda url: SimpleNamespace())
-    monkeypatch.setattr(monitor.telemetry, "setup_tracing", lambda: None)
-    monkeypatch.setattr(monitor.telemetry, "shutdown_tracing", lambda x: closed.append("tracing"))
+    monkeypatch.setattr(it_copilot.agent.agent_orchestrator, "AgentOrchestrator", Orchestrator)
+    monkeypatch.setattr(it_copilot.agent.memory.conversation_memory, "MemoryManager", Memory)
+    monkeypatch.setattr(it_copilot.agent.tooling.knowledge_base, "KnowledgeBase", lambda url: SimpleNamespace(collection_version=lambda tenant: 0))
+    monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "setup_tracing", lambda: None)
+    monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "shutdown_tracing", lambda x: closed.append("tracing"))
     with pytest.raises(RuntimeError, match="Redis"):
-        async with api.main.lifespan(api.main.app):
+        async with it_copilot.api.app.lifespan(tests.runtime.app):
             pytest.fail("unreachable")
     assert closed == ["memory", "orchestrator", "tracing"]
     assert state.lifecycle.state == "closed"

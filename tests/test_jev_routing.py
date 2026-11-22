@@ -3,12 +3,12 @@ import asyncio
 
 import pytest
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import WRITE_ACTIONS, IntentCategory, jev_questions
-from agents.types import Request
-from core.jev import JevResponse
-from tooling.tool_manager import ToolResult
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.intent.taxonomy import WRITE_ACTIONS, IntentCategory, jev_questions
+from it_copilot.agent.types import Request
+from it_copilot.agent.jev import JevResponse
+from it_copilot.agent.tooling.tool_manager import ToolResult
 
 
 class FakeJev:
@@ -79,8 +79,8 @@ def test_llm_supplies_the_write_gate_when_jev_is_unavailable(actions, expected):
 def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
     from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 
-    from core.identity import Principal
-    from evaluation.fake_model import scripted_model
+    from it_copilot.infra.identity import Principal
+    from tests.support.fake_model import scripted_model
 
     async def reply(messages, info):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
@@ -98,11 +98,11 @@ def test_unrequested_write_is_refused_before_it_runs(allowed, succeeds):
 
 
 def test_chat_turn_skips_prefetched_knowledge_only_when_jev_says_no(monkeypatch):
-    from agents.intent.recognizer import IntentResult
-    from api import state
-    from api.routes import chat as chat_routes
-    from api.schemas import ChatRequest
-    from core.identity import Principal
+    from it_copilot.agent.intent.recognizer import IntentResult
+    from tests.runtime import state
+    from it_copilot.api.routes import chat as chat_routes
+    from it_copilot.api.schemas import ChatRequest
+    from it_copilot.infra.identity import Principal
 
     hit = {"title": "VPN-691认证排障", "content": "检查账号锁定。", "chunk": 0, "document_id": "54f69075" + "0" * 56, "updated_at": "2026-10-28T00:00:00Z"}
 
@@ -131,14 +131,14 @@ def test_chat_turn_skips_prefetched_knowledge_only_when_jev_says_no(monkeypatch)
         orchestrator, tools = Orchestrator(needs), Tools()
         for name, value in {"orchestrator": orchestrator, "memory": None, "tool_manager": tools}.items():
             monkeypatch.setattr(state, name, value)
-        asyncio.run(chat_routes._run_turn(ChatRequest(message="VPN 报 691"), alice, "r", "c", chat_routes._Stages()))
+        asyncio.run(chat_routes._run_turn(state, ChatRequest(message="VPN 报 691"), alice, "r", "c", chat_routes._Stages()))
         assert tools.calls[-1] == ("VPN 报 691", 3, "engineering")
         assert orchestrator.seen.knowledge == expected and orchestrator.seen.allowed_writes == frozenset()
 
 
 def test_compound_question_prefetch_keeps_evidence_for_both_topics(monkeypatch):
-    from api import state
-    from api.routes.chat import _prefetch_knowledge
+    from tests.runtime import state
+    from it_copilot.api.routes.chat import _prefetch_knowledge
     from types import SimpleNamespace
 
     calls = []
@@ -149,6 +149,6 @@ def test_compound_question_prefetch_keeps_evidence_for_both_topics(monkeypatch):
         return ToolResult(True, [{"document_id": title, "chunk": 0, "content": title}], name)
 
     monkeypatch.setattr(state, "tool_manager", SimpleNamespace(search=search))
-    result = asyncio.run(_prefetch_knowledge("新员工电脑需要什么材料？另外公司代理怎么配？", "engineering"))
+    result = asyncio.run(_prefetch_knowledge(state, "新员工电脑需要什么材料？另外公司代理怎么配？", "engineering"))
     assert len(calls) == 2
     assert {hit["content"] for hit in result.data} == {"设备申领", "代理配置"}

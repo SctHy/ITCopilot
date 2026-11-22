@@ -4,10 +4,10 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import api.main as api
-from api import state
+from tests import runtime as api
+from tests.runtime import state
 from tests.conftest import auth
-from tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
 
 
 class FakeKnowledgeBase:
@@ -41,7 +41,7 @@ class FakeKnowledgeBase:
 
 @pytest.fixture
 def client(monkeypatch, db_url):
-    from workflow.store import WorkflowStore
+    from it_copilot.workflow.store import WorkflowStore
     monkeypatch.setattr(state, "workflow", WorkflowStore(db_url))
     kb = FakeKnowledgeBase()
     monkeypatch.setattr(state, "kb", kb)
@@ -120,8 +120,8 @@ def test_stats_reports_the_chunk_count_expected_by_the_frontend(client):
 
 @pytest.mark.parametrize("top_k", [9, 10, 20])
 def test_search_accepts_the_full_advertised_range(client, top_k):
-    from tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
-    from tooling.tool_manager import Tool
+    from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
+    from it_copilot.agent.tooling.tool_manager import Tool
     http, _ = client
     state.tool_manager.register(Tool("knowledge_search", "search", lambda p, c: [{"title": "hit"}], KNOWLEDGE_SEARCH_SCHEMA))
     response = http.post("/search", params={"query": "VPN", "top_k": top_k})

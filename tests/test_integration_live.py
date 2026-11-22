@@ -10,14 +10,14 @@ import os
 import httpx2
 import pytest
 
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.gitea import GiteaAdapter
-from workflow.adapters.local import LocalDirectoryAdapter
-from core.identity import AuthError, principal_from_token
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.gitea import GiteaAdapter
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.infra.identity import AuthError, principal_from_token
 from tests.test_workflow import ALICE, BOB, Clock, access
 from tests.conftest import run_in_tenant
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 
 ISSUER = os.getenv("IT_COPILOT_TEST_OIDC_ISSUER")
 GITEA = os.getenv("IT_COPILOT_TEST_GITEA_URL")
@@ -50,7 +50,7 @@ def test_keycloak_tokens_map_to_principals(monkeypatch):
 def test_http_api_accepts_keycloak_and_rejects_dev_tokens(monkeypatch):
     from fastapi.testclient import TestClient
 
-    import api.main as api
+    from tests import runtime as api
     from tests.conftest import auth
 
     monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "oidc")

@@ -4,8 +4,8 @@ import asyncio
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from core.jev import JevResponse
-from tooling.tool_manager import MCPToolManager
+from it_copilot.agent.jev import JevResponse
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
 
 
 class FakeJev:

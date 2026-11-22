@@ -5,11 +5,11 @@ import fakeredis.aioredis
 import pytest
 from fastapi.testclient import TestClient
 
-import api.main as api
-from api import state
-from api.routes.chat import RATE_LIMITED_REPLY, _channel_turn
-from core.identity import Principal
-from core.rate_limit import AGENT_TURN, DEFAULT_RULES, MemoryRateLimiter, RateRule, RedisRateLimiter, rules_from_env
+from tests import runtime as api
+from tests.runtime import state
+
+from it_copilot.infra.identity import Principal
+from it_copilot.infra.rate_limit import AGENT_TURN, DEFAULT_RULES, MemoryRateLimiter, RateRule, RedisRateLimiter, rules_from_env
 from tests.conftest import auth
 
 ALICE = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
@@ -101,10 +101,6 @@ def test_chat_returns_429_with_retry_after_per_identity(limited):
     assert http.post("/chat", json=body).status_code == 401                         # identity is checked first
 
 
-def test_im_messages_get_one_short_reply_instead_of_model_work(limited):
-    asyncio.run(limited.check(AGENT_TURN, ALICE.scope_key))  # alice already used her budget on the web
-    reply = asyncio.run(_channel_turn(ALICE, "VPN 连不上", "feishu:oc_1", "om_1"))
-    assert reply["response"] == RATE_LIMITED_REPLY and reply["approval_required"] is False
 
 
 def test_rate_limiter_is_off_without_configuration(monkeypatch):
@@ -113,12 +109,3 @@ def test_rate_limiter_is_off_without_configuration(monkeypatch):
     http = TestClient(api.app)
     for _ in range(5):
         assert http.post("/chat", json={"message": "hi", "conv_id": "c"}, headers=auth("alice")).status_code == 503
-
-
-def test_shared_task_messages_count_only_when_they_ask_the_agent(limited, monkeypatch):
-    monkeypatch.setattr(state, "tasks", None)  # an allowed request then stops at "not ready"
-    http = TestClient(api.app)
-    post = lambda ask: http.post("/tasks/t1/messages", json={"message": "进展如何", "client_request_id": "m", "ask_agent": ask},
-                                 headers=auth("alice")).status_code
-    assert post(True) == 503 and post(True) == 429
-    assert post(False) == 503   # plain discussion is not limited

@@ -4,15 +4,15 @@ import json
 import fakeredis.aioredis
 import pytest
 
-from core.env import env_float
-from core.events import InMemoryEventBus, RedisEventBus, MAX_PAYLOAD_CHARS, STREAM_TTL_S
-from core.vector_store import VectorStore
+from it_copilot.infra.env import env_float
+from it_copilot.infra.events import InMemoryEventBus, RedisEventBus, MAX_PAYLOAD_CHARS, STREAM_TTL_S
+from it_copilot.infra.vector_store import VectorStore
 from tests.test_workflow import ALICE, BOB, access
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.gitea import GiteaAdapter
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.gitea import GiteaAdapter
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 import httpx2
 
 

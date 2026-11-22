@@ -4,14 +4,15 @@ from dataclasses import replace
 
 import pytest
 
-from api import deps, state
-from core import quotas
-from core.db import shared_engine
-from core.fair_queue import rotate
-from core.identity import Principal
-from core.rate_limit import MemoryRateLimiter, RateRule
-from core.tenancy import TenantRegistry
-from tests.test_shared_tasks import env as shared_env  # noqa: F401
+from it_copilot.api import deps
+from tests.runtime import state
+from it_copilot.infra import quotas
+from it_copilot.infra.db import shared_engine
+from it_copilot.infra.fair_queue import rotate
+from it_copilot.infra.identity import Principal
+from it_copilot.infra.rate_limit import MemoryRateLimiter, RateRule
+from it_copilot.infra.tenancy import TenantRegistry
+
 from tests.test_workflow import ALICE, BOB, access, env  # noqa: F401
 
 
@@ -30,7 +31,7 @@ def test_quotas_are_validated_when_written():
 def test_quota_changes_are_audited(db_url):
     from sqlalchemy import select
 
-    from core.db import admin_audit
+    from it_copilot.infra.db import admin_audit
 
     registry = TenantRegistry(shared_engine(db_url), cache_ttl_s=0)
     registry.create("acme", actor="cli:op", quotas={"agent_turn": "10/60"})
@@ -63,7 +64,7 @@ def test_a_tenant_shares_one_budget_and_other_tenants_keep_theirs(tenants, monke
     monkeypatch.setattr(state, "rate_limiter", MemoryRateLimiter({"agent_turn": RateRule(30, 60)}))
 
     async def turns():
-        decide = lambda p: deps.rate_limit_decision(p, "agent_turn", "http")  # noqa: E731
+        decide = lambda p: deps.rate_limit_decision(state, p, "agent_turn", "http")  # noqa: E731
         acme = [(await decide(member(n, "acme"))).allowed for n in ("alice", "bob", "carol")]
         globex = [(await decide(member(n, "globex"))).allowed for n in ("alice", "bob")]
         return acme, globex
@@ -76,7 +77,7 @@ def test_a_user_refused_by_their_own_limit_does_not_spend_the_tenants_budget(ten
     monkeypatch.setattr(state, "rate_limiter", MemoryRateLimiter({"agent_turn": RateRule(1, 60)}))
 
     async def turns():
-        decide = lambda p: deps.rate_limit_decision(p, "agent_turn", "http")  # noqa: E731
+        decide = lambda p: deps.rate_limit_decision(state, p, "agent_turn", "http")  # noqa: E731
         alice = [(await decide(member("alice", "acme"))).allowed for _ in range(5)]
         return alice, (await decide(member("bob", "acme"))).allowed
     alice, bob = asyncio.run(turns())
@@ -131,15 +132,3 @@ def test_rotation_serves_every_tenants_oldest_before_anyones_second():
 
 
 # ── Fair shared-task queue ──────────────────────────────────────────────────
-
-def test_shared_task_runs_rotate_between_tenants(shared_env):  # noqa: F811
-    tasks, _, clock = shared_env
-    for i in range(3):
-        tasks.create(replace(ALICE, tenant="noisy"), "排查", f"VPN 问题 {i}", f"n{i}")
-    clock.t += 10
-    tasks.create(replace(ALICE, tenant="quiet"), "排查", "VPN 问题", "q0")
-    order, last = [], None
-    for _ in range(4):
-        claim = tasks.claim(60, after_tenant=last)
-        order.append(last := claim["tenant"])
-    assert order == ["noisy", "quiet", "noisy", "noisy"]

@@ -1,14 +1,13 @@
 """Current tenant registry, trusted bindings and tenant isolation."""
-import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-import api.main as api
-from api import state
-from core.db import admin_audit, shared_engine
-from core.tenancy import TenantExists, TenantRegistry, TenantStatus, TenantUnavailable
+from tests import runtime as api
+from tests.runtime import state
+from it_copilot.infra.db import admin_audit, shared_engine
+from it_copilot.infra.tenancy import TenantExists, TenantRegistry, TenantStatus, TenantUnavailable
 from tests.conftest import auth
 
 
@@ -85,21 +84,6 @@ def test_registry_failure_refuses_the_request(http, registry, monkeypatch):
     assert http.get("/auth/me", headers=auth("alice")).status_code == 503
 
 
-def test_im_turns_from_an_inactive_tenant_get_a_reply_not_the_model(registry, monkeypatch):
-    from dataclasses import replace
-
-    from api.routes import chat
-    from tests.test_workflow import ALICE
-
-    async def no_model(*args):
-        raise AssertionError("model work started for an inactive tenant")
-    monkeypatch.setattr(state, "tenants", registry)
-    monkeypatch.setattr(chat, "_chat_entry", no_model)
-    registry.create("acme", actor="cli:op")
-    registry.set_status("acme", TenantStatus.SUSPENDED, actor="cli:op")
-    for tenant in ("acme", "nobody"):
-        reply = asyncio.run(chat._channel_turn(replace(ALICE, tenant=tenant), "VPN 连不上", "c", "m-" + tenant))
-        assert reply["response"] == chat.TENANT_INACTIVE_REPLY and not reply["approval_required"]
 
 
 def test_cli_adds_suspends_and_lists(db_url, monkeypatch, capsys):
@@ -112,8 +96,8 @@ def test_cli_adds_suspends_and_lists(db_url, monkeypatch, capsys):
     assert cli.main(["quotas", "acme", '{"daily_cost_usd": -1}']) == 1
     assert cli.main(["quotas", "acme", '{"daily_cost_usd": 50}']) == 0
     assert cli.main(["quotas", "ghost", '{}']) == 1
-    assert cli.main(["set", "acme", "--feishu-tenant-key", "ws-acme", "--issuer", "https://sso.acme/realms/acme"]) == 0
-    assert cli.main(["set", "default", "--feishu-tenant-key", "ws-acme"]) == 1         # already bound to acme
+    assert cli.main(["set", "acme", "--issuer", "https://sso.acme/realms/acme"]) == 0
+    assert cli.main(["set", "default", "--issuer", "https://sso.acme/realms/acme"]) == 1         # already bound to acme
     assert cli.main(["set", "ghost", "--issuer", "x"]) == 1
     assert cli.main(["suspend", "acme", "--reason", "合同到期"]) == 0
     assert cli.main(["activate", "ghost"]) == 1
@@ -125,15 +109,15 @@ def test_cli_adds_suspends_and_lists(db_url, monkeypatch, capsys):
 
 def test_bindings_can_change_later_and_are_audited(registry):
     registry.create("acme", actor="cli:op")
-    registry.set_bindings("acme", actor="cli:op", feishu_tenant_key="ws-acme")
-    registry.set_bindings("acme", actor="cli:op", feishu_tenant_key="ws-acme")    # unchanged: no entry
-    assert registry.feishu_tenant("ws-acme") == "acme"
-    registry.set_bindings("acme", actor="cli:op", feishu_tenant_key="")           # unbind
-    assert registry.feishu_tenant("ws-acme") is None
+    registry.set_bindings("acme", actor="cli:op", issuer="https://acme.example")
+    registry.set_bindings("acme", actor="cli:op", issuer="https://acme.example")    # unchanged: no entry
+    assert "https://acme.example" in registry.issuers()
+    registry.set_bindings("acme", actor="cli:op", issuer="")           # unbind
+    assert "https://acme.example" not in registry.issuers()
     with pytest.raises(ValueError):
         registry.set_bindings("acme", actor="cli:op", status="active")
     with registry.engine.connect() as db:
         details = db.execute(select(admin_audit.c.detail).where(admin_audit.c.event == "tenant_bindings_changed")
                              .order_by(admin_audit.c.id)).scalars().all()
-    assert details == [{"from": {"feishu_tenant_key": None}, "to": {"feishu_tenant_key": "ws-acme"}},
-                       {"from": {"feishu_tenant_key": "ws-acme"}, "to": {"feishu_tenant_key": None}}]
+    assert details == [{"from": {"issuer": None}, "to": {"issuer": "https://acme.example"}},
+                       {"from": {"issuer": "https://acme.example"}, "to": {"issuer": None}}]

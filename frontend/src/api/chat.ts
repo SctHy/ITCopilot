@@ -6,7 +6,6 @@ import type { Settings } from '../lib/types.ts'
 export type StreamEventHandler = (event: string, data: any) => void
 
 export interface ChatResponse {
-  taskReferences: { id: string; title: string }[]
   relatedApprovals: { approval_id: string; kind: string; summary: string }[]
   backend: string
   conversationId: string
@@ -158,7 +157,6 @@ export async function readEventStream(body: ReadableStream<Uint8Array>, onEvent:
 
 export function normalizeChatResponse(type: string, raw: any): ChatResponse {
   return {
-    taskReferences: raw.task_references || [],
     relatedApprovals: raw.related_approvals || [],
     backend: type,
     conversationId: raw.conversation_id || '',

@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from core.local_pii import accept_span
-from core.model_masking import MaskingSession, mask_request
-from core.redaction import redact_text, sensitive_spans
+from it_copilot.agent.masking.local_pii import accept_span
+from it_copilot.agent.masking.model_masking import MaskingSession, mask_request
+from it_copilot.agent.masking.redaction import redact_text, sensitive_spans
 
 
 @pytest.mark.parametrize("text,value,kind", [

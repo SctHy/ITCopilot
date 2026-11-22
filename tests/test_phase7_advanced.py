@@ -8,14 +8,14 @@ from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.intent.recognizer import IntentRecognizer
-from agents.types import Request
-from core.redaction import redact
-from memory.conversation_memory import MemoryManager
-from tooling.knowledge_base import KnowledgeBase
-from tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, Tool
-from workflow.approval import approval_summary
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.types import Request
+from it_copilot.agent.masking.redaction import redact
+from it_copilot.agent.memory.conversation_memory import MemoryManager
+from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
+from it_copilot.agent.tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, Tool
+from it_copilot.workflow.approval import approval_summary
 
 
 @pytest.mark.parametrize("key", ["password", "secret", "authorization", "api_key"])
@@ -134,35 +134,36 @@ def test_agent_surfaces_model_5xx_without_request_details():
 
 
 def test_sse_route_is_registered():
-    import api.main
-    assert "/chat/stream" in api.main.app.openapi()["paths"]
+    import tests.runtime
+    assert "/chat/stream" in tests.runtime.app.openapi()["paths"]
 
 
 def test_sse_stream_emits_status_and_completed_events(monkeypatch):
     from fastapi.testclient import TestClient
 
-    import api.main
-    from api import schemas, state
-    from api.routes import chat as chat_routes
-    from core.events import InMemoryEventBus
+    import tests.runtime
+    from it_copilot.api import schemas
+    from tests.runtime import state
+    from it_copilot.api.routes import chat as chat_routes
+    from it_copilot.infra.events import InMemoryEventBus
     from tests.conftest import auth
 
-    async def fake_chat(payload, principal, rid, emit=None, channel="web"):
+    async def fake_chat(state, payload, principal, rid, emit=None, channel="web"):
         await emit("tool_started", {"tool": "diagnose"})
         return schemas.ChatResponse(request_id=rid, response="已完成", status="success", intent="chitchat")
 
     monkeypatch.setattr(state, "orchestrator", object())
     monkeypatch.setattr(chat_routes, "_chat", fake_chat)
     monkeypatch.setattr(state, "events", InMemoryEventBus())
-    with TestClient(api.main.app, headers=auth()).stream("POST", "/chat/stream", json={"message": "你是谁"}) as response:
+    with TestClient(tests.runtime.app, headers=auth()).stream("POST", "/chat/stream", json={"message": "你是谁"}) as response:
         text = "".join(response.iter_text())
     assert text.index("event: status") < text.index("event: tool_started") < text.index("event: content_delta") < text.index("event: completed")
     assert "id: " in text
 
 
 def test_trace_route_is_registered():
-    import api.main
-    assert "/trace/{request_id}" in api.main.app.openapi()["paths"]
+    import tests.runtime
+    assert "/trace/{request_id}" in tests.runtime.app.openapi()["paths"]
 
 
 def _classifier_model(mode):
@@ -205,15 +206,15 @@ def test_urgency_rules_apply_when_llm_unavailable(monkeypatch, message, urgency)
 def test_trace_tools_route_is_not_shadowed_by_request_id_route():
     from fastapi.testclient import TestClient
 
-    import api.main
+    import tests.runtime
     from tests.conftest import auth
-    client = TestClient(api.main.app)
+    client = TestClient(tests.runtime.app)
     assert client.get("/trace/tools", headers=auth("grace")).json() == {"items": []}   # auditor
     assert client.get("/trace/tools", headers=auth("alice")).status_code == 403
 
 
 def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():
-    from api import schemas
+    from it_copilot.api import schemas
     base = dict(request_id="r2", response="ok", status="success", intent="vpn_issue")
     no_kb = schemas.ChatResponse(**base, tools_used=["diagnose"])
     with_kb = schemas.ChatResponse(**base, tools_used=["search_knowledge_base"], knowledge_used=True)

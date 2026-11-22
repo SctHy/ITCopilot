@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button'
-import { CopyIcon, CpuIcon, ExternalLinkIcon, WrenchIcon } from 'lucide-react'
+import { CopyIcon, CpuIcon, WrenchIcon } from 'lucide-react'
 import { ApprovalCard } from './ApprovalCard.tsx'
-import { FeedbackButtons } from './FeedbackButtons.tsx'
 import { Collapse, Hint, Mono, StatusChip } from './ui.tsx'
 import { formatBody, formatJson } from '../lib/format.ts'
 import type { ApprovalDecision, ApprovalItem, ChatMessage as Message, Identity } from '../lib/types.ts'
@@ -18,9 +17,9 @@ export function BotAvatar({ className = '' }: { className?: string }) {
   )
 }
 
-export function ChatMessage({ item, identity, backendLabel, userInitial, onApproval, onCopy, onOpenTask }: {
+export function ChatMessage({ item, identity, backendLabel, userInitial, onApproval, onCopy }: {
   item: Message; identity: Identity | null; backendLabel: string; userInitial: string
-  onApproval: ApprovalHandler; onCopy: (content: string) => void; onOpenTask: (id: string) => void
+  onApproval: ApprovalHandler; onCopy: (content: string) => void
 }) {
   if (item.role === 'user') {
     return (
@@ -42,16 +41,6 @@ export function ChatMessage({ item, identity, backendLabel, userInitial, onAppro
         </div>
         <div className={`text-[15px] leading-7 ${item.error ? 'rounded-lg border border-border bg-card px-3.5 py-2.5 text-destructive-foreground' : ''}`}>
           <p className="prose-reply">{formatBody(item.content)}</p>
-          {!!item.taskReferences?.length && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
-              参考的本人事项：
-              {item.taskReferences.map(source => (
-                <Button type="button" key={source.id} size="sm" variant="outline" onClick={() => onOpenTask(source.id)}>
-                  {source.title}<ExternalLinkIcon className="size-3" />
-                </Button>
-              ))}
-            </div>
-          )}
           {item.approvalId && (
             <ApprovalCard approval={item.approval} busy={item.approvalBusy} error={item.approvalError} identity={identity}
               onAction={(decision, note) => onApproval(item as ApprovalItem, decision, note)} />
@@ -80,9 +69,6 @@ export function ChatMessage({ item, identity, backendLabel, userInitial, onAppro
           )}
         </div>
         <div className="flex items-start gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-          {item.requestId && item.approvalSettings && (
-            <FeedbackButtons settings={item.approvalSettings} path={`/chat/${encodeURIComponent(item.requestId)}/feedback`} />
-          )}
           {!item.error && (
             <Hint label={<>复制回复</>}><Button type="button" size="icon" variant="ghost" aria-label="复制回复" className="mt-2" onClick={() => onCopy(item.content)}>
                 <CopyIcon className="size-3.5" />

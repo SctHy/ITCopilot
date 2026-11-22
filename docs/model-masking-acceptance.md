@@ -34,13 +34,9 @@ AstrLink Guard v0.1.3 INT8 + 规则、阈值 0.8、CPU 推理。以下为最后�
 
 ## 复核与边界
 
-[汇总](../evaluation/reports/model_masking/v3_verified/summary.json)、[保护回退](../evaluation/reports/model_masking/v3_verified/lost_coverage_audit.json) 保留展开；完整原文、预测、初次失败和源码快照在 [masking 证据包](archive/README.md)。模型 revision `7216b6a3b897ef903d4b1ba367ae6fb95b0fa5e4`；SHA-256 在安装与评测记录中。
+模型 revision 为 `7216b6a3b897ef903d4b1ba367ae6fb95b0fa5e4`。安装器验证权重和分词器的 SHA-256。模型就绪后，可用以下命令复核出站传输、流式分片、本地模型及规则。
 
-```bash
-python scripts/install_astrlink_guard.py
-python scripts/dev.py evaluate --file scripts/evaluate_model_masking.py --compare --repetitions 300
-python scripts/evidence.py verify masking
-python scripts/evidence.py extract masking
+```sh
+.venv/bin/python scripts/install_astrlink_guard.py
+.venv/bin/pytest tests/test_model_masking.py tests/test_local_pii.py tests/test_pii*.py tests/test_external_pii.py tests/test_masking_benchmark.py
 ```
-
-默认 `IT_COPILOT_MASK_MODEL=on`，识别故障阻止出站；`auto` 允许规则降级，`off` 仅规则。未知占位符/不支持的工具协议拒绝；受控工具参数恢复后再按存储策略脱敏。业务标识、音频、真实流量误报和云端任务质量不能由这些数字证明。当前实现契约见 [ADR 0039](adr/0039-model-outbound-masking.md)。

@@ -104,7 +104,6 @@ export interface ChatMessage {
   meta?: string
   error?: boolean
   trace?: MessageTrace | null
-  taskReferences?: { id: string; title: string }[]
   approvalId?: string
   approval?: Approval | null
   approvalBackend?: string
@@ -143,96 +142,4 @@ export interface MonitorData {
   tools: Record<string, { circuit_state: string }>
   monitor: MonitorSummary | null
   mcp: { servers: { name: string; state: string; tools: unknown[] }[] }
-}
-
-// ---- Shared tasks (see workflow/tasks.py `get` / `list`) ----
-
-export type TaskStatus = 'open' | 'resolved' | 'stopped'
-
-export interface TaskEvent {
-  id: string
-  seq: number
-  kind: string
-  actor: string
-  actor_name: string
-  text: string
-  created_at: number
-  data?: { approval_id?: string; [key: string]: unknown }
-}
-
-export interface TaskRun { id: string; seq: number; status: 'queued' | 'running' | 'done' | 'failed' | 'held' | (string & {}); attempts: number; error?: string | null }
-
-export interface TaskRoom {
-  id: string
-  title: string
-  requester: string
-  requester_name: string
-  status: TaskStatus
-  phase: string
-  can_write: boolean
-  events: TaskEvent[]
-  has_more_events: boolean
-  approvals?: Approval[]
-  runs?: TaskRun[]
-}
-
-export interface TaskListItem { id: string; title: string; requester_name: string; status: TaskStatus; unread?: number }
-
-export interface Page<T> { items: T[]; total?: number; has_more?: boolean }
-
-export interface TaskQuery { q: string; status: string; archived: boolean; category: string; offset: number; limit: number }
-
-// ---- Shared-task workspace (workflow/task_capabilities.py `workspace`) ----
-
-export interface TaskMember { subject: string; role: 'collaborator' | 'observer' | 'revoked' | (string & {}); profile: { username: string } }
-export interface DirectoryPerson { subject: string; username: string; employee_id?: string; department: string; roles: string[] }
-export interface TaskFile { id: string; name: string; size: number }
-export interface TaskTodo { id: string; question: string; assignee: string; creator: string; status: 'open' | 'answered' | 'cancelled' | (string & {}); due_at?: number | null; answer?: string }
-export interface TaskReminder { id: string; text: string; due_at: number; status: 'pending' | 'fired' | 'cancelled' | (string & {}) }
-export interface ProgressStep { title: string; status: 'todo' | 'working' | 'done' | (string & {}); evidence_ids: string[] }
-export interface TaskProgress { version: number; goal: string; steps: ProgressStep[]; blocker?: string; next_action?: string; resolution?: string }
-export interface TaskSuggestion { id: string; status: 'pending' | 'accepted' | 'dismissed' | 'superseded' | (string & {}); base_version: number; payload: TaskProgress }
-export interface TaskBriefSource { event_id: string; quote: string; actor_name?: string; kind?: string; created_at?: number }
-export interface TaskBriefItem { text: string; sources: TaskBriefSource[] }
-export interface TaskBrief { reported: TaskBriefItem[]; hypotheses: TaskBriefItem[]; questions: TaskBriefItem[]; answered?: TaskBriefItem[]; origin?: TaskBriefSource; event_id: string; updated_at: number; through_seq?: number }
-export interface AccessCheck { kind?: string; system: string; role: string }
-export type GoalCheck = AccessCheck | { kind: 'device_locked'; device_id: string } | { kind: 'ticket_open'; ticket_id: string }
-export interface VerificationRecord {
-  id: string
-  status: string
-  observations: { system?: string; device_id?: string; ticket_id?: string; status: string; reason?: string; actual?: string | boolean | null; expected?: string | boolean; role?: string }[]
-}
-export interface TaskVerification {
-  goal: { version: number; checks: GoalCheck[]; replans_used: number; replan_limit: number; latest_id?: string | null }
-  history: VerificationRecord[]
-  catalog: { system: string; roles: string[] }[]
-  acceptable: boolean
-  fresh_seconds: number
-}
-export interface TaskCheckpoint { run_id: string; step_key: string; created_at: number }
-export interface TaskBudget { used_runs: number; run_limit: number; used_tokens: number; token_limit: number }
-export interface TaskAttempt {
-  id: string; run_id: string; status: string; attempt: number
-  queued_at: number; started_at: number; ended_at?: number | null; error?: string | null
-  tools: { tool_name: string; success: boolean }[]
-}
-export interface TaskNotifications {
-  channels: string[]
-  subscription?: { channel: string; enabled: boolean; escalate_to?: string | null } | null
-  deliveries: { id: string; channel: string; status: string; attempts: number; error?: string | null }[]
-}
-export interface TaskWorkspaceData {
-  brief?: TaskBrief | null
-  verification?: TaskVerification | null
-  checkpoints?: TaskCheckpoint[]
-  progress: TaskProgress
-  todos: TaskTodo[]
-  reminders: TaskReminder[]
-  files?: TaskFile[]
-  members?: TaskMember[]
-  reviewers?: string[]
-  suggestions?: TaskSuggestion[]
-  notifications?: TaskNotifications | null
-  budget: TaskBudget
-  attempts: TaskAttempt[]
 }

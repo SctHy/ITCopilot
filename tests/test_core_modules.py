@@ -4,9 +4,9 @@ import tempfile
 
 import pytest
 
-from agents.intent.recognizer import IntentRecognizer
-from tooling.knowledge_base import KnowledgeBase
-from tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
+from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
 
 
 def test_tool_manager_schema_cache_and_fallback():

@@ -119,7 +119,7 @@ export function createChatSession(settings: Settings, requestState: RequestState
         approvalId: entry.approval_id, kind: entry.kind, summary: entry.summary,
         approval: null, approvalSettings: request.settings, approvalBackend: request.backend }))
       state.messages.push({ id: createId(), requestId: response.requestId, role: 'assistant', content: response.response, meta: replyMeta(response),
-        trace: trace?.trace || null, taskReferences: response.taskReferences,
+        trace: trace?.trace || null,
         approvalId: response.approvalId ?? undefined, approvalSettings: request.settings, approvalBackend: request.backend,
         relatedApprovals: related })
       // Read back the reactive proxy so the loads below update what is rendered.
@@ -162,7 +162,7 @@ export function createChatSession(settings: Settings, requestState: RequestState
         clarificationNeeded: !!m.clarification_needed, missingSlots: m.missing_slots || [], approvalRequired: !!m.approval_required,
         approvalId: m.approval_id || null, knowledgeUsed: !!m.knowledge_used, escalated: !!m.escalated } as ChatResponse)
       return { id, requestId: item.request_id, role: 'assistant', content: item.content, meta: summary,
-        error: m.status === 'failed', taskReferences: m.task_references || [],
+        error: m.status === 'failed',
         approvalId: m.approval_id || undefined, approvalSettings: request.settings, approvalBackend: request.backend }
     })
   }

@@ -5,9 +5,9 @@ import dataclasses
 
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, UserPromptPart
 
-from agents.request_recall import RequestRecall
-from evaluation.application import application, auth
-from evaluation.fake_model import scripted_model
+from it_copilot.agent.request_recall import RequestRecall
+from tests.support.application import application, auth
+from tests.support.fake_model import scripted_model
 from tests.test_workflow import ALICE, BOB, ERIN, access, create, env, run  # noqa: F401 (env is a fixture)
 
 DAVE = dataclasses.replace(ALICE, subject="dev:dave", username="dave", employee_id="1002")

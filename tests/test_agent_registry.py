@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agents.registry import AgentRegistry
-from core.tenant_context import system_scope
+from it_copilot.agent.registry import AgentRegistry
+from it_copilot.infra.tenant_context import system_scope
 
 CONFIG = Path(__file__).resolve().parents[1] / "config/agents/it_copilot.yaml"
 
@@ -48,11 +48,11 @@ def test_malformed_mcp_reference_is_rejected_at_loading(tmp_path):
 
 
 def test_default_spec_preserves_pre_registry_instructions_and_tools():
-    from agents.base_agent import BaseAgent
-    from agents.prompting import AGENT_RULES
-    from agents.types import Request
-    from core.skill_loader import SkillManager
-    from agents.tools import agent_tools
+    from it_copilot.agent.base_agent import BaseAgent
+    from it_copilot.agent.prompting import AGENT_RULES
+    from it_copilot.agent.types import Request
+    from it_copilot.agent.skill_loader import SkillManager
+    from it_copilot.agent.tools import agent_tools
     manager = SkillManager(str(CONFIG.parents[2] / "skills"))
     manager.load()
     agent = BaseAgent(None, "test", manager)
@@ -66,8 +66,8 @@ def test_default_spec_preserves_pre_registry_instructions_and_tools():
 
 
 def test_external_mcp_whitelist_tolerates_disconnection():
-    from agents.base_agent import BaseAgent
-    from agents.registry import default_spec
+    from it_copilot.agent.base_agent import BaseAgent
+    from it_copilot.agent.registry import default_spec
     spec = default_spec().model_copy(update={"tools": frozenset({"mcp:docs/search"})})
     agent = BaseAgent(None, "test", spec=spec)
     agent.set_shared_tools({})
@@ -76,9 +76,9 @@ def test_external_mcp_whitelist_tolerates_disconnection():
 
 
 def test_registered_agent_uses_only_spec_skill_root(tmp_path, db_url):
-    from agents.agent_orchestrator import AgentOrchestrator
-    from agents.types import Request
-    from core.skill_loader import SkillManager
+    from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+    from it_copilot.agent.types import Request
+    from it_copilot.agent.skill_loader import SkillManager
     from tests.test_workflow import ALICE
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -100,9 +100,9 @@ def test_registered_agent_uses_only_spec_skill_root(tmp_path, db_url):
 def test_confirmation_records_the_deployed_spec(tmp_path):
     import asyncio
     from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
-    from evaluation.application import application
-    from evaluation.fake_model import scripted_model
-    from core.db import turn_records
+    from tests.support.application import application
+    from tests.support.fake_model import scripted_model
+    from it_copilot.infra.db import turn_records
     from sqlalchemy import select
     reg = registry(tmp_path)
     async def reply(messages, info):
@@ -135,8 +135,8 @@ def test_only_one_version_per_name_is_deployed(tmp_path):
 
 
 def test_old_conversation_version_is_history_not_a_runtime_pin(tmp_path):
-    from agents.agent_orchestrator import AgentOrchestrator
-    from agents.types import Request
+    from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+    from it_copilot.agent.types import Request
     from tests.test_workflow import ALICE
     orchestrator = AgentOrchestrator()
     orchestrator.registry = registry(tmp_path)
@@ -148,8 +148,8 @@ def test_old_conversation_version_is_history_not_a_runtime_pin(tmp_path):
 
 def test_admin_inspects_deployment_but_cannot_change_versions(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from api import state
-    from api.main import app
+    from tests.runtime import state
+    from tests.runtime import app
     from tests.conftest import auth
     monkeypatch.setattr(state, "agent_registry", registry(tmp_path))
     client = TestClient(app)

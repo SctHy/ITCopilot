@@ -5,15 +5,15 @@ import copy
 import pytest
 import yaml
 
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow import policy as policy_module
-from workflow.policy import AccessPolicy, load_policy
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow import policy as policy_module
+from it_copilot.workflow.policy import AccessPolicy, load_policy
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 from sqlalchemy import update
 
-from core.db import approvals
+from it_copilot.infra.db import approvals
 from tests.test_workflow import ALICE, BOB, CAROL, ERIN, Clock, access, create, run
 
 
@@ -225,8 +225,8 @@ def test_worker_sweeps_once_per_version(env):
 def test_policy_endpoints(env, monkeypatch):
     from fastapi.testclient import TestClient
 
-    import api.main as api
-    from api import state
+    from tests import runtime as api
+    from tests.runtime import state
     from tests.conftest import auth
 
     store, *_ = env
@@ -250,7 +250,7 @@ class _FlakyOnce(LocalDirectoryAdapter):
     async def apply(self, action_id, action):
         if not self.failed:
             self.failed = True
-            from workflow.adapters.base import TransientError
+            from it_copilot.workflow.adapters.base import TransientError
             raise TransientError("gitea 503")
         return await super().apply(action_id, action)
 

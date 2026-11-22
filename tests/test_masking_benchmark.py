@@ -1,7 +1,7 @@
 """Guard against benchmark overclaiming: partial masks, overmasking and types."""
 import pytest
 
-from evaluation.masking_benchmark import emitted_spans, score
+from tests.support.masking_benchmark import emitted_spans, score
 
 
 def test_partial_mask_is_not_full_protection():
@@ -41,7 +41,7 @@ def test_unlabeled_document_does_not_inflate_recall():
 
 
 def test_paired_coverage_does_not_hide_losses_behind_equal_net_gain():
-    from scripts.compare_masking_runs import coverage_changes
+    from tests.support.compare_masking_runs import coverage_changes
     gold = [(0, 5, "ACCOUNT"), (6, 11, "ACCOUNT"), (12, 17, "ID")]
     before = {1: {"gold_spans": gold, "full_flags": [True, False, False]}}
     after = {1: {"gold_spans": gold, "full_flags": [False, True, True]}}

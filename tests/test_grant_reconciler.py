@@ -2,22 +2,16 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import update
 
-from core.db import directory_tickets
-from core.tenant_context import tenant_scope
-from monitor.performance_monitor import PerformanceMonitor
+from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
 from tests.conftest import run_in_tenant
 from tests.test_workflow import ALICE, BOB, Clock, access, create
-from tests.test_shared_tasks import seed_participants
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.base import AmbiguousError, TransientError
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.goal_verifiers import GoalVerifiers
-from workflow.reconciler import GrantReconciler
-from workflow.store import WorkflowStore
-from workflow.tasks import TaskStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.base import AmbiguousError, TransientError
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.reconciler import GrantReconciler
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 
 
 def environment(url):
@@ -37,11 +31,7 @@ def grant(store, worker, name="a", conv_id="c"):
 
 def test_reconciler_observes_drift_cancels_revoke_and_replays_task_notice_after_restart(db_url):
     clock, store, adapter, registry, worker = environment(db_url)
-    tasks = TaskStore(store.engine, clock=clock)
-    task = tasks.create(ALICE, "权限申请", "给我 reporter", "task")
-    seed_participants(tasks, task["id"])
-    store.shared_access = tasks.access.approval_access
-    grant(store, worker, conv_id="task:" + task["id"])
+    grant(store, worker)
     run_in_tenant(adapter.apply("manual", access(role="developer", system="gitlab")))
     assert asyncio.run(GrantReconciler(store, registry).run_once()) == 1
     state = store.employee("1001", "default")
@@ -50,17 +40,6 @@ def test_reconciler_observes_drift_cancels_revoke_and_replays_task_notice_after_
     assert store.get("a")["revocations"][0]["status"] == "cancelled"
     assert store.get("a")["revocations"][0]["error"] == "巡检发现漂移"
     assert [row["event"] for row in store.audit("a")].count("grant_drift_detected") == 1
-    reconciler = GrantReconciler(store, registry, tasks)
-    asyncio.run(reconciler.run_once())
-    delivered, original = [], tasks.ingest
-    tasks.ingest = lambda *args, **kwargs: delivered.append(kwargs["object_id"]) or original(*args, **kwargs)
-    asyncio.run(reconciler.run_once())
-    assert delivered == []  # already handed over: later sweeps do not re-read old notices
-    asyncio.run(GrantReconciler(store, registry, tasks).run_once())  # a restarted process replays once, deduplicated
-    notices = [event for event in tasks.get(task["id"], ALICE)["events"] if event["kind"] == "grant_drift"]
-    assert len(notices) == 1 and len(delivered) == 1
-
-
 @pytest.mark.parametrize("error", [TransientError, AmbiguousError])
 def test_reconciler_skips_temporary_adapter_failure_without_settling_grants(db_url, error):
     _, store, _, _, worker = environment(db_url)
@@ -132,37 +111,3 @@ def test_workflow_ages_warn_escalate_and_clear(db_url):
     claimed = store.claim("worker", 60, 1)[0]
     store.fail(claimed, "target rejected")
     assert monitor._workflow_conditions() == {}
-
-
-def test_device_and_ticket_verifiers_read_current_owning_employee_state(db_url):
-    _, store, adapter, registry, _ = environment(db_url)
-    verifier = GoalVerifiers(registry, store.engine)
-    task = {"tenant": "default", "principal": {"employee_id": "1001"}}
-    checks = [{"kind": "device_locked", "device_id": "DEV-1001"}, {"kind": "ticket_open", "ticket_id": "INC-ticket"}]
-    with tenant_scope("default"):
-        with store.engine.begin() as db:
-            db.execute(directory_tickets.insert().values(tenant="default", id="INC-ticket", employee_id="1001", title="title", description="desc", status="open"))
-    observations = asyncio.run(verifier.verify(task, checks))
-    assert [row["status"] for row in observations] == ["failed", "passed"]
-    run_in_tenant(adapter.apply("lock", {"tool_name": "lock_device", "arguments": {"employee_id": "1001", "device_id": "DEV-1001"}}))
-    with tenant_scope("default"):
-        with store.engine.begin() as db:
-            db.execute(update(directory_tickets).where(directory_tickets.c.tenant == "default", directory_tickets.c.id == "INC-ticket").values(status="closed"))
-    observations = asyncio.run(verifier.verify(task, checks))
-    assert [row["status"] for row in observations] == ["passed", "failed"]
-    unknown_device = asyncio.run(verifier.verify(task, [{"kind": "device_locked", "device_id": "DEV-missing"}]))
-    assert unknown_device[0]["status"] == "unknown"
-    other = {"tenant": "other", "principal": {"employee_id": "1001"}}
-    assert [row["status"] for row in asyncio.run(verifier.verify(other, checks))] == ["unknown", "failed"]
-
-
-def test_verifiers_report_unknown_when_the_database_is_unreachable(tmp_path):
-    from sqlalchemy import create_engine
-
-    engine = create_engine(f"sqlite:///{tmp_path / 'unmounted' / 'directory.sqlite3'}")
-    verifier = GoalVerifiers(None, engine)
-    task = {"tenant": "default", "principal": {"employee_id": "1001"}}
-    checks = [{"kind": "device_locked", "device_id": "DEV-1001"}, {"kind": "ticket_open", "ticket_id": "INC-ticket"}]
-    observations = asyncio.run(verifier.verify(task, checks))
-    assert [row["status"] for row in observations] == ["unknown", "unknown"]
-    engine.dispose()

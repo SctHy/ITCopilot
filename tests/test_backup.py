@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from scripts import backup
-from scripts.benchmark_backend import isolated_postgres
+from tests.support.benchmark_backend import isolated_postgres
 
 
 def sqlite_source(path):
@@ -69,7 +69,7 @@ def test_postgres_snapshot_and_restore(tmp_path):
         pytest.skip("set dedicated IT_COPILOT_BACKUP_TEST_ADMIN_URL for pg_dump/restore drill")
     options = {"container": os.getenv("IT_COPILOT_BACKUP_TEST_CONTAINER"), "context": os.getenv("IT_COPILOT_BACKUP_TEST_CONTEXT")}
     with isolated_postgres(admin_url) as url:
-        from workflow.store import WorkflowStore
+        from it_copilot.workflow.store import WorkflowStore
         store = WorkflowStore(url)
         store.engine.dispose()
         engine = create_engine(url)
@@ -81,7 +81,7 @@ def test_postgres_snapshot_and_restore(tmp_path):
             backup.create(url, snapshot, without_redis=True, **options)
             report = backup.drill(snapshot, admin_url=admin_url, **options)
             assert report["passed"] and report["table_rows"]["attachments"] == 1
-            assert "task_files" in report["table_rows"]
+            assert "approvals" in report["table_rows"]
             with engine.connect() as conn:
                 assert conn.execute(text("SELECT content FROM attachments")).scalar_one() == b"attachment\x00bytes"
         finally:

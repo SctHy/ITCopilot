@@ -14,9 +14,9 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.types import Request
-from evaluation.fake_model import scripted_model
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.types import Request
+from tests.support.fake_model import scripted_model
 from tests.conftest import with_read_tool
 
 FINAL = "VPN-691 是身份认证失败：先确认账号未锁定，再检查系统时间与客户端版本；仍失败请回复我建工单。"
@@ -76,7 +76,7 @@ def test_without_stream_flag_no_answer_events_and_non_streaming_model_is_enough(
 
 @pytest.mark.parametrize("during", ["model", "tool"])
 def test_cancellation_propagates_without_a_completed_reply_or_tool_event(during):
-    from tooling.tool_spec import make_tool
+    from it_copilot.agent.tooling.tool_spec import make_tool
 
     async def run():
         started, blocked = asyncio.Event(), asyncio.Event()
@@ -152,7 +152,7 @@ def _claiming_model(calls, *, correct_with_tool):
 
 
 def _alice():
-    from core.identity import Principal
+    from it_copilot.infra.identity import Principal
     return Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
 
 

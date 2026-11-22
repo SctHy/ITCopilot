@@ -5,9 +5,9 @@ import json
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from core.model_router import ModelRouter
-from evaluation.route_qualification import PROBES, probe_passed, qualify
-from scripts.check_model_routes import check
+from it_copilot.agent.model_router import ModelRouter
+from tests.support.route_qualification import PROBES, probe_passed, qualify
+from tests.support.check_model_routes import check
 
 
 def test_summary_qualification_records_actual_calls_and_failures():
@@ -30,7 +30,7 @@ def test_rewrite_and_ranking_oracles_reject_missing_evidence():
 
 def test_route_gate_rejects_missing_reports_and_unexercised_roles(tmp_path):
     errors = check(reports=tmp_path)
-    assert len(errors) == 7 and all("missing report" in error for error in errors)
+    assert len(errors) == 6 and all("missing report" in error for error in errors)
     path = tmp_path / "agent_read__deepseek-flash.json"
     path.write_text(json.dumps({"route": "agent_read", "model": "deepseek-flash", "status": "complete",
         "repeats": 3, "trials": 10, "passed": 10, "kind": "real_model", "route_calls": 0}))
@@ -40,7 +40,7 @@ def test_route_gate_rejects_missing_reports_and_unexercised_roles(tmp_path):
 
 def test_application_evidence_reuse_keeps_failed_cases_and_checks_model(tmp_path):
     import pytest
-    from scripts.evaluate_model_route import from_application_reports
+    from tests.support.evaluate_model_route import from_application_reports
     path = tmp_path / "application.json"
     turns = [{"trace": {"trace": {"observability": {"versions": {
         "route": "agent_read", "model": "deepseek-flash", "cost_usd": .01}}}}}]

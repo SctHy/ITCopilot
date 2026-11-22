@@ -3,10 +3,10 @@ import json
 
 import pytest
 
-from agents.checkpointing import decode, encode
-from agents.types import AgentResponse, Request
-from core.events import StreamConflict, _binding
-from evaluation.evaluator import load_intent_cases
+from it_copilot.agent.checkpointing import decode, encode
+from it_copilot.agent.types import AgentResponse, Request
+from it_copilot.infra.events import StreamConflict, _binding
+from tests.support.evaluator import load_intent_cases
 
 
 @pytest.mark.parametrize("payload", [None, {}, {"cases": []}, {"cases": [{"message": "VPN"}]},

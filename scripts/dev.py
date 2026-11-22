@@ -30,10 +30,10 @@ ENTRY_DOCS = (
 )
 POSTGRES_TESTS = (
     "current_schema",
-    "workflow", "vector_store", "policy_revalidation", "feishu_channel", "shared_tasks",
-    "task_capabilities", "task_product", "task_execution", "isolation_and_history",
+    "workflow", "vector_store", "policy_revalidation",
+    "isolation_and_history",
     "tenancy", "tenant_scope", "tenant_isolation", "tenant_quotas", "overlapping_grants",
-    "turn_records", "grant_reconciler", "policy_change_atomicity", "badcases",
+    "turn_records", "grant_reconciler", "policy_change_atomicity",
     "memory_governance", "model_router", "agent_registry",
 )
 PROFILES = ("docs", "backend", "frontend", "local", "postgres", "integration")
@@ -140,7 +140,7 @@ def commands(profile, tests=()):
     if profile in ("docs", "backend", "local"):
         result.append(("docs", [py, "scripts/dev.py", "check-links"], "."))
     if profile in ("backend", "local"):
-        result += [("lint", [py, "-m", "ruff", "check", "."], "."),
+        result += [("lint", [py, "-m", "ruff", "check", "src", "tests"], "."),
                    ("backend", pytest + list(tests), ".")]
     if profile in ("frontend", "local"):
         result += [("frontend-" + name.replace(":", "-"), ["npm", "run", name], "frontend")
@@ -311,13 +311,13 @@ def inventory(root):
     index = json.loads(gzip.decompress(index_path.read_bytes())) if index_path.is_file() else {}
     packages = [{"name": name, **info, "present": (root / info["path"]).is_file()}
                 for name, info in index.get("packages", {}).items()]
-    fixture_path = root / "evaluation/fixtures/manifest.json"
+    fixture_path = root / "tests/support/fixtures/manifest.json"
     fixtures = json.loads(fixture_path.read_text()) if fixture_path.is_file() else {}
     inputs = [{"name": name, **info, "present": (fixture_path.parent / info["path"]).is_file()}
               for name, info in fixtures.get("inputs", {}).items()]
     return {"broken_document_links": broken_links(root, docs), "reports": rows,
             "evidence_packages": packages, "frozen_inputs": inputs,
-            "limitations": "Current-text references are advisory; historical indexes are excluded. Local packages/inputs are absent in a fresh clone. Use scripts/evidence.py verify for bundle integrity. No files are deleted."}
+            "limitations": "Current-text references are advisory; historical indexes are excluded. Local packages/inputs are absent in a fresh clone. No files are deleted."}
 
 
 def evaluation_files(directory):

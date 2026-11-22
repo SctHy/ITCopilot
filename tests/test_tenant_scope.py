@@ -8,17 +8,16 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from api import state
-from api.deps import current_principal
-from core import identity
-from core.db import shared_engine
-from core.identity import AuthError
-from core.tenancy import TenantRegistry, TenantStatus
-from core.tenant_context import SYSTEM, TenantContextMissing, current_tenant, system_scope, tenant_scope
-from intake.feishu import bind_workspace
+from tests.runtime import state
+from it_copilot.api.deps import current_principal
+from it_copilot.infra import identity
+from it_copilot.infra.db import shared_engine
+from it_copilot.infra.identity import AuthError
+from it_copilot.infra.tenancy import TenantRegistry, TenantStatus
+from it_copilot.infra.tenant_context import SYSTEM, TenantContextMissing, current_tenant, system_scope, tenant_scope
 from tests.conftest import auth
 from tests.test_workflow import ALICE, BOB, access, env  # noqa: F401  (fixture)
-from workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
 
 ACME_ALICE, ACME_BOB = replace(ALICE, tenant="acme"), replace(BOB, tenant="acme")
 
@@ -34,6 +33,7 @@ def registry(db_url):
 
 def test_the_callers_tenant_is_in_scope_for_async_and_sync_endpoints_and_their_threads():
     app = FastAPI()
+    app.state.container = state
 
     @app.get("/async")
     async def scoped_async(_=Depends(current_principal)):
@@ -70,6 +70,7 @@ def test_a_token_only_speaks_for_the_tenant_bound_to_its_issuer(registry, monkey
     registry.create("globex", actor="cli:op", issuer="https://sso.globex.example/realms/globex")
     monkeypatch.setattr(state, "tenants", registry)
     app = FastAPI()
+    app.state.container = state
     app.get("/me")(lambda principal=Depends(current_principal): principal.tenant)
     client = TestClient(app)
     assert client.get("/me", headers=auth("alice", tenant="acme")).json() == "acme"     # no own realm: the default issuer
@@ -95,24 +96,11 @@ def test_oidc_trusts_only_configured_and_tenant_issuers_before_fetching_keys(mon
     with pytest.raises(AuthError, match="untrusted token issuer"):
         identity._oidc_claims(token("https://evil.example/realms/x"))
     assert fetched == []                                                   # never asked the attacker for keys
-    monkeypatch.setattr(identity, "extra_issuers", lambda: {"https://sso.acme.example/realms/acme"})
     with pytest.raises(AuthError):
-        identity._oidc_claims(token("https://sso.acme.example/realms/acme"))
+        identity._oidc_claims(token("https://sso.acme.example/realms/acme"), lambda: {"https://sso.acme.example/realms/acme"})
     assert fetched == ["https://sso.acme.example/realms/acme/protocol/openid-connect/certs"]
 
 
-def test_feishu_people_count_only_from_their_tenants_workspace(registry, db_url):
-    registry.create("globex", actor="cli:op", feishu_tenant_key="tk-globex")
-    with registry.engine.begin() as db:
-        from sqlalchemy import update
-
-        from core.db import tenants
-        db.execute(update(tenants).where(tenants.c.id == "acme").values(feishu_tenant_key="tk-acme"))
-    resolve = bind_workspace(lambda sender: ACME_ALICE if sender.get("user_id") == "alice" else None, registry)
-    assert resolve({"user_id": "alice", "tenant_key": "tk-acme"}) == ACME_ALICE
-    assert resolve({"user_id": "alice", "tenant_key": "tk-globex"}) is None      # mapped, but from another workspace
-    assert resolve({"user_id": "alice"}) is None
-    assert resolve({"user_id": "mallory", "tenant_key": "tk-acme"}) is None
 
 
 # ── Directories and the worker ───────────────────────────────────────────────
@@ -186,8 +174,8 @@ def test_inactive_tenant_still_loses_expired_access(env, registry, status):  # n
 
 
 def test_the_deployments_own_target_systems_act_only_for_the_operator_tenant(env, monkeypatch):  # noqa: F811
-    from workflow.adapters import AdapterRegistry
-    from workflow.worker import build_registry
+    from it_copilot.workflow.adapters import AdapterRegistry
+    from it_copilot.workflow.worker import build_registry
 
     store, _, _ = env
     local, gitea = LocalDirectoryAdapter(store.engine), object()

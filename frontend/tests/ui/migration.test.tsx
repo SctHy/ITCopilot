@@ -25,7 +25,6 @@ beforeEach(() => {
     if (path === '/auth/me') return json(person(token))
     if (path === '/monitor') return json({ agent: {}, tools: {}, monitor: null, mcp: { servers: [] } })
     if (path === '/conversations') return json({ items: [summary(token)], has_more: false })
-    if (path === '/task-inbox' || path === '/tasks') return json({ items: [], total: 0, has_more: false })
     if (path === '/approvals') return json({ items: [] })
     return json({ detail: `Unexpected endpoint ${path}` }, 404)
   })
@@ -105,17 +104,6 @@ describe('upstream component integration', () => {
     expect(router.state.location.pathname).toBe('/chat')
   })
 
-  it('keeps current task links and new-task URLs addressable', async () => {
-    await openApp('/tasks?task=room-42')
-    expect(router.state.location.pathname).toBe('/tasks')
-    expect(router.state.location.search.task).toBe('room-42')
-    await act(async () => { await router.navigate({ to: '/tasks', search: { new: true } }) })
-    await screen.findByText('发起共享事项')
-    expect(screen.getByRole('textbox', { name: /事项名称/ })).toBeTruthy()
-    await act(async () => { router.history.back() })
-    await waitFor(() => expect(router.state.location.search.task).toBe('room-42'))
-    await waitFor(() => expect(screen.queryByText('发起共享事项')).toBeNull())
-  })
 
   it('mounts a fresh private-data cache when switching identity', async () => {
     await openApp('/chat')

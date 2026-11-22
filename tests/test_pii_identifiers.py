@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from core.model_masking import MaskingSession, mask_request
-from core.redaction import redact_text, sensitive_spans, user_secrets
+from it_copilot.agent.masking.model_masking import MaskingSession, mask_request
+from it_copilot.agent.masking.redaction import redact_text, sensitive_spans, user_secrets
 
 
 @pytest.mark.parametrize("label,value,kind", [

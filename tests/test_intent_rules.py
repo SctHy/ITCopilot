@@ -4,9 +4,9 @@ import asyncio
 import pytest
 from prometheus_client import REGISTRY
 
-from agents.intent.entities import extract_entities
-from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import (
+from it_copilot.agent.intent.entities import extract_entities
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.intent.taxonomy import (
     CATEGORY_GUIDE,
     INTENT_CRITERIA,
     INTENT_RULES,
@@ -15,8 +15,8 @@ from agents.intent.taxonomy import (
     jev_questions,
     jev_state,
 )
-from core.jev import JevResponse
-from evaluation.reporting import billable_tokens
+from it_copilot.agent.jev import JevResponse
+from tests.support.reporting import billable_tokens
 
 
 def test_one_rule_table_drives_both_llm_guide_and_jev_questions():

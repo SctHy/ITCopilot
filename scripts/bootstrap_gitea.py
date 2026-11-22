@@ -1,7 +1,7 @@
 """Idempotently prepare the Gitea sandbox used as the real permission system for `gitlab`.
 
 Creates the sandbox org + private repo and one Gitea account per directory employee
-(usernames from workflow.store.SEED_EMPLOYEES). The service account itself is created
+(usernames from it_copilot.workflow.store.SEED_EMPLOYEES). The service account itself is created
 by the `gitea-init` compose job via `gitea admin user create`.
 
     IT_COPILOT_GITEA_URL=http://127.0.0.1:3001 IT_COPILOT_GITEA_USER=itc-svc \
@@ -10,15 +10,13 @@ by the `gitea-init` compose job via `gitea admin user create`.
 from __future__ import annotations
 
 import os
-import pathlib
 import secrets
 import sys
 import time
 
 import httpx2
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from workflow.store import SEED_EMPLOYEES  # noqa: E402
+from it_copilot.workflow.store import SEED_EMPLOYEES  # noqa: E402
 
 
 def main() -> int:

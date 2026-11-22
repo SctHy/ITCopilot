@@ -4,18 +4,18 @@ from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from sqlalchemy import select
 
-import api.main as api
-from agents.agent_orchestrator import AgentOrchestrator
-from api import state
-from core import conversation_history as history
-from core.db import admin_audit, conversation_messages, conversations
-from core.events import InMemoryEventBus
-from core.retention import DAY, RetentionPolicy, RetentionSweeper
-from core.tenant_context import tenant_scope
-from evaluation.fake_model import scripted_model
+from tests import runtime as api
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from tests.runtime import state
+from it_copilot.infra import conversation_history as history
+from it_copilot.infra.db import admin_audit, conversation_messages, conversations
+from it_copilot.infra.events import InMemoryEventBus
+from it_copilot.infra.retention import DAY, RetentionPolicy, RetentionSweeper
+from it_copilot.infra.tenant_context import tenant_scope
+from tests.support.fake_model import scripted_model
 from tests.conftest import auth, with_read_tool
 from tests.test_workflow import ALICE, BOB
-from workflow.store import WorkflowStore
+from it_copilot.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def http(store, monkeypatch):
     orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator.agent._llm = orchestrator._intent_recognizer.llm = scripted_model(respond)
     for name, value in {"orchestrator": orchestrator, "workflow": store, "memory": None, "kb": None,
-                        "task_recall": None, "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
+                        "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
         monkeypatch.setattr(state, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
     return TestClient(api.app)
@@ -97,15 +97,15 @@ def test_owner_renames_and_deletes_with_an_audit_entry(http, store):
 
 
 def test_other_channels_are_not_recorded(store):
-    from api.routes.chat import _record_history
-    from api.schemas import ChatResponse
+    from it_copilot.api.routes.chat import _record_history
+    from it_copilot.api.schemas import ChatResponse
     import asyncio
     state_workflow = state.workflow
     state.workflow = store
     try:
         reply = ChatResponse(request_id="r1", response="ok", status="success", intent="other", intent_group="other")
-        asyncio.run(_record_history(ALICE, "feishu:oc", "r1", "feishu", "hi", reply))
-        asyncio.run(_record_history(ALICE, "", "r2", "web", "hi", reply))
+        asyncio.run(_record_history(state, ALICE, "feishu:oc", "r1", "feishu", "hi", reply))
+        asyncio.run(_record_history(state, ALICE, "", "r2", "web", "hi", reply))
     finally:
         state.workflow = state_workflow
     with tenant_scope("default"), store.engine.connect() as db:

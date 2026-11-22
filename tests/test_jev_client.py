@@ -5,7 +5,7 @@ import json
 import httpx2
 import pytest
 
-from core.jev import JevClient, top_choice
+from it_copilot.agent.jev import JevClient, top_choice
 
 ANSWERS = {"intent": {"type": "choice", "choice": "vpn_issue", "confidence": .8, "probabilities": {"vpn_issue": .9, "wifi_issue": .1}}}
 
@@ -51,7 +51,7 @@ def test_retryable_status_is_retried_then_succeeds(monkeypatch, status):
     async def no_sleep(_):
         return None
 
-    monkeypatch.setattr("core.jev.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("it_copilot.agent.jev.asyncio.sleep", no_sleep)
 
     async def run():
         client = client_with(handler, retries=1)

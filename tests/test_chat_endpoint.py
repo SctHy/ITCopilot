@@ -6,14 +6,15 @@ from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 
-import api.main as api
-from agents.agent_orchestrator import AgentOrchestrator
-from api import schemas, state
-from api.routes import chat as chat_routes
-from evaluation.fake_model import scripted_model
-from monitor.performance_monitor import PerformanceMonitor
+from tests import runtime as api
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.api import schemas
+from tests.runtime import state
+from it_copilot.api.routes import chat as chat_routes
+from tests.support.fake_model import scripted_model
+from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
 from tests.conftest import auth
-from tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
 from tests.conftest import with_read_tool
 
 
@@ -68,7 +69,7 @@ def test_chat_stream_end_to_end(chat_client):
 
 
 def test_stream_request_key_binds_message_and_conversation(chat_client, monkeypatch):
-    from core.events import InMemoryEventBus
+    from it_copilot.infra.events import InMemoryEventBus
     monkeypatch.setattr(state, "events", InMemoryEventBus())
     http, _ = chat_client
     payload = {"message": "VPN 报错 VPN-691", "conv_id": "binding", "client_request_id": "bound-key"}
@@ -90,7 +91,7 @@ def test_monitor_endpoint_reports_live_state(chat_client):
 
 
 def test_second_turn_reuses_employee_id_from_conversation_state(chat_client, monkeypatch):
-    from memory.conversation_memory import MemoryContext
+    from it_copilot.agent.memory.conversation_memory import MemoryContext
 
     class FakeMemory:
         async def get_context(self, user_id, conv_id, query=""):
@@ -101,16 +102,16 @@ def test_second_turn_reuses_employee_id_from_conversation_state(chat_client, mon
 
     monkeypatch.setattr(state, "memory", FakeMemory())
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    from core.identity import principal_from_token
+    from it_copilot.infra.identity import principal_from_token
     alice = principal_from_token(auth("alice")["Authorization"].split()[1])
-    _, req, intent_result, _ = asyncio.run(chat_routes._run_turn(schemas.ChatRequest(message="帮我重置密码"), alice, "turn-2", "c1", chat_routes._Stages()))
+    _, req, intent_result, _ = asyncio.run(chat_routes._run_turn(state, schemas.ChatRequest(message="帮我重置密码"), alice, "turn-2", "c1", chat_routes._Stages()))
     assert "employee_id" in intent_result.missing_slots          # 本轮消息本身没有工号
     assert "employee_id" not in req.conversation_state["missing_fields"]
     assert req.entities["employee_id"] == ["E1001"]
 
 
 def test_login_employee_id_fills_the_slot_when_no_turn_provided_one(chat_client, monkeypatch):
-    from memory.conversation_memory import MemoryContext
+    from it_copilot.agent.memory.conversation_memory import MemoryContext
 
     class FakeMemory:
         def __init__(self, entities):
@@ -123,12 +124,12 @@ def test_login_employee_id_fills_the_slot_when_no_turn_provided_one(chat_client,
             pass
 
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    from core.identity import principal_from_token
+    from it_copilot.infra.identity import principal_from_token
     alice = principal_from_token(auth("alice")["Authorization"].split()[1])
 
     def turn(message, entities):
         monkeypatch.setattr(state, "memory", FakeMemory(entities))
-        _, req, _, _ = asyncio.run(chat_routes._run_turn(schemas.ChatRequest(message=message), alice, "t", "c1", chat_routes._Stages()))
+        _, req, _, _ = asyncio.run(chat_routes._run_turn(state, schemas.ChatRequest(message=message), alice, "t", "c1", chat_routes._Stages()))
         return req
 
     ticket = turn("帮我建个工单，打印机坏了", {})

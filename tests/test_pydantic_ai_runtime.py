@@ -5,11 +5,11 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agents.agent_orchestrator import AgentOrchestrator
-from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import IntentCategory
-from agents.types import AgentCallError, Request
-from tooling.tool_manager import MCPToolManager
+from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.intent.taxonomy import IntentCategory
+from it_copilot.agent.types import AgentCallError, Request
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
 from tests.conftest import with_read_tool
 
 
@@ -203,8 +203,8 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 
     import yaml
 
-    from core.llm import complete_text
-    from core.model_router import DEFAULT_CONFIG, RoutingConfig, model_defaults
+    from it_copilot.agent.llm import complete_text
+    from it_copilot.agent.model_router import DEFAULT_CONFIG, RoutingConfig, model_defaults
 
     seen = {}
 
@@ -223,7 +223,7 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 
 
 def _search_manager(rows):
-    from tooling.tool_manager import Tool
+    from it_copilot.agent.tooling.tool_manager import Tool
 
     manager = MCPToolManager("sk-local")
     calls = []

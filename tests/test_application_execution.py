@@ -3,10 +3,10 @@ import asyncio
 import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 
-from api import deps
-from core.identity import principal_from_token
-from evaluation.application import application, auth
-from evaluation.fake_model import scripted_model
+from it_copilot.api import deps
+from it_copilot.infra.identity import principal_from_token
+from tests.support.application import application, auth
+from tests.support.fake_model import scripted_model
 
 
 def access_model():
@@ -72,7 +72,7 @@ def test_http_chat_approval_execution_and_replay():
             assert employee["access_ledger"][0]["status"] == "active" and employee["access_ledger"][0]["expires_at"]
             events = [e["event"] for e in (await http.get(path + "/audit")).json()["events"]]
             assert events == ["created", "confirmed", "approved", "execution_queued", "apply_started", "apply_succeeded"]
-            from core.scopes import identity_scope
+            from it_copilot.infra.scopes import identity_scope
             history = await state.memory._get_working_memory(identity_scope('default', 'dev:alice'), 'access')
             assert len(history) == 2  # duplicate request cannot append a second turn
             assert (await http.post("/chat", json={**payload, "message": "different"})).status_code == 409
@@ -163,7 +163,7 @@ def test_events_reach_a_real_tcp_client_before_the_turn_completes():
     import importlib.util
     import pathlib
 
-    path = pathlib.Path(__file__).resolve().parent.parent / "scripts/benchmark_stream.py"
+    path = pathlib.Path(__file__).resolve().parent.parent / "tests/support/benchmark_stream.py"
     spec = importlib.util.spec_from_file_location("benchmark_stream", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

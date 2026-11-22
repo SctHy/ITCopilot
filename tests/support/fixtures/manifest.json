@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "inputs": {
+    "masking-prior": {
+      "path": "masking-prior.json",
+      "sha256": "28290c80b60559a3edf6491ab708d728d1eca615033732e6fe9473dd050b3b31",
+      "storage": "git",
+      "purpose": "Historical deduplication without report-directory dependency"
+    }
+  }
+}

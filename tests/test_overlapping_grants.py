@@ -6,13 +6,13 @@ import threading
 import pytest
 from sqlalchemy import select
 
-from core.db import actions
-from core.db import directory_effects
+from it_copilot.infra.db import actions
+from it_copilot.infra.db import directory_effects
 from tests.test_workflow import ALICE, BOB, CAROL, Clock, access
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.store import WorkflowStore
-from workflow.worker import ExecutionWorker
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.store import WorkflowStore
+from it_copilot.workflow.worker import ExecutionWorker
 
 
 def approve(store, name, role, hours):
@@ -177,7 +177,7 @@ def test_unattempted_manual_grant_rechecks_policy_after_operator_reconcile(db_ur
 
 @pytest.mark.parametrize("old_effect_applied", [False, True])
 def test_unknown_revoke_replans_after_a_new_grant_without_reusing_an_applied_command(db_url, old_effect_applied):
-    from core.tenant_context import system_scope
+    from it_copilot.infra.tenant_context import system_scope
     from tests.conftest import run_in_tenant
 
     clock = Clock()
@@ -194,7 +194,7 @@ def test_unknown_revoke_replans_after_a_new_grant_without_reusing_an_applied_com
     approve(store, "b", "developer", 72)
     # Historical rows could have been claimed while another command was UNKNOWN.
     from sqlalchemy import update
-    from core.db import approvals
+    from it_copilot.infra.db import approvals
     with store.engine.begin() as db:
         row = db.execute(select(actions).where(actions.c.approval_id == "b", actions.c.kind == "apply")).mappings().one()
         db.execute(update(actions).where(actions.c.id == row["id"]).values(status="executing", lease_owner="legacy",
@@ -219,7 +219,7 @@ def test_unknown_revoke_replans_after_a_new_grant_without_reusing_an_applied_com
 
 @pytest.mark.parametrize("held_status", ["unknown", "manual_review"])
 def test_unsettled_apply_keeps_the_resource_until_its_baseline_is_in_the_ledger(db_url, held_status):
-    from core.tenant_context import system_scope
+    from it_copilot.infra.tenant_context import system_scope
     from tests.conftest import run_in_tenant
     from tests.test_workflow import ERIN
 
@@ -271,10 +271,10 @@ def test_claim_collision_does_not_block_a_different_resource_and_expired_lease_c
 
 def test_operator_closes_a_deliberate_drift_and_releases_the_resource(db_url):
     from sqlalchemy import update
-    from core.db import directory_grants
-    from core.tenant_context import tenant_scope
+    from it_copilot.infra.db import directory_grants
+    from it_copilot.infra.tenant_context import tenant_scope
     from tests.test_workflow import ERIN
-    from workflow.store import ApprovalStateConflict
+    from it_copilot.workflow.store import ApprovalStateConflict
 
     clock = Clock()
     store = WorkflowStore(db_url, clock=clock)
@@ -316,7 +316,7 @@ def test_closing_after_a_non_reversible_effect_settles_the_execution(db_url):
     class Ambiguous(LocalDirectoryAdapter):
         async def apply(self, action_id, action):
             if action["tool_name"] == "request_access":
-                from workflow.adapters.base import AmbiguousError
+                from it_copilot.workflow.adapters.base import AmbiguousError
                 raise AmbiguousError("timeout")
             return await super().apply(action_id, action)
 

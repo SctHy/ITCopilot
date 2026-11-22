@@ -5,7 +5,6 @@
     python scripts/tenants.py suspend acme --reason "合同到期"
     python scripts/tenants.py activate acme
     python scripts/tenants.py offboard acme --reason "客户退出"
-    python scripts/tenants.py set default --feishu-tenant-key 2ed263bf32cf1651
     python scripts/tenants.py quotas acme '{"agent_turn": "300/60", "daily_cost_usd": 50}'
 
 Uses the same database as the API (``IT_COPILOT_DATABASE_URL`` or the local data directory).
@@ -21,11 +20,10 @@ import pathlib
 import sys
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT))
 
-from core.db import shared_engine  # noqa: E402
-from core.tenancy import TenantExists, TenantRegistry, TenantStatus  # noqa: E402
-from workflow.worker import database_url  # noqa: E402
+from it_copilot.infra.db import shared_engine  # noqa: E402
+from it_copilot.infra.tenancy import TenantExists, TenantRegistry, TenantStatus  # noqa: E402
+from it_copilot.workflow.worker import database_url  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -36,7 +34,6 @@ def main(argv=None) -> int:
     add.add_argument("tenant")
     add.add_argument("--tier", default="standard")
     add.add_argument("--issuer", help="OIDC issuer bound to this tenant")
-    add.add_argument("--feishu-tenant-key")
     add.add_argument("--quotas", default="{}", help="JSON, e.g. '{\"agent_turn\": \"600/60\"}' (core/quotas.py)")
     for name in ("suspend", "activate", "offboard"):
         command = commands.add_parser(name)
@@ -45,7 +42,6 @@ def main(argv=None) -> int:
     bind = commands.add_parser("set", help="bind an OIDC issuer or a Feishu workspace to a tenant ('' unbinds)")
     bind.add_argument("tenant")
     bind.add_argument("--issuer")
-    bind.add_argument("--feishu-tenant-key")
     quota = commands.add_parser("quotas", help="replace a tenant's own quotas (core/quotas.py)")
     quota.add_argument("tenant")
     quota.add_argument("quotas", help="JSON object, '{}' for the defaults")
@@ -60,9 +56,9 @@ def main(argv=None) -> int:
             return 0
         if args.command == "add":
             row = registry.create(args.tenant, actor=actor, tier=args.tier, issuer=args.issuer,
-                                  feishu_tenant_key=args.feishu_tenant_key, quotas=json.loads(args.quotas))
+                                  quotas=json.loads(args.quotas))
         elif args.command == "set":
-            bindings = {k: v for k, v in (("issuer", args.issuer), ("feishu_tenant_key", args.feishu_tenant_key)) if v is not None}
+            bindings = {k: v for k, v in (("issuer", args.issuer),) if v is not None}
             row = registry.set_bindings(args.tenant, actor=actor, **bindings)
         elif args.command == "quotas":
             row = registry.set_quotas(args.tenant, json.loads(args.quotas), actor=actor)

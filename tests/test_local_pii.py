@@ -6,14 +6,14 @@ import time
 import httpx2
 import pytest
 
-from core import local_pii
-from core.local_pii import Span
-from core.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope, prepare_request
+from it_copilot.agent.masking import local_pii
+from it_copilot.agent.masking.local_pii import Span
+from it_copilot.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope, prepare_request
 
 
 @pytest.mark.parametrize("name", ["王小明", "张伟"])
 def test_short_chinese_model_spans_are_applied_and_scrubbed(name):
-    from core.redaction import redact_text
+    from it_copilot.agent.masking.redaction import redact_text
     with masking_scope("tenant:alice", "c") as session:
         session.findings = {"我叫" + name: (Span(2, 2 + len(name), "PERSON", .99),)}
         body = mask_request({"messages": [{"role": "user", "content": "我叫" + name}]}, session)

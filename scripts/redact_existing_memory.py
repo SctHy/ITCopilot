@@ -4,14 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import pathlib
-import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from core.redaction import redact, redact_text
-from core.vector_store import VectorStore
-from memory.conversation_memory import MemoryManager
+from it_copilot.agent.masking.redaction import redact, redact_text
+from it_copilot.infra.vector_store import VectorStore
+from it_copilot.agent.memory.conversation_memory import MemoryManager
 
 
 def redact_existing_memory(store: VectorStore) -> dict:

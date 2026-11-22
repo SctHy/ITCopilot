@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from tooling.knowledge_base import KnowledgeBase
+from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
 
 pytestmark = pytest.mark.usefixtures("default_tenant")
 

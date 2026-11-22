@@ -5,7 +5,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
     UV_NO_CACHE=1 \
     PYDANTIC_AI_NO_BANNER=1 \
     FASTEMBED_CACHE_PATH=/home/app/.cache/fastembed \
@@ -23,7 +22,11 @@ RUN uv pip install --system -r requirements.txt
 # data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
 RUN mkdir -p /app/data && chown -R app:app /app/data
 
-# 构建期预下载 embedding 模型（与 core/embedding.py 默认值一致），避免首次请求时在线下载导致超时。
+# 构建期预下载 embedding 模型（与 it_copilot.agent.embedding 默认值一致），避免首次请求时在线下载导致超时。
+COPY --chown=app:app pyproject.toml ./
+COPY --chown=app:app src ./src
+RUN uv pip install --system --no-deps -e .
+
 USER app
 RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('jinaai/jina-embeddings-v2-base-zh').embed(['预热']))"
 
@@ -33,4 +36,4 @@ EXPOSE 8001
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \
   CMD python -c "import json,os,urllib.request; p=os.getenv('HEALTH_PORT','8001'); assert json.load(urllib.request.urlopen(f'http://127.0.0.1:{p}/health', timeout=2))['status']=='ok'"
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "it_copilot.cmd.api"]

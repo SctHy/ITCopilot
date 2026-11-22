@@ -3,9 +3,9 @@ import asyncio
 
 import pytest
 
-from agents.intent.explicit import explicit_access_systems, explicit_write_requests
-from agents.intent.recognizer import IntentRecognizer
-from agents.intent.taxonomy import IntentCategory
+from it_copilot.agent.intent.explicit import explicit_access_systems, explicit_write_requests
+from it_copilot.agent.intent.recognizer import IntentRecognizer
+from it_copilot.agent.intent.taxonomy import IntentCategory
 from tests.test_phase2 import _FakeJev, _jev_answers
 
 
@@ -127,7 +127,7 @@ def test_business_intent_does_not_override_explicit_no_new_action():
 
 
 def test_classifier_keeps_earlier_user_request_across_topic_switches():
-    from agents.intent.taxonomy import jev_state
+    from it_copilot.agent.intent.taxonomy import jev_state
     history = [{"role": "user", "content": "GitLab reporter 权限，合并请求评审，先别提交"}]
     history += [{"role": "user", "content": f"无关话题 {i}"} for i in range(8)]
     assert "GitLab reporter" in jev_state("可以提交了，按最开始的角色", history)

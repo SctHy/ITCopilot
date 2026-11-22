@@ -9,16 +9,14 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-import api.main as api
-from api import state
+from tests import runtime as api
+from tests.runtime import state
 from tests.conftest import auth, run_in_tenant
 from tests.test_workflow import ALICE, BOB, ERIN, Clock, access, create, run
-from workflow.adapters import AdapterRegistry
-from workflow.adapters.local import LocalDirectoryAdapter
-from workflow.worker import ExecutionWorker
-from workflow.states import ApprovalStatus
-from workflow.store import ApprovalForbidden, ApprovalStateConflict, WorkflowStore
-from workflow.task_approvals import STATUS as TASK_STATUS_LABELS
+from it_copilot.workflow.adapters import AdapterRegistry
+from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from it_copilot.workflow.worker import ExecutionWorker
+from it_copilot.workflow.store import ApprovalForbidden, ApprovalStateConflict, WorkflowStore
 
 DAVE = dataclasses.replace(ALICE, subject="dev:dave", username="dave", employee_id="1002")
 
@@ -89,9 +87,6 @@ def test_withdraw_racing_an_approval_settles_exactly_once(env):
         assert bool(store.apply_actions(approval_id)) == (body["status"] == "approved")
 
 
-def test_every_approval_status_has_a_shared_task_label():
-    # The shared-task event source formats every status it sees; a missing label would crash its poll.
-    assert set(ApprovalStatus) <= set(TASK_STATUS_LABELS)
 
 
 # ── early release ────────────────────────────────────────────────────────────
@@ -166,7 +161,6 @@ def http(env, monkeypatch):
     store, worker, _ = env
     monkeypatch.setattr(state, "workflow", store)
     monkeypatch.setattr(state, "worker", None)   # driven explicitly below
-    monkeypatch.setattr(state, "task_event_pump", None)
     return TestClient(api.app), store, worker
 
 

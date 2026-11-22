@@ -2,21 +2,17 @@
 // survives switching to another page and back; this component only renders it.
 // Layout follows T3 Code: a ~760px reading column, the composer pinned to the bottom,
 // and run details in a floating card on the right.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Sheet, SheetDescription, SheetHeader, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { ArrowUpIcon, GlobeIcon, HistoryIcon, KeyRoundIcon, RouteIcon, ShieldIcon, TicketIcon } from 'lucide-react'
+import { ArrowUpIcon, GlobeIcon, KeyRoundIcon, RouteIcon, ShieldIcon, TicketIcon } from 'lucide-react'
 import { useStore } from '../hooks/useStore.ts'
-import { SpeechInput } from '../components/SpeechInput.tsx'
 import { ChatMessage } from '../components/ChatMessage.tsx'
 import { RequestInspector } from '../components/RequestInspector.tsx'
-import { TaskHistory } from '../components/TaskHistory.tsx'
-import { Collapse } from '../components/ui.tsx'
 import { TurnNavigator, turnsOf } from '../components/TurnNavigator.tsx'
 import { applyApprovalAction } from '../lib/approvalDecision.ts'
 import type { ChatSession } from '../lib/chatSession.ts'
-import type { TaskClient } from '../lib/taskClient.ts'
 import type { Identity, MonitorData, Settings } from '../lib/types.ts'
 
 const prompts = [
@@ -26,17 +22,15 @@ const prompts = [
   { label: '查询工单', hint: '查看我提交过的工单和进度', text: '查询我的工单', icon: <TicketIcon /> }
 ]
 
-export function ChatView({ session, settings, identity, backendLabel, monitorData, taskHistoryClient, onOpenTask, onRefreshMonitor, onToast,
+export function ChatView({ session, settings, identity, backendLabel, monitorData, onRefreshMonitor, onToast,
   panelOpen, panelDrawer, onPanelDrawerChange }: {
   session: ChatSession; settings: Settings; identity: Identity | null; backendLabel: string; monitorData: MonitorData
-  taskHistoryClient: TaskClient; onOpenTask: (id: string) => void; onRefreshMonitor: () => void; onToast: (message: string) => void
+  onRefreshMonitor: () => void; onToast: (message: string) => void
   panelOpen: boolean; panelDrawer: boolean; onPanelDrawerChange: (open: boolean) => void
 }) {
   const state = useStore(session.state)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
-  const [speechBusy, setSpeechBusy] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
   const hasMessages = state.messages.length > 0
   const userInitial = (identity?.username || '?').slice(0, 1).toUpperCase()
   const lastContent = state.messages.at(-1)?.content.length ?? 0
@@ -85,22 +79,13 @@ export function ChatView({ session, settings, identity, backendLabel, monitorDat
                     </button>
                   ))}
                 </div>
-                {identity && (
-                  <div className="rounded-xl border border-border bg-card">
-                    <Collapse open={historyOpen} onOpenChange={setHistoryOpen} triggerClassName="h-11 w-full justify-between rounded-xl px-4 font-normal text-foreground"
-                      trigger={<span className="flex items-center gap-3 text-sm"><HistoryIcon className="size-4 text-muted-foreground" />查找并继续历史事项</span>}
-                      panelClassName="border-t px-4 py-3">
-                      <TaskHistory client={taskHistoryClient} active={historyOpen} onOpen={onOpenTask} />
-                    </Collapse>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="flex flex-col gap-7 py-8">
                 {state.messages.map(item => (
                   <div key={item.id} data-message-id={item.id}><ChatMessage item={item} identity={identity} backendLabel={backendLabel} userInitial={userInitial}
                     onApproval={(target, decision, note) => applyApprovalAction(target, settings, decision, note)}
-                    onCopy={copyMessage} onOpenTask={onOpenTask} /></div>
+                    onCopy={copyMessage} /></div>
                 ))}
                 {state.busy && (
                   <div className="fade-up flex items-center gap-2.5 text-[13px] text-muted-foreground" role="status">
@@ -118,15 +103,12 @@ export function ChatView({ session, settings, identity, backendLabel, monitorDat
         </div>
 
         <div className="mx-auto w-full max-w-[760px] px-5 pb-4 sm:px-8">
-          <form onSubmit={event => { event.preventDefault(); if (!speechBusy) session.send() }}
+          <form onSubmit={event => { event.preventDefault(); session.send() }}
             className="rounded-2xl border bg-card px-3 pt-3 pb-2.5 shadow-xs/5 transition-colors focus-within:border-ring/60">
-            <SpeechInput key={JSON.stringify([settings.backend, settings.endpoints, settings.accessToken, settings.conversationId])}
-              settings={settings} disabled={state.busy} onBusy={setSpeechBusy}
-              value={state.draft} onChange={text => { state.draft = text; composerRef.current?.focus() }} />
             <textarea aria-label="员工 IT 问题" value={state.draft} onChange={event => { state.draft = event.target.value }} rows={2}
               placeholder="描述你遇到的 IT 问题，或想办理的申请…" ref={composerRef}
               className="field-sizing-content max-h-60 min-h-12 w-full resize-none bg-transparent px-1.5 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
-              onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); if (!speechBusy) session.send() } }} />
+              onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); session.send() } }} />
             <div className="mt-1 flex items-center justify-between gap-2 px-1">
               <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground"><RouteIcon className="size-3.5" />自动路由</span>
               <div className="flex items-center gap-2.5">
@@ -134,7 +116,7 @@ export function ChatView({ session, settings, identity, backendLabel, monitorDat
                   <KbdGroup><Kbd>⌘</Kbd><Kbd>Enter</Kbd></KbdGroup>发送
                 </span>
                 <Button size="icon" type="submit" className="size-9 rounded-full" aria-label={state.busy ? '处理中' : '发送'}
-                  aria-busy={state.busy} disabled={state.busy || speechBusy || !state.draft.trim()}>
+                  aria-busy={state.busy} disabled={state.busy || !state.draft.trim()}>
                   <ArrowUpIcon className="size-4" />
                 </Button>
               </div>

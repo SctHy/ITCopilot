@@ -1,43 +1,41 @@
-# 架构决策记录（ADR）
+# 架构决策记录
 
-只按任务读取相关条目；每项保留当前决定与替代关系，不保留实施日志。编号和路径不复用。当前范围以 0036、0037、0040 为准。
+当前实现与迁移说明见[架构概览](../README.md)。以下按决策时间排列，包含已退役功能的历史记录。
 
-| 编号 | 决定 | 状态 |
-|---|---|---|
-| [0001](0001-llm-proposes-code-authorizes.md) | 模型只提出变更，身份、策略、审批与执行由确定性代码负责 | 已采纳 |
-| [0002](0002-identity-from-verified-token.md) | 调用者身份只取自已验证令牌，请求体中的身份字段一律忽略 | 已采纳 |
-| [0003](0003-transactional-outbox-worker.md) | 审批通过与执行动作同事务写入，由租约 worker 执行 | 已采纳 |
-| [0004](0004-ambiguous-outcomes-reconcile.md) | 外部调用三分类；结果未知先回查再决定是否重做 | 已采纳 |
-| [0005](0005-live-event-stream.md) | 执行事件写入持久流，SSE 实时订阅并可续传 | 已采纳 |
-| [0007](0007-supersede-pending-approvals.md) | 同一会话的新申请替代仍待审批的旧申请 | 已采纳 |
-| [0008](0008-revalidate-on-policy-change.md) | 策略变更后按新版本复核在途审批与授权，只收紧不放宽 | 已采纳 |
-| [0009](0009-feishu-channel-stored-work.md) | 飞书入口：先落库再处理，只在被叫到时说话 | 已采纳 |
-| [0012](0012-shared-service-tasks.md) | 三方共享事项：事件持久化、按事项串行、审批结果唤醒只读跟进 | 已采纳 |
-| [0013](0013-task-capabilities.md) | 事项进度、协作待办、定时提醒与运行治理 | 已采纳 |
-| [0014](0014-task-product-capabilities.md) | 共享事项的协作管理与独立通知 | 已采纳 |
-| [0015](0015-task-execution-verification.md) | 步骤检查点、独立目标核验与有限重规划 | 已采纳 |
-| [0016](0016-identity-scope-and-task-history.md) | 租户内的用户隔离、显式事项成员与历史流程续接（取代 0012、0014 的默认部门访问规则） | 已采纳 |
-| [0017](0017-requester-withdraw-and-early-release.md) | 申请人撤回待审批申请与提前归还限时权限 | 已采纳 |
-| [0018](0018-rate-limit-and-retention.md) | 按身份限流与数据保留清理 | 已采纳 |
-| [0019](0019-token-revocation-watermark.md) | 按身份的令牌吊销水位线 | 已采纳 |
-| [0020](0020-requester-confirms-drafted-requests.md) | 申请人确认 Agent 起草的申请后才进入审批 | 已采纳 |
-| [0021](0021-audit-integrity-and-policy-identity.md) | 审计完整性：来源摘要、管理操作先写意图、审计表只追加、策略按内容识别（修订 0008） | 已采纳 |
-| [0022](0022-multi-tenant-registry-and-isolation-sweep.md) | 租户注册表与路由隔离巡检 | 已采纳，0036 修订 |
-| [0023](0023-tenant-scope-and-row-level-security.md) | 租户作用域与身份绑定；RLS 已移除 | 已采纳，0036 修订 |
-| [0024](0024-per-tenant-knowledge-libraries.md) | 多租户阶段 2：每个租户一个知识库，检索时由代码注入租户，工具缓存 key 包含租户 | 已采纳 |
-| [0025](0025-tenant-policy-overlays-adapters-and-platform-admin.md) | 多租户阶段 3：部署级操作需要平台管理员（策略覆盖、租户执行系统已删除） | 部分保留，见 0036 |
-| [0026](0026-resource-serialization-and-ledger-state.md) | 资源级串行化与台账期望状态 | 已采纳 |
-| [0027](0027-turn-records-and-change-events.md) | 持久回合元数据、版本指纹、工具错误类别与行为变更事件 | 已采纳 |
-| [0028](0028-periodic-reconciliation-and-stuck-work.md) | 周期对账与卡住工作告警 | 已采纳 |
-| [0029](0029-online-badcase-feedback-loop.md) | 反馈、脱敏快照、单人标注与回归导出 | 由 0037 精简 |
-| [0034](0034-success-drop-attribution.md) | 成功率波动的切片 rate/mix 分解与变更时间线归因 | 已采纳 |
-| [0031](0031-turn-deadline-and-tail-latency.md) | 整轮截止时间与尾延迟治理 | 实现已采纳，性能目标未达标 |
-| [0032](0032-long-term-memory-governance.md) | 长期记忆写入脱敏、准入、近重复合并及字段时效和本人删除 | 已采纳 |
-| [0033](0033-agent-specifications-and-rollouts.md) | 部署级 Agent 规格；旧灰度与门禁已移除 | 由 0037 精简 |
-| [0030](0030-deterministic-model-routing.md) | 按用途有序模型路由、合规、失败切换与预算 | 由 0037 精简 |
-| [0035](0035-tenant-rate-limit-and-fair-queues.md) | 租户限流（先身份后租户）与队列按租户轮转 | 已采纳 |
-| [0036](0036-multi-tenant-scope-reduction.md) | 多租户只保留核心隔离：删除行级安全、静态守卫、策略覆盖、租户执行系统与舱壁；去掉单租户开关，始终多租户 | 已采纳 |
-| [0037](0037-core-runtime-simplification.md) | 部署版本、按用途模型路由、单人标注与核心解耦 | 已采纳 |
-| [0038](0038-private-chat-history.md) | 网页私聊历史：本人可见、写入前脱敏、90 天保留、删除留审计 | 已采纳 |
-| [0039](0039-model-outbound-masking.md) | 模型出站占位符、工具参数恢复、回合隔离与离线验收 | 已采纳，真实模型效果未验证 |
-| [0040](0040-current-contracts-only.md) | 仅支持当前架构、新数据库基线与严格数据契约 | 已采纳 |
+- [0001 模型只提出变更，授权由确定性代码负责](0001-llm-proposes-code-authorizes.md)
+- [0002 调用者身份只取自已验证令牌](0002-identity-from-verified-token.md)
+- [0003 审批通过与执行动作同事务写入（outbox），由租约 worker 执行](0003-transactional-outbox-worker.md)
+- [0004 外部调用三分类；结果未知先回查再决定](0004-ambiguous-outcomes-reconcile.md)
+- [0005 执行事件写入持久流，SSE 实时订阅并可续传](0005-live-event-stream.md)
+- [0007 同一会话的新申请替代仍待审批的旧申请](0007-supersede-pending-approvals.md)
+- [0008 策略变更后复核在途审批与授权](0008-revalidate-on-policy-change.md)
+- [0009 飞书入口：先落库再处理，只在被叫到时说话](0009-feishu-channel-stored-work.md)
+- [0012 三方共享事项：事件持久化、按事项串行、审批结果唤醒只读跟进](0012-shared-service-tasks.md)
+- [0013 事项进度、协作待办、定时提醒与运行治理](0013-task-capabilities.md)
+- [0014 共享事项的协作管理与独立通知](0014-task-product-capabilities.md)
+- [0015：步骤检查点、独立目标核验与有限重规划](0015-task-execution-verification.md)
+- [0016 租户内的用户隔离、显式事项成员与历史流程续接](0016-identity-scope-and-task-history.md)
+- [0017 申请人撤回待审批申请与提前归还限时权限](0017-requester-withdraw-and-early-release.md)
+- [0018 按身份限流与数据保留清理](0018-rate-limit-and-retention.md)
+- [0019 按身份的令牌吊销水位线](0019-token-revocation-watermark.md)
+- [0020 申请人确认 Agent 起草的申请后才进入审批](0020-requester-confirms-drafted-requests.md)
+- [0021 审计完整性：来源摘要、管理操作先写意图、审计表只追加、策略按内容识别](0021-audit-integrity-and-policy-identity.md)
+- [0022 多租户：租户注册表、开关与跨租户巡检](0022-multi-tenant-registry-and-isolation-sweep.md)
+- [0023 多租户：租户作用域、签发方绑定与行级安全](0023-tenant-scope-and-row-level-security.md)
+- [0024 多租户：每个租户一个知识库](0024-per-tenant-knowledge-libraries.md)
+- [0025 多租户：只能收紧的租户策略、租户自己的目标系统、平台管理员](0025-tenant-policy-overlays-adapters-and-platform-admin.md)
+- [0026 资源级串行化与台账期望状态](0026-resource-serialization-and-ledger-state.md)
+- [ADR 0027：回合记录、版本指纹与变更事件](0027-turn-records-and-change-events.md)
+- [0028 周期对账与卡住工作告警](0028-periodic-reconciliation-and-stuck-work.md)
+- [ADR 0029：线上 badcase 回流与标注闭环](0029-online-badcase-feedback-loop.md)
+- [ADR 0030：模型路由：硬约束过滤与评测决定偏好](0030-deterministic-model-routing.md)
+- [0031 整轮截止时间与尾延迟治理](0031-turn-deadline-and-tail-latency.md)
+- [ADR 0032：长期记忆治理：写入侧脱敏、准入、去重，召回侧衰减](0032-long-term-memory-governance.md)
+- [ADR 0033：Agent 规格版本化、灰度与回滚](0033-agent-specifications-and-rollouts.md)
+- [ADR 0034：成功率波动归因方法](0034-success-drop-attribution.md)
+- [0035 多租户：租户限流与队列按租户轮转](0035-tenant-rate-limit-and-fair-queues.md)
+- [0036 多租户：只保留核心隔离](0036-multi-tenant-scope-reduction.md)
+- [0037 核心运行时：部署版本、简单路由与单人评测闭环](0037-core-runtime-simplification.md)
+- [ADR 0038：网页私聊历史：本人可见、写入前脱敏、90 天保留](0038-private-chat-history.md)
+- [ADR 0039：模型出站脱敏与本地工具参数恢复](0039-model-outbound-masking.md)
+- [0040 仅支持当前架构与数据契约](0040-current-contracts-only.md)

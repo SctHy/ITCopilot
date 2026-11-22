@@ -5,7 +5,7 @@ Set IT_COPILOT_TEST_DATABASE_URL to a pgvector-enabled PostgreSQL to run the sam
 import numpy as np
 import pytest
 
-from core.vector_store import VectorStore
+from it_copilot.infra.vector_store import VectorStore
 
 DOCS = {
     "vpn": ("VPN 客户端证书过期导致无法连接，需重新下载证书", {"department": "*", "user_id": "alice"}),
@@ -84,7 +84,7 @@ def test_sqlite_reads_do_not_wait_for_an_open_write_transaction(tmp_path):
 
     from sqlalchemy import text
 
-    from core.db import make_engine, read
+    from it_copilot.infra.db import make_engine, read
 
     engine = make_engine(f"sqlite:///{tmp_path / 'locks.sqlite3'}")
     with engine.begin() as db:

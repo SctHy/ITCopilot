@@ -4,13 +4,13 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-import api.main as api
-from api import state
-from core.retention import RetentionPolicy, RetentionSweeper
+from tests import runtime as api
+from tests.runtime import state
+from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
 from tests.conftest import auth
 from tests.test_api_admin import FakeKnowledgeBase
-from tooling.tool_manager import MCPToolManager
-from workflow.store import WorkflowStore
+from it_copilot.agent.tooling.tool_manager import MCPToolManager
+from it_copilot.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def test_operational_actions_are_logged(http):
     assert http.post("/skills/reload", headers=erin).status_code == 200
     events = [i["event"] for i in log(http)["items"]]
     assert events == ["skills_reloaded", "retention_run", "policy_revalidated"]
-    assert log(http, event="retention_run")["items"][0]["detail"] == {"channel_inbox": 0, "channel_outbox": 0, "episodic_memory": 0, "turn_records": 0,
+    assert log(http, event="retention_run")["items"][0]["detail"] == {"episodic_memory": 0, "turn_records": 0,
                                                                          "chat_history": 0, "chat_conversations": 0}
 
 
@@ -88,7 +88,7 @@ def test_failed_attempts_are_kept_but_listed_only_when_asked(http):
 
 def test_a_change_that_never_reported_back_shows_as_interrupted(http, monkeypatch):
     """A crash after the change ran but before its outcome was written must not erase it."""
-    from core import admin_audit
+    from it_copilot.infra import admin_audit
 
     monkeypatch.setattr(admin_audit, "finish", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("process died")))
     erin = auth("erin")
@@ -100,7 +100,7 @@ def test_a_change_that_never_reported_back_shows_as_interrupted(http, monkeypatc
 
 
 def test_a_change_whose_audit_cannot_be_written_does_not_run(http, monkeypatch):
-    from core import admin_audit
+    from it_copilot.infra import admin_audit
 
     monkeypatch.setattr(admin_audit, "begin", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("audit unavailable")))
     with pytest.raises(RuntimeError):
@@ -127,10 +127,10 @@ def test_audit_tables_refuse_update_and_delete(http, table):
 
 
 def test_the_effective_policy_is_recorded_once_and_shown_to_every_tenant(http):
-    from core import admin_audit
-    from workflow.adapters import AdapterRegistry
-    from workflow.adapters.local import LocalDirectoryAdapter
-    from workflow.worker import ExecutionWorker
+    from it_copilot.infra import admin_audit
+    from it_copilot.workflow.adapters import AdapterRegistry
+    from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+    from it_copilot.workflow.worker import ExecutionWorker
 
     store = state.workflow
     for worker_id in ("w1", "w2"):                                          # two workers / a restart see the same file

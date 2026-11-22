@@ -1,4 +1,4 @@
-from core.embedding import Embedder
+from it_copilot.agent.embedding import Embedder
 
 
 def _captured(model_name, monkeypatch):

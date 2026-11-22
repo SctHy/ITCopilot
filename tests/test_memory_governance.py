@@ -7,15 +7,15 @@ import fakeredis.aioredis
 import pytest
 from sqlalchemy import select
 
-from agents.intent.recognizer import IntentResult
-from agents.intent.taxonomy import IntentCategory, UrgencyLevel
-from api.schemas import ChatResponse
-from core.db import admin_audit, read, vector_documents
-from core.redaction import redact_text
-from memory.admission import admit_turn
-from memory.conversation_memory import MemoryManager, profile_text
+from it_copilot.agent.intent.recognizer import IntentResult
+from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
+from it_copilot.api.schemas import ChatResponse
+from it_copilot.infra.db import admin_audit, read, vector_documents
+from it_copilot.agent.masking.redaction import redact_text
+from it_copilot.agent.memory.admission import admit_turn
+from it_copilot.agent.memory.conversation_memory import MemoryManager, profile_text
 from scripts.redact_existing_memory import redact_existing_memory
-from core.vector_store import VectorStore
+from it_copilot.infra.vector_store import VectorStore
 
 
 def memory(url):
@@ -117,17 +117,16 @@ def test_existing_memory_script_redacts_and_reembeds(db_url):
 
 
 def test_personal_memory_api_uses_subject_scope_and_audits():
-    from evaluation.application import application, auth
-    from evaluation.fake_model import scripted_model
+    from tests.support.application import application, auth
+    from tests.support.fake_model import scripted_model
     from pydantic_ai.messages import ModelResponse, TextPart
-    from api import state
 
     async def answer(messages, info):
         return ModelResponse(parts=[TextPart("ok")])
 
     async def run():
-        async with application(model=scripted_model(answer)) as (client, _):
-            from core.identity import principal_from_token
+        async with application(model=scripted_model(answer)) as (client, state):
+            from it_copilot.infra.identity import principal_from_token
             alice = principal_from_token(auth()["Authorization"].split()[1])
             bob = principal_from_token(auth("bob")["Authorization"].split()[1])
             await state.memory.store_episodic_turn(alice.scope_key, "c", "a", "VPN故障", "检查账号", {})
