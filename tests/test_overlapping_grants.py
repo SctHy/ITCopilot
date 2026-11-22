@@ -169,7 +169,7 @@ def test_unattempted_manual_grant_rechecks_policy_after_operator_reconcile(db_ur
     asyncio.run(worker.run_until_idle())
     assert store.get("b")["results"][0]["status"] == "manual_review"
     store.policy = changed("deny-developer", lambda policy: policy["systems"]["gitlab"]["roles"].pop("developer"))
-    store.requeue("b", ERIN)
+    store.requeue("b", ERIN, "重新回查")
     asyncio.run(worker.run_until_idle())
     assert store.get("b")["results"][0]["status"] == "failed"
     assert len(store.employee("1001", "default")["access_ledger"]) == 1
@@ -240,7 +240,7 @@ def test_unsettled_apply_keeps_the_resource_until_its_baseline_is_in_the_ledger(
     assert asyncio.run(worker.run_once()) == 0
     assert store.get("b")["results"][0]["status"] == "queued"
     if held_status == "manual_review":
-        store.requeue("a", ERIN)
+        store.requeue("a", ERIN, "重新回查")
     else:
         clock.t += 11
     asyncio.run(worker.run_until_idle())
@@ -286,7 +286,7 @@ def test_operator_closes_a_deliberate_drift_and_releases_the_resource(db_url):
         db.execute(update(directory_grants).where(directory_grants.c.employee_id == "1001").values(role="admin"))
     clock.t += 24 * 3600 + 1
     asyncio.run(worker.run_until_idle())
-    store.requeue("a", ERIN)
+    store.requeue("a", ERIN, "重新回查")
     asyncio.run(worker.run_until_idle())
     assert store.get("a")["revocations"][0]["status"] == "manual_review"
     approve(store, "b", "developer", 8)
@@ -296,7 +296,7 @@ def test_operator_closes_a_deliberate_drift_and_releases_the_resource(db_url):
     body = store.resolve_manual("a", ERIN, "管理员权限由平台负责人保留")
     assert body["revocations"][0]["status"] == "cancelled"
     assert [e["event"] for e in store.audit("a")][-1] == "manual_resolved"
-    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "drifted"
+    assert store.employee("1001", "default")["access_ledger"][0]["status"] == "resolved"
     with pytest.raises(ApprovalStateConflict):
         store.resolve_manual("a", ERIN, "again")
     asyncio.run(worker.run_until_idle())

@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from it_copilot.api.container import Container, AppContainer
 from it_copilot.api.approval_actions import confirm_approval, release_grants, resolve_manual, submit_decision, withdraw_approval
 from it_copilot.api.deps import current_principal, forbid, admin_change, is_platform_admin, require_admin, require_roles, require_workflow
-from it_copilot.api.schemas import ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal, ManualResolution
+from it_copilot.workflow.store import ApprovalForbidden, ApprovalStateConflict
+from it_copilot.api.schemas import ActionResolution, ApprovalConfirmation, ApprovalDecision, ApprovalWithdrawal, ManualResolution, ReviewReason
 from it_copilot.infra.env import env_float
 from it_copilot.infra.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
@@ -63,10 +64,13 @@ async def release(state: Container, approval_id: str, principal: Principal = Dep
 
 
 @router.post("/approvals/{approval_id}/reconcile")
-async def reconcile_approval(state: Container, approval_id: str, principal: Principal = Depends(require_admin)):
+async def reconcile_approval(state: Container, approval_id: str, payload: ReviewReason, principal: Principal = Depends(require_admin)):
     """人工对账：把 manual_review/unknown 的动作重新交给 worker，先回查目标系统再决定是否重做。"""
     await _readable_approval(state, approval_id, principal)
-    body = await require_workflow(state).actions.requeue(approval_id, principal)
+    try:
+        body = await require_workflow(state).actions.requeue(approval_id, principal, payload.reason)
+    except ApprovalStateConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not body:
         raise HTTPException(404, "approval not found")
     body = await wait_settled(require_workflow(state), approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
@@ -78,6 +82,21 @@ async def resolve_approval(state: Container, approval_id: str, payload: ManualRe
     """人工结案：目标系统已人工处理时结束需复核的动作，释放该资源上排队的后续申请。"""
     await _readable_approval(state, approval_id, principal)
     return await resolve_manual(state, approval_id, payload.note, principal)
+
+
+@router.post("/approvals/{approval_id}/actions/{action_id}/resolve")
+async def resolve_action(state: Container, approval_id: str, action_id: str, payload: ActionResolution,
+                         principal: Principal = Depends(require_admin)):
+    store = require_workflow(state)
+    try:
+        body = await store.resolve_action(approval_id, action_id, principal, payload, state.registry)
+    except ApprovalForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ApprovalStateConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if body is None:
+        raise HTTPException(404, "action not found")
+    return body
 
 
 @router.get("/policy")

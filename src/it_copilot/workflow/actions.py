@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from it_copilot.infra.monitor.telemetry import traceparent
+
 import hashlib
 from functools import wraps
 from typing import Any, Dict, List, Optional
@@ -8,13 +10,13 @@ from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from it_copilot.infra import db as schema
-from it_copilot.infra import fair_queue
+from it_copilot.infra import admin_audit, fair_queue
+from it_copilot.infra.monitor import metrics
 from it_copilot.infra.db import (
     actions,
     approvals,
     tenants,
 )
-from it_copilot.infra.identity import Principal
 from it_copilot.infra.tenant_context import tenant_scope
 from it_copilot.workflow.catalog import WRITE_ACTIONS as WRITE_ACTIONS
 from it_copilot.workflow.catalog import WRITE_TOOLS as WRITE_TOOLS
@@ -47,7 +49,7 @@ class ActionTransactions(Repository):
         for seq, action in enumerate(row["payload"]["action_requests"]):
             key = action_id(row["id"], row["payload_hash"], seq)
             rows.append({
-                "id": key, "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
+                "id": key, "traceparent": traceparent(), "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
                 "resource_key": resource_key(row["tenant"], action["tool_name"], {**action["arguments"], "action_id": key}),
                 "tool_name": action["tool_name"], "arguments": action["arguments"], "adapter": routes[seq],
                 "status": ActionStatus.QUEUED, "attempts": 0, "not_before": now, "version": 0, "created_at": now, "updated_at": now,
@@ -55,58 +57,90 @@ class ActionTransactions(Repository):
         db.execute(insert(actions), rows)
         self.store.notifier.publish(db, row["id"])
 
-    def requeue(self, approval_id: str, principal: Principal) -> Optional[Dict[str, Any]]:
-        """Operator retry for manual_review/unknown actions: they re-enter as `unknown`,
-        so the worker observes the target before deciding to apply again."""
-        now = self.store.clock()
+    def requeue(self, approval_id, principal, reason):
+        return self._review_batch(approval_id, principal, "retry", reason)
+
+    def resolve_manual(self, approval_id, principal, note):
+        return self._review_batch(approval_id, principal, "mark_resolved", note)
+
+    def _review_batch(self, approval_id, principal, resolution, reason):
         with self.store.transaction() as db:
             approval = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not approval:
                 return None
-            if not self.store.approvals._shared_scope(approval, principal):
-                raise ApprovalForbidden("无权处理该审批")
-            result = db.execute(update(actions).where(actions.c.approval_id == approval_id, actions.c.status.in_((ActionStatus.MANUAL_REVIEW, ActionStatus.UNKNOWN)))
-                                .values(status=ActionStatus.UNKNOWN, attempts=0, not_before=now, lease_owner=None, lease_until=None,
-                                        version=actions.c.version + 1, updated_at=now))
-            if result.rowcount:
-                self.store.notifier.publish(db, approval_id)
-            self.store._audit(db, approval_id, "reconcile_requested", principal.subject, detail={"actions": result.rowcount})
-            self._refresh_execution(db, approval_id)
-        return self.store.approvals.get(approval_id)
-
-    def resolve_manual(self, approval_id: str, principal: Principal, note: str) -> Optional[Dict[str, Any]]:
-        """Operator closes manual-review actions after handling the target by hand.
-
-        ``requeue`` cannot end a review the target will never pass (someone deliberately changed the
-        permission): the observation fails again and the resource stays reserved, so every later
-        request for that person and system would wait forever. Closing cancels the actions and keeps
-        drifted grants out of the ledger; an apply closed mid-batch runs the usual saga for the rest."""
-        now = self.store.clock()
-        with self.store.transaction() as db:
-            approval = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-            if not approval:
-                return None
-            if not self.store.approvals._shared_scope(approval, principal):
+            if not principal.is_admin or principal.tenant != approval["tenant"]:
                 raise ApprovalForbidden("无权处理该审批")
             rows = db.execute(select(actions).where(actions.c.approval_id == approval_id,
-                                                    actions.c.status == ActionStatus.MANUAL_REVIEW)
-                              .order_by(actions.c.seq)).mappings().all()
+                actions.c.status.in_((ActionStatus.MANUAL_REVIEW, ActionStatus.UNKNOWN)))
+                .order_by(actions.c.seq)).mappings().all()
             if not rows:
-                raise ApprovalStateConflict("没有需要人工结案的动作")
+                raise ApprovalStateConflict("没有需要人工核对的动作")
             for row in rows:
-                ACTION.check(row["status"], ActionStatus.CANCELLED)
-                done = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"])
-                                  .values(status=ActionStatus.CANCELLED, error=("人工结案：" + note)[:500],
-                                          version=row["version"] + 1, updated_at=now)).rowcount
-                if done != 1:
-                    raise ApprovalStateConflict("动作状态已变化，请刷新后重试")
-                if row["kind"] == "apply":
-                    self.store.grants._compensate(db, dict(row), now)
-            self.store.notifier.publish(db, approval_id)
-            self.store._audit(db, approval_id, "manual_resolved", principal.subject,
-                        detail={"actions": [row["id"] for row in rows], "note": note})
-            self._refresh_execution(db, approval_id)
-        return self.store.approvals.get(approval_id)
+                self._write_review(db, row, principal, resolution, reason, None)
+        metrics.MANUAL_RESOLUTIONS.labels(resolution).inc(len(rows))
+        return self.store.get(approval_id)
+
+    def review_action(self, approval_id, operation_id, principal, version, resolution):
+        if not principal.is_admin:
+            raise ApprovalForbidden("需要管理员权限")
+        with schema.read(self.store.engine) as db:
+            row = db.execute(self.store.grants.reviewable_actions().where(actions.c.id == operation_id,
+                actions.c.approval_id == approval_id, actions.c.tenant == principal.tenant)).mappings().first()
+        if not row:
+            return None
+        drift_closure = row["drifted"] and row["status"] == ActionStatus.CANCELLED and resolution != "retry"
+        if row["version"] != version or not (drift_closure or row["status"] in {ActionStatus.UNKNOWN, ActionStatus.MANUAL_REVIEW}):
+            raise ApprovalStateConflict("动作状态已变化，请刷新后重试")
+        return dict(row)
+
+    def commit_review(self, row, principal, resolution, reason, note, *, observed=None, preexisting=False):
+        with self.store.transaction() as db:
+            self._write_review(db, row, principal, resolution, reason, note, observed=observed, preexisting=preexisting)
+        metrics.MANUAL_RESOLUTIONS.labels(resolution).inc()
+        return self.store.get(row["approval_id"])
+
+    def _write_review(self, db, row, principal, resolution, reason, note, *, observed=None, preexisting=False):
+        if not principal.is_admin or principal.tenant != row["tenant"]:
+            raise ApprovalForbidden("无权处理该动作")
+        if not reason.strip():
+            raise ValueError("必须填写处置原因")
+        target = {"retry": ActionStatus.UNKNOWN, "mark_resolved": ActionStatus.CANCELLED,
+                  "accept_external": ActionStatus.SUCCEEDED}[resolution]
+        result = dict(row["result"] or {})
+        now = self.store.clock()
+        values = {}
+        if resolution == "retry":
+            values.update(attempts=0, not_before=now)
+        elif resolution == "accept_external":
+            if observed is None:
+                raise ApprovalStateConflict("外部状态未确认")
+            if not observed or row["status"] == ActionStatus.CANCELLED:
+                target = ActionStatus.CANCELLED
+            result["reconciled"] = True
+            values.update(result=result, error=None)
+        else:
+            values["error"] = (note or reason)[:500]
+        ACTION.check(row["status"], target)
+        changed = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.tenant == principal.tenant,
+            actions.c.version == row["version"], actions.c.status == row["status"]).values(status=target,
+            version=row["version"] + 1, updated_at=now, **values)).rowcount
+        if changed != 1:
+            raise ApprovalStateConflict("动作状态已变化，请刷新后重试")
+        if resolution != "retry":
+            if row["kind"] == "revoke":
+                status = GrantStatus.REVOKED if observed else GrantStatus.RESOLVED
+                self.store.grants._settle_grant(db, row["id"], status, now)
+            elif observed and row["tool_name"] == "request_access":
+                self.store.grants.record_grant(db, row, result, preexisting, now)
+            elif not observed:
+                self.store.grants._compensate(db, row, now)
+        event = "manual_resolved" if resolution == "mark_resolved" else "manual_" + resolution
+        detail = {"resolution": resolution, "reason": reason, "resolution_note": note, "version": row["version"]}
+        self.store._audit(db, row["approval_id"], event, principal.subject, action_id=row["id"], detail=detail)
+        admin_audit.append(db, tenant=principal.tenant, actor=principal.subject, event=event, subject=row["id"],
+                           detail={**detail, "approval_id": row["approval_id"]}, at=now)
+        self._refresh_execution(db, row["approval_id"])
+        self.store.notifier.publish(db, row["id"])
 
     def claim(self, worker_id: str, lease_s: float, limit: int = 10, *, exclude_ids=(),
               after_tenant: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -164,6 +198,9 @@ class ActionTransactions(Repository):
                         claimed.append(action)
                     if len(claimed) >= limit:
                         break
+        for item in claimed:
+            due_at = item['lease_until'] if item['prev_status'] == ActionStatus.EXECUTING else item['not_before']
+            metrics.DISPATCH_LATENCY.observe(max(0, now - due_at))
         return claimed
 
     @staticmethod
@@ -198,10 +235,11 @@ class ActionTransactions(Repository):
                 actions.c.seq < row["seq"], actions.c.status != ActionStatus.SUCCEEDED)).first():
             return None  # apply actions of one approval run strictly in order
         ACTION.check(row["status"], ActionStatus.EXECUTING)
+        parent = row["traceparent"] or db.scalar(select(approvals.c.traceparent).where(approvals.c.id == row["approval_id"])) or traceparent()
         try:
             with db.begin_nested():
                 result = db.execute(update(actions).where(actions.c.id == row["id"], actions.c.version == row["version"]).values(
-                    status=ActionStatus.EXECUTING, lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
+                    status=ActionStatus.EXECUTING, traceparent=parent, lease_owner=worker_id, lease_until=now + lease_s, attempts=row["attempts"] + 1,
                     version=row["version"] + 1, updated_at=now))
         except IntegrityError as exc:
             if "uq_actions_resource_executing" not in str(exc.orig) and "actions.resource_key" not in str(exc.orig):
@@ -212,11 +250,13 @@ class ActionTransactions(Repository):
         if row["kind"] == "apply" and row["seq"] == 0 and row["attempts"] == 0:
             db.execute(update(approvals).where(approvals.c.id == row["approval_id"], approvals.c.execution == Execution.QUEUED).values(execution=Execution.EXECUTING))
         self.store._audit(db, row["approval_id"], f"{row['kind']}_started", worker_id, action_id=row["id"], detail={"attempt": row["attempts"] + 1, "previous": row["status"]})
-        return {**row, "prev_status": row["status"], "status": ActionStatus.EXECUTING,
+        return {**row, "traceparent": parent, "prev_status": row["status"], "status": ActionStatus.EXECUTING,
                 "attempts": row["attempts"] + 1, "version": row["version"] + 1, "lease_owner": worker_id}
 
-    def release_lease(self, action, *, uncertain=True):
+    def release_lease(self, action, *, uncertain=True, reason='shutdown'):
         """Make interrupted work eligible immediately. Observe ambiguous effects before replay."""
+        if reason not in {'shutdown', 'error'}:
+            raise ValueError('invalid lease release reason')
         status = ActionStatus.UNKNOWN if uncertain else action["prev_status"]
         if status == ActionStatus.EXECUTING:
             status = ActionStatus.UNKNOWN
@@ -231,6 +271,8 @@ class ActionTransactions(Repository):
             if not released.rowcount:
                 raise LeaseLost(action["id"])
             self.store.notifier.publish(db, action["id"])
+
+        metrics.WORKFLOW_RELEASES.labels(reason).inc()
 
     def renew(self, action, lease_s):
         """Attempts is the claim epoch; intermediate result writes may change version."""

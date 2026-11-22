@@ -48,7 +48,7 @@ def approval_phase(row, decisions, rows, now):
 
 _EFFECT_STAGES = {
     "claimed": {"preflight": "preflight", "observe": "observing", "baseline": "baseline", "apply": "applying", "fail": "failed"},
-    "preflight": {"baseline": "baseline", "apply": "applying", "fail": "failed"},
+    "preflight": {"observe": "observing", "baseline": "baseline", "apply": "applying", "fail": "failed"},
     "observing": {"reconciled": "verified", "baseline": "baseline", "apply": "applying", "fail": "failed"},
     "baseline": {"preexisting": "verified", "apply": "applying", "drift": "review", "fail": "failed"},
     "applying": {"verify": "verifying", "fail": "failed"},

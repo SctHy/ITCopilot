@@ -72,6 +72,37 @@ class WorkflowStore:
     def policy(self, value: AccessPolicy) -> None:
         self._policy = value
 
+    async def resolve_action(self, approval_id, action_id, principal, payload, registry):
+        from it_copilot.infra.tenant_context import tenant_scope
+        from it_copilot.infra.monitor.telemetry import trace_scope
+        from it_copilot.workflow.adapters.base import rank, target_level
+
+        row = await self.run(self.review_action, approval_id, action_id, principal, payload.version, payload.resolution)
+        if row is None:
+            return None
+        observed, preexisting = None, False
+        if payload.resolution == "accept_external":
+            args = dict(row["arguments"])
+            facts = row["result"] or {}
+            with tenant_scope(principal.tenant), trace_scope(row["traceparent"], "workflow.observe"):
+                try:
+                    adapter = registry.by_name(row["adapter"])
+                    if row["kind"] == "revoke":
+                        args["restore_to"] = target_level(adapter, await self.run(self.grants.review_restore_level, row))
+                    spec = {"tool_name": row["tool_name"], "arguments": args}
+                    observed = await adapter.observe(row["id"], spec)
+                    observed = True if observed else None
+                    if row["tool_name"] in {"request_access", "revoke_access"}:
+                        current = await adapter.current_level(args["employee_id"], args["system"])
+                        target = args.get("restore_to") if row["kind"] == "revoke" else target_level(adapter, args["role"])
+                        observed = True if current == target else (False if current is None and row["kind"] == "apply" else None)
+                        if row["kind"] == "apply" and observed:
+                            preexisting = rank(facts["baseline_level"]) >= rank(target)
+                except Exception as exc:
+                    raise ApprovalStateConflict("无法核实外部状态或授权基线，请人工核查") from exc
+        return await self.run(self.commit_review, row, principal, payload.resolution, payload.reason,
+                              payload.resolution_note, observed=observed, preexisting=preexisting)
+
     def transaction(self):
         return self.notifier.transaction(self.engine)
 

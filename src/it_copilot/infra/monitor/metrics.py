@@ -47,9 +47,11 @@ WORKFLOW_OLDEST_AGE = Gauge("it_copilot_workflow_oldest_age_seconds", "最久未
 CONFIG_RELOADS = Counter("it_copilot_config_reloads_total", "运行中配置热加载：applied 生效，rejected 校验失败、沿用上一份配置", ["config", "outcome"])
 POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后对在途审批与授权的处置", ["outcome"])
 
-# ── IM 渠道 ─────────────────────────────────────────────────────────────
-CHANNEL_MESSAGES = Counter("it_copilot_channel_messages_total", "IM 渠道入站消息去向", ["channel", "outcome"])
-CHANNEL_DELIVERIES = Counter("it_copilot_channel_deliveries_total", "IM 渠道出站消息投递结果", ["channel", "outcome"])
+# user_id, tenant, approval_id, action_id, conv_id and request_id belong in logs only.
+WORKFLOW_WAKEUPS = Counter("it_copilot_workflow_wakeups_total", "Worker wait completions", ["source"])
+WORKFLOW_RELEASES = Counter("it_copilot_workflow_leases_released_total", "Actively released leases", ["reason"])
+MANUAL_RESOLUTIONS = Counter("it_copilot_workflow_manual_resolutions_total", "Committed operator decisions", ["resolution"])
+DISPATCH_LATENCY = Histogram("it_copilot_workflow_dispatch_latency_seconds", "Seconds from eligibility to claim", buckets=TOOL_LATENCY_BUCKETS)
 
 # ── 实时事件流 ────────────────────────────────────────────────────────────────
 STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 首个执行事件（非 started）距请求开始的延迟", buckets=TOOL_LATENCY_BUCKETS)

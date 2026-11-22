@@ -1,5 +1,5 @@
 """HTTP 请求与响应模型。"""
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -73,9 +73,19 @@ class ApprovalWithdrawal(BaseModel):
     reason: str = Field("", max_length=500)
 
 
+class ReviewReason(BaseModel):
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
+
+
+class ActionResolution(ReviewReason):
+    resolution: Literal["retry", "accept_external", "mark_resolved"]
+    version: int = Field(ge=0)
+    resolution_note: Optional[str] = Field(None, max_length=500)
+
+
 class ManualResolution(BaseModel):
     """IT 管理员在目标系统人工处理后结案：写明处理结果，进入审批审计。"""
-    note: str = Field(..., min_length=1, max_length=500)
+    note: str = Field(..., min_length=1, max_length=500, pattern=r"\S")
 
 
 class SessionRevocationRequest(BaseModel):

@@ -49,6 +49,7 @@ login_identities = Table(
 
 approvals = Table(
     "approvals", metadata,
+    Column("traceparent", String(128)),
     Column("id", String(200), primary_key=True),
     Column("request_id", String(200), nullable=False),
     Column("conv_id", String(200)),
@@ -89,6 +90,7 @@ approval_decisions = Table(
 # as the outbox: the worker claims due rows with a lease + version CAS.
 actions = Table(
     "actions", metadata,
+    Column("traceparent", String(128)),
     Column("id", String(64), primary_key=True),                 # idempotency key passed to adapters
     Column("tenant", String(80), nullable=False),               # copied from the approval
     Column("approval_id", String(200), nullable=False),

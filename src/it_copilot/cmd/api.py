@@ -12,7 +12,7 @@ def main():
     from it_copilot.api.app import create_app
 
     app = create_app()
-    server = DrainingServer(uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("IT_COPILOT_PORT", "8001")),
+    server = DrainingServer(uvicorn.Config(app, log_config=None, host="0.0.0.0", port=int(os.getenv("IT_COPILOT_PORT", "8001")),
         timeout_graceful_shutdown=env_float("IT_COPILOT_SHUTDOWN_GRACE_S", 15)))
     server.run()
 

@@ -1,6 +1,6 @@
 // Approval endpoints. Permission rules live on the server; see lib/approvalActions.ts for display hints.
 import { jsonBody, requestFor } from './http.ts'
-import type { Approval, Settings } from '../lib/types.ts'
+import type { Approval, ReviewDecision, Settings } from '../lib/types.ts'
 
 const path = (id: string, suffix = '') => `/approvals/${encodeURIComponent(id)}${suffix}`
 
@@ -10,8 +10,13 @@ export function requestApproval(type: string, settings: Settings, id: string, de
 }
 
 // 人工对账（IT 管理员）：结果未知或需复核的动作重新交给执行器，先回查目标系统再决定是否重做。
-export const reconcileApproval = (type: string, settings: Settings, id: string) =>
-  requestFor<Approval>(type, settings, path(id, '/reconcile'), { method: 'POST' })
+export const reconcileApproval = (type: string, settings: Settings, id: string, reason: string) =>
+  requestFor<Approval>(type, settings, path(id, '/reconcile'), jsonBody({ reason }))
+
+export function reviewAction(type: string, settings: Settings, id: string, review: ReviewDecision) {
+  const { operation_id, ...payload } = review
+  return requestFor<Approval>(type, settings, path(id, `/actions/${encodeURIComponent(operation_id)}/resolve`), jsonBody(payload))
+}
 
 // 人工结案（IT 管理员）：目标系统已人工处理后结束需复核的动作，释放该资源上的后续申请。
 export const resolveApproval = (type: string, settings: Settings, id: string, note: string) =>

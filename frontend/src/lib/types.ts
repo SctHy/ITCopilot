@@ -33,10 +33,12 @@ export interface ApprovalVote {
 
 /** One executed (or compensating) action or a scheduled revocation. */
 export interface ApprovalStep {
+  version?: number
   operation_id: string
   action?: string
   status: string
   adapter?: string
+  drifted?: boolean
   preexisting?: boolean
   covered_by?: string
   reconciled?: boolean
@@ -62,12 +64,20 @@ export interface Approval {
   decisions?: ApprovalVote[]
   assigned_reviewers?: string[]
   results?: ApprovalStep[]
+  audit?: { event: string, actor: string, detail?: { reason?: string } }[]
   revocations?: ApprovalStep[]
   room_can_write?: boolean
   conflicts?: { approval_id: string, status: string, requester: string, conv_channel: string }[]
 }
 
-export type ApprovalDecision = 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release' | 'resolve'
+export interface ReviewDecision {
+  resolution: 'retry' | 'accept_external' | 'mark_resolved'
+  operation_id: string
+  version: number
+  reason: string
+}
+
+export type ApprovalDecision = ReviewDecision | 'approved' | 'rejected' | 'clarify' | 'reconcile' | 'confirm' | 'withdraw' | 'release' | 'resolve'
 
 /** An approval card bound to the connection that produced it. */
 export interface ApprovalItem {

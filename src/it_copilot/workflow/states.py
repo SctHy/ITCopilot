@@ -40,6 +40,7 @@ class ActionStatus(StrEnum):
 class GrantStatus(StrEnum):
     ACTIVE = "active"
     PREEXISTING = "preexisting"    # the employee already had the level; nothing to revoke
+    RESOLVED = "resolved"      # operator closed the ledger after offline handling
     REVOKED = "revoked"
     REVOKE_FAILED = "revoke_failed"
     DRIFTED = "drifted"            # changed by someone else; automatic revocation stopped
@@ -54,20 +55,20 @@ EXECUTION = Machine(Execution, """
     not_executed  -> queued
     queued        -> executing | failed           # failed: the policy cancelled every action before it started
     executing     -> succeeded | failed | manual_review
-    manual_review -> executing | failed           # operator requeue | operator closed it by hand
+    manual_review -> succeeded | executing | failed           # operator requeue | operator closed it by hand
 """)
 
 ACTION = Machine(ActionStatus, """
     queued        -> executing | cancelled        # cancelled: policy change or saga compensation
-    unknown       -> executing | cancelled        # cancelled: periodic reconciliation found external drift
+    unknown       -> succeeded | executing | cancelled        # cancelled: periodic reconciliation found external drift
     executing     -> succeeded | queued | unknown | failed | manual_review
-    manual_review -> unknown | cancelled          # operator requeue: observe before applying again | closed by hand
+    manual_review -> succeeded | unknown | cancelled          # operator requeue: observe before applying again | closed by hand
 """)
 
 GRANT = Machine(GrantStatus, """
-    active        -> revoked | revoke_failed | drifted
-    drifted       -> revoked | revoke_failed      # the revoke action was requeued by an operator
-    revoke_failed -> revoked | drifted
+    active        -> resolved | revoked | revoke_failed | drifted
+    drifted       -> resolved | revoked | revoke_failed      # the revoke action was requeued by an operator
+    revoke_failed -> resolved | revoked | drifted
 """)
 
 # Not yet decided by anyone: a policy change re-checks these, time expires them.

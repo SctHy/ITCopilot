@@ -126,4 +126,6 @@ class OrchestratorResult:
 
     @property
     def trace_id(self) -> str:
-        return self.request_id
+        from it_copilot.infra.monitor.telemetry import current_traceparent
+        parent = current_traceparent()
+        return parent.split("-")[1] if parent else self.request_id

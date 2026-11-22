@@ -7,6 +7,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { createAppRouter } from '../../src/router'
 import { createServerQueryClient } from '../../src/lib/queryClient'
 import { SelectInput, MultiSelectInput } from '../../src/components/ui'
+import { ApprovalCard } from '../../src/components/ApprovalCard'
 import { ApprovalsView } from '../../src/views/ApprovalsView'
 import { applyApprovalAction } from '../../src/lib/approvalDecision'
 
@@ -37,6 +38,26 @@ async function openApp(path: string) {
 }
 
 describe('upstream component integration', () => {
+  it('requires an operator reason and submits the version shown on the selected action', async () => {
+    const approval = { approval_id: 'a', status: 'approved', results: [
+      { operation_id: 'outbox-1', version: 4, status: 'unknown', action: 'create_ticket' },
+    ] }
+    const submit = vi.fn()
+    const { rerender } = render(<ApprovalCard approval={approval} onAction={submit} />)
+    expect(screen.queryByRole('button', {name: '采纳外部实态'})).toBeNull()
+    rerender(<ApprovalCard approval={approval} identity={{username: 'ops', department: 'IT', roles: ['it_admin']}} onAction={submit} />)
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('  ').mockReturnValueOnce('已核对工单')
+    try {
+      const button = screen.getByRole('button', {name: '采纳外部实态'})
+      await userEvent.click(button)
+      expect(submit).not.toHaveBeenCalled()
+      await userEvent.click(button)
+      expect(submit).toHaveBeenCalledWith({resolution: 'accept_external', operation_id: 'outbox-1', version: 4, reason: '已核对工单'})
+    } finally {
+      prompt.mockRestore()
+    }
+  })
+
   it('single select resolves labels; multi-select preserves several choices', async () => {
     const onSingle = vi.fn(), onMulti = vi.fn()
     function Form() {

@@ -1,18 +1,49 @@
 """OpenTelemetry 链路追踪：一次 /chat 为根 span，PydanticAI 自动产生模型调用与工具调用子 span。
 
-仅在设置 OTEL_EXPORTER_OTLP_ENDPOINT（OTLP gRPC 收集端）时启用；未启用时 tracer 为 no-op，零开销。
+仅在设置 OTEL_EXPORTER_OTLP_ENDPOINT（OTLP gRPC 收集端）时启用；未启用时仍通过 W3C 上下文关联请求与异步动作。
 默认不把 prompt / 模型输出写入 span（可能含员工信息），需要排障时设 IT_COPILOT_OTEL_INCLUDE_CONTENT=true。
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 import os
+import secrets
 from typing import Optional
 
-from opentelemetry import trace
+from opentelemetry import context, trace
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("it_copilot")
+
+
+propagator = TraceContextTextMapPropagator()
+
+
+def current_traceparent():
+    carrier = {}
+    propagator.inject(carrier)
+    return carrier.get("traceparent")
+
+
+def traceparent():
+    return current_traceparent() or f"00-{secrets.token_hex(16)}-{secrets.token_hex(8)}-01"
+
+
+@contextmanager
+def trace_scope(parent, name):
+    ctx = propagator.extract({"traceparent": parent or ""}, context=context.Context())
+    if not trace.get_current_span(ctx).get_span_context().is_valid:
+        ctx = propagator.extract({"traceparent": f"00-{secrets.token_hex(16)}-{secrets.token_hex(8)}-01"})
+    incoming = trace.get_current_span().get_span_context()
+    links = [trace.Link(incoming)] if incoming.is_valid else []
+    token = context.attach(ctx)
+    try:
+        with tracer.start_as_current_span(name, links=links):
+            yield traceparent()
+    finally:
+        context.detach(token)
 
 
 def setup_tracing(exporter=None):

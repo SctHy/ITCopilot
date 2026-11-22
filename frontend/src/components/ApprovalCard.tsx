@@ -112,14 +112,13 @@ function ApprovalActions({ approval, identity, busy, allowClarification, onActio
 }) {
   const permissions = approvalPermissions(approval, identity)
   const steps = [...(approval.results || []), ...(approval.revocations || [])]
-  const manualReview = steps.some(step => step.status === 'manual_review')
-  const needsReview = steps.some(step => ['manual_review', 'unknown'].includes(step.status))
+  const reviews = steps.filter(step => ['manual_review', 'unknown'].includes(step.status) || step.drifted)
   const confirmThen = (action: ApprovalDecision, message: string) => { if (window.confirm(message)) onAction(action) }
-  // 回查无法结束的复核（有人有意改了权限）只能人工结案；说明进入审批审计。
-  const resolve = () => {
-    const note = (window.prompt('说明在目标系统中的处理结果（必填，进入审计）') || '').trim()
-    if (note) onAction('resolve', note)
-  }
+  const choices = [
+    ['retry', '重新入队', '执行器将先回查，再决定是否重试。'],
+    ['accept_external', '采纳外部实态', '只读核实目标系统并更新台账。'],
+    ['mark_resolved', '线下结案', '确认已在线下处理完毕。'],
+  ] as const
   return (
     <div className="flex flex-col gap-2" role="group" aria-label="审批选项">
       {approval.status === 'draft' && <p className="text-[13px] text-muted-foreground">这是 Agent 起草的申请，核对上面的内容无误后再提交；提交后才会交给审批人。</p>}
@@ -141,8 +140,15 @@ function ApprovalActions({ approval, identity, busy, allowClarification, onActio
         {permissions.canRelease && (
           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => confirmThen('release', '确认现在归还这项限时权限？归还后如需使用要重新申请。')}>提前归还权限</Button>
         )}
-        {permissions.canReconcile && needsReview && <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => onAction('reconcile')}>回查目标系统并对账</Button>}
-        {permissions.canReconcile && manualReview && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={resolve}>已人工处理，结案</Button>}
+        {permissions.canReconcile && reviews.map(step => <fieldset key={step.operation_id}>
+          <legend>{actionLabels[step.action || ''] || step.action} · {step.operation_id.slice(0, 8)}</legend>
+          {choices.filter(([mode]) => step.status !== 'cancelled' || mode !== 'retry').map(([resolution, label, hint]) => <Button key={resolution} type="button" size="sm" variant="outline"
+            disabled={busy || step.version === undefined} onClick={() => {
+              const reason = window.prompt(hint + ' 请填写处置原因（进入审计）。')?.trim()
+              if (reason && step.version !== undefined) onAction({resolution, operation_id: step.operation_id, version: step.version, reason})
+            }}>{label}</Button>)}
+        </fieldset>)}
+        {permissions.canReconcile && approval.audit?.filter(entry => entry.detail?.reason).map((entry, index) => <p key={index}>{entry.actor} · {entry.event} · {entry.detail?.reason}</p>)}
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => onAction()}><RefreshCwIcon className="size-3.5" />刷新状态</Button>
       </div>
       {approval.status === 'draft' && permissions.reason && <p className="text-[13px] text-muted-foreground">{permissions.reason}</p>}

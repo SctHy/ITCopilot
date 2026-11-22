@@ -7,6 +7,8 @@ what reconciliation relies on after an ambiguous failure.
 """
 from __future__ import annotations
 
+from it_copilot.infra.monitor.telemetry import traceparent
+
 from inspect import isawaitable
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -53,7 +55,7 @@ class GiteaAdapter:
 
     async def _request(self, method: str, path: str, **kwargs) -> httpx2.Response:
         try:
-            response = await self._client.request(method, path, **kwargs)
+            response = await self._client.request(method, path, headers={"traceparent": traceparent()}, **kwargs)
         except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout) as exc:
             # The request never reached Gitea.
             raise TransientError(f"Gitea 连接失败（{type(exc).__name__}）") from exc
@@ -88,6 +90,8 @@ class GiteaAdapter:
         if response.status_code != 200:
             raise AmbiguousError(f"Gitea 权限查询返回 {response.status_code}")
         permission = response.json().get("permission")
+        if not isinstance(permission, str) or not permission.strip():
+            raise AmbiguousError("Gitea 权限响应缺少有效权限等级")
         return PERMISSION_TO_LEVEL.get(permission, permission)
 
     def _target(self, action: Dict[str, Any]) -> Optional[str]:

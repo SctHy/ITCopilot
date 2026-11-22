@@ -1,5 +1,5 @@
 import asyncio
-import logging
+from it_copilot.infra.logging import configure_logging
 import os
 import signal
 from contextlib import AsyncExitStack, nullcontext
@@ -47,7 +47,7 @@ async def serve(worker, store):
         address = os.getenv("IT_COPILOT_WORKER_METRICS_ADDR")
         if address:
             host, port = address.rsplit(":", 1)
-            server = uvicorn.Server(uvicorn.Config(management_app(worker), host=host, port=int(port), lifespan="off"))
+            server = uvicorn.Server(uvicorn.Config(management_app(worker), log_config=None, host=host, port=int(port), lifespan="off"))
             server.capture_signals = nullcontext
             task = asyncio.create_task(server.serve())
 
@@ -67,13 +67,15 @@ async def serve(worker, store):
 
 
 async def run_worker() -> None:
-    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    configure_logging("worker")
     from it_copilot.infra import tenant_context
 
     tenant_context.enter(tenant_context.SYSTEM)  # the standalone worker spans tenants; run_once scopes each action
     store, registry = configured_store(database_url())
 
     async with AsyncExitStack() as resources:
+        from it_copilot.infra.monitor.telemetry import setup_tracing, shutdown_tracing
+        resources.callback(shutdown_tracing, setup_tracing())
         resources.push_async_callback(store.aclose)
         for adapter in registry.all():
             if hasattr(adapter, "close"):

@@ -216,7 +216,7 @@ class MCPToolManager:
         每次调用都记录结果分类、执行耗时与熔断状态指标。重排只在 enhanced_search 里对合并结果做。
         """
         result = await self._call(name, params, context, use_cache=use_cache)
-        metrics.TOOL_CALLS.labels(tool=name, outcome=result.outcome).inc()
+        metrics.TOOL_CALLS.labels(tool=name if name in self._tools else 'unknown', outcome=result.outcome).inc()
         if result.outcome == "success":
             metrics.TOOL_LATENCY.labels(tool=name).observe(result.latency_ms / 1000)
         tool = self._tools.get(name)

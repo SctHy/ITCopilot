@@ -1,5 +1,6 @@
 """Compare live entitlements with the ledger without changing the target system."""
 
+from it_copilot.infra.monitor.telemetry import trace_scope
 from sqlalchemy import and_, or_, select
 
 from it_copilot.infra import db as schema
@@ -28,22 +29,27 @@ class GrantReconciler:
                         break
                     for grant in batch:
                         cursor = grant["action_id"]
-                        snapshot = await self.store.run(self._snapshot, grant)
-                        if not snapshot:
-                            continue
-                        adapter = self.registry.by_name(grant["adapter"])
-                        try:
-                            current = await adapter.current_level(grant["employee_id"], grant["system"])
-                        except (TransientError, AmbiguousError):
-                            metrics.RECONCILE_SKIPPED.inc()
-                            continue
-                        expected = target_level(adapter, snapshot["expected"])
-                        if current != expected:
-                            changed = await self.store.run(self._mark, grant, snapshot, current, expected)
-                            drifted += len(changed)
-                            if changed:
-                                metrics.GRANT_DRIFT.labels(system=grant["system"]).inc()
+                        with trace_scope(grant["traceparent"], "workflow.reconcile"):
+                            drifted += await self._check_grant(grant)
         return drifted
+
+    async def _check_grant(self, grant):
+        snapshot = await self.store.run(self._snapshot, grant)
+        if not snapshot:
+            return 0
+        adapter = self.registry.by_name(grant["adapter"])
+        try:
+            current = await adapter.current_level(grant["employee_id"], grant["system"])
+        except (TransientError, AmbiguousError):
+            metrics.RECONCILE_SKIPPED.inc()
+            return 0
+        expected = target_level(adapter, snapshot["expected"])
+        if current == expected:
+            return 0
+        changed = await self.store.run(self._mark, grant, snapshot, current, expected)
+        if changed:
+            metrics.GRANT_DRIFT.labels(system=grant["system"]).inc()
+        return len(changed)
 
     def _tenants(self):
         with schema.read(self.store.engine) as db:
@@ -52,7 +58,7 @@ class GrantReconciler:
 
     def _batch(self, tenant, cursor):
         with schema.read(self.store.engine) as db:
-            return [dict(row) for row in db.execute(select(access_grants).where(
+            return [dict(row) for row in db.execute(select(access_grants, actions.c.traceparent).join(actions, actions.c.id == access_grants.c.action_id).where(
                 access_grants.c.tenant == tenant, access_grants.c.status == GrantStatus.ACTIVE,
                 access_grants.c.action_id > cursor).order_by(access_grants.c.action_id).limit(50)).mappings()]
 

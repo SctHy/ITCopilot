@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from it_copilot.infra.monitor.telemetry import trace_scope
+from it_copilot.infra.logging import configure_logging
 from it_copilot.api.container import AppContainer
 from it_copilot.api.deps import env_flag
 from it_copilot.api.routes import agents, memory, approvals, auth, chat, conversations, knowledge, ops
@@ -29,7 +31,7 @@ from it_copilot.infra.identity import dev_mode_allowed
 from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
 
 load_dotenv(pathlib.Path(_ROOT) / ".env")
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+configure_logging("api")
 logger = logging.getLogger("it_copilot")
 
 
@@ -180,6 +182,14 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
     app.state.mcp_mount = _mcp_mount
     _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    @app.middleware("http")
+    async def trace_request(request, call_next):
+        with trace_scope(request.headers.get("traceparent"), "it_copilot.http") as parent:
+            response = await call_next(request)
+            response.headers["traceparent"] = parent
+            response.headers["X-Trace-Id"] = parent.split("-")[1]
+            return response
+
     app.mount("/mcp", _mcp_mount)
     for module in (agents, memory, ops, auth, approvals, knowledge, chat, conversations):
         app.include_router(module.router)

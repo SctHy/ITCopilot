@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from it_copilot.infra.monitor.telemetry import trace_scope, traceparent
+
 import hashlib
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, insert, select, update
@@ -9,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 
 from it_copilot.infra import db as schema
 from it_copilot.infra.db import (
-    actions,
     approval_decisions,
     approvals,
 )
@@ -91,7 +92,7 @@ class ApprovalRepo(ApprovalQueries):
             with (nullcontext(connection) if connection is not None else self.store.transaction()) as db:
                 existing = db.execute(select(approvals.c.payload_hash).where(approvals.c.id == approval_id)).scalar()
                 if existing is None:
-                    db.execute(insert(approvals).values(
+                    db.execute(insert(approvals).values(traceparent=traceparent(),
                         id=approval_id, request_id=request_id, conv_id=conv_id, requester=principal.subject, requester_name=principal.username,
                         requester_employee_id=principal.employee_id, department=principal.department, tenant=principal.tenant,
                         status=ApprovalStatus.DRAFT if draft else ApprovalStatus.PENDING, execution=Execution.NOT_EXECUTED,
@@ -108,10 +109,7 @@ class ApprovalRepo(ApprovalQueries):
                     # requester confirms its replacement, so walking away from a draft loses nothing.
                     superseded = self._supersede(db, approval_id, conv_id, principal.subject, principal.tenant, frozen_actions, now,
                                                  statuses=(ApprovalStatus.DRAFT,) if draft else tuple(OPEN), carried=carried)
-                row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().one()
-                decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id)).mappings().all()
-                rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-                body = self._body(row, decisions, rows, self._open_resources(db, row["tenant"]))
+                body, = self._get_many(db, [approval_id])
         except IntegrityError:
             if connection is not None:
                 raise
@@ -174,7 +172,7 @@ class ApprovalRepo(ApprovalQueries):
         if "actions" in payload:
             payload["actions"] = tools
             payload["summary"] = f"请求执行 {', '.join(tools)}；当前仅生成 dry-run，需人工审批后执行。"
-        db.execute(insert(approvals).values(
+        db.execute(insert(approvals).values(traceparent=row["traceparent"] or traceparent(),
             id=rest_id, request_id=row["request_id"], conv_id=row["conv_id"], requester=row["requester"], requester_name=row["requester_name"],
             requester_employee_id=row["requester_employee_id"], department=row["department"], tenant=row["tenant"],
             status=row["status"], execution=Execution.NOT_EXECUTED,
@@ -199,7 +197,7 @@ class ApprovalRepo(ApprovalQueries):
 
     def _decide_once(self, approval_id, decision, principal, payload_hash) -> bool:
         now = self.store.clock()
-        with self.store.transaction() as db:
+        with self.store.transaction() as db, ExitStack() as scope:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return False
@@ -207,6 +205,7 @@ class ApprovalRepo(ApprovalQueries):
                 raise ApprovalForbidden("当前身份没有审批权限")
             if not self._shared_scope(row, principal):
                 raise ApprovalForbidden("无权处理该审批")
+            scope.enter_context(trace_scope(row["traceparent"] or traceparent(), "workflow.decide"))
             if payload_hash != row["payload_hash"]:
                 raise ApprovalConflict("审批内容哈希不匹配")
             if row["status"] == ApprovalStatus.DRAFT:
@@ -306,12 +305,13 @@ class ApprovalRepo(ApprovalQueries):
 
     def _confirm_once(self, approval_id: str, principal: Principal, payload_hash: Optional[str]) -> bool:
         now = self.store.clock()
-        with self.store.transaction() as db:
+        with self.store.transaction() as db, ExitStack() as scope:
             row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
             if not row:
                 return False
             if row["tenant"] != principal.tenant or row["requester"] != principal.subject:
                 raise ApprovalForbidden("只有申请人本人可以确认提交")
+            scope.enter_context(trace_scope(row["traceparent"] or traceparent(), "workflow.confirm"))
             if payload_hash is not None and payload_hash != row["payload_hash"]:
                 raise ApprovalConflict("申请内容哈希不匹配")
             if row["status"] == ApprovalStatus.PENDING and row["confirmed_at"] is not None:
@@ -352,6 +352,8 @@ class ApprovalRepo(ApprovalQueries):
             APPROVAL.check(row["status"], values["status"])
         if "execution" in values:
             EXECUTION.check(row["execution"], values["execution"])
+        if not row.get("traceparent"):
+            values["traceparent"] = traceparent()
         result = db.execute(update(approvals).where(approvals.c.id == row["id"], approvals.c.version == row["version"])
                             .values(version=row["version"] + 1, **values))
         if result.rowcount != 1:

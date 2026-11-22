@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from it_copilot.infra.monitor.telemetry import traceparent
+
 import hashlib
 from typing import Any, Dict, List, Optional
 
@@ -41,7 +43,7 @@ class GrantLedger(Repository):
         if not preexisting:
             revoke_id = hashlib.sha256(f"{action['id']}:revoke".encode()).hexdigest()
             db.execute(insert(actions).values(
-                id=revoke_id, tenant=action["tenant"], approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
+                id=revoke_id, traceparent=action.get("traceparent") or traceparent(), tenant=action["tenant"], approval_id=action["approval_id"], seq=1000 + action["seq"], kind="revoke",
                 tool_name="revoke_access", arguments={"employee_id": args["employee_id"], "system": args["system"],
                 "role": args["role"]}, resource_key=action["resource_key"], adapter=action["adapter"], status=ActionStatus.QUEUED, attempts=0,
                 not_before=expires_at, version=0, parent_action_id=action["id"], created_at=now, updated_at=now))
@@ -222,6 +224,19 @@ class GrantLedger(Repository):
             return {"baseline_level": active[0]["baseline_role"] if active else current,
                     "expected_level": self.desired_level(db, action["tenant"], args["employee_id"], args["system"]),
                     "covering": [{"action_id": grant["action_id"], "role": grant["role"]} for grant in active]}
+
+    @staticmethod
+    def reviewable_actions():
+        drifted = select(access_grants.c.action_id).where(access_grants.c.revoke_action_id == actions.c.id,
+            access_grants.c.status == GrantStatus.DRIFTED).exists()
+        return select(actions, drifted.label("drifted"))
+
+    def review_restore_level(self, action):
+        with schema.read(self.store.engine) as db:
+            grant = db.execute(select(access_grants).where(access_grants.c.revoke_action_id == action["id"])).mappings().one()
+            level = self.desired_level(db, grant["tenant"], grant["employee_id"], grant["system"],
+                                       excluding_action_id=grant["action_id"])
+            return level if level is not None else grant["baseline_role"]
 
     def revocation_context(self, action):
         args = action["arguments"]

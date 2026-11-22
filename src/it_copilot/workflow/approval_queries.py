@@ -22,12 +22,8 @@ from it_copilot.workflow.states import OPEN, ActionStatus, ApprovalStatus, Execu
 class ApprovalQueries(Repository):
     def get(self, approval_id: str) -> Optional[Dict[str, Any]]:
         with schema.read(self.store.engine) as db:
-            row = db.execute(select(approvals).where(approvals.c.id == approval_id)).mappings().first()
-            if not row:
-                return None
-            decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id == approval_id).order_by(approval_decisions.c.id)).mappings().all()
-            rows = db.execute(select(actions).where(actions.c.approval_id == approval_id).order_by(actions.c.seq)).mappings().all()
-            return self._body(row, decisions, rows, self._open_resources(db, row["tenant"]))
+            bodies = self._get_many(db, [approval_id])
+            return bodies[0] if bodies else None
 
     def get_many(self, approval_ids):
         """Read complete approval views in one snapshot, sharing conflict lookup per tenant."""
@@ -39,9 +35,11 @@ class ApprovalQueries(Repository):
 
     def _get_many(self, db, ids):
         rows = db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings().all()
+        if not rows:
+            return []
         decisions = db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
                                .order_by(approval_decisions.c.id)).mappings().all()
-        operations = db.execute(select(actions).where(actions.c.approval_id.in_(ids))
+        operations = db.execute(self.store.grants.reviewable_actions().where(actions.c.approval_id.in_(ids))
                                 .order_by(actions.c.seq)).mappings().all()
         conflicts = {tenant: self._open_resources(db, tenant) for tenant in {r['tenant'] for r in rows}}
         by_id = {r['id']: r for r in rows}
@@ -50,17 +48,23 @@ class ApprovalQueries(Repository):
             grouped_decisions.setdefault(item['approval_id'], []).append(item)
         for item in operations:
             grouped_operations.setdefault(item['approval_id'], []).append(item)
+        history = {}
+        if operations:
+            reviews = select(audit.c.approval_id, audit.c.event, audit.c.action_id, audit.c.actor, audit.c.detail, audit.c.at).where(
+                audit.c.approval_id.in_(ids), audit.c.event.in_(("manual_retry", "manual_resolved", "manual_accept_external")))
+            for entry in db.execute(reviews.order_by(audit.c.id)).mappings():
+                history.setdefault(entry["approval_id"], []).append({**entry, "at": _iso(entry["at"])})
         return [self._body(by_id[i], grouped_decisions.get(i, []), grouped_operations.get(i, []),
-                           conflicts[by_id[i]['tenant']]) for i in ids if i in by_id]
+                           conflicts[by_id[i]['tenant']], history.get(i, [])) for i in ids if i in by_id]
 
-    def _body(self, row, decisions, rows, open_resources) -> Dict[str, Any]:
+    def _body(self, row, decisions, rows, open_resources, history) -> Dict[str, Any]:
         payload = dict(row["payload"])
         now = self.store.clock()
 
         def view(a):
             blocked = a["kind"] == "apply" and any(
                 prior["kind"] == "apply" and prior["seq"] < a["seq"] and prior["status"] != ActionStatus.SUCCEEDED for prior in rows)
-            return {"operation_id": a["id"], "seq": a["seq"], "kind": a["kind"], "action": a["tool_name"], "adapter": a["adapter"],
+            return {"operation_id": a["id"], "version": a["version"], "drifted": a["drifted"], "seq": a["seq"], "kind": a["kind"], "action": a["tool_name"], "adapter": a["adapter"],
                     "status": a["status"], "phase": work_phase(a, now, blocked=blocked), "attempts": a["attempts"], "not_before": _iso(a["not_before"]), "error": a["error"],
                     **{k: v for k, v in (a["result"] or {}).items() if k != "baseline_level"}}
 
@@ -68,7 +72,7 @@ class ApprovalQueries(Repository):
             **payload, "approval_id": row["id"], "request_id": row["request_id"], "conv_id": row["conv_id"],
             "user_id": row["requester"], "requester": row["requester"], "requester_employee_id": row["requester_employee_id"],
             "department": row["department"], "tenant": row["tenant"], "status": row["status"], "execution": row["execution"],
-            "lifecycle": approval_phase(row, decisions, rows, now),
+            "audit": history, "lifecycle": approval_phase(row, decisions, rows, now),
             "payload_hash": row["payload_hash"], "policy_version": row["policy_version"],
             "approvals_required": row["approvals_required"],
             "requester_name": row["requester_name"] or row["requester"],
@@ -124,16 +128,7 @@ class ApprovalQueries(Repository):
         query = query.order_by(approvals.c.created_at.desc()).limit(limit)
         with schema.read(self.store.engine) as db:
             ids = db.execute(query).scalars().all()
-            heads = {row["id"]: row for row in db.execute(select(approvals).where(approvals.c.id.in_(ids))).mappings()}
-            decisions: Dict[str, list] = {i: [] for i in ids}
-            for d in db.execute(select(approval_decisions).where(approval_decisions.c.approval_id.in_(ids))
-                                .order_by(approval_decisions.c.id)).mappings():
-                decisions[d["approval_id"]].append(d)
-            steps: Dict[str, list] = {i: [] for i in ids}
-            for a in db.execute(select(actions).where(actions.c.approval_id.in_(ids)).order_by(actions.c.seq)).mappings():
-                steps[a["approval_id"]].append(a)
-            open_resources = self._open_resources(db, principal.tenant)
-            return [self._body(heads[i], decisions[i], steps[i], open_resources) for i in ids]
+            return self._get_many(db, ids)
 
     def can_read(self, body: Dict[str, Any], principal: Principal) -> bool:
         if body["status"] == ApprovalStatus.DRAFT:  # not yet submitted: the requester's own business

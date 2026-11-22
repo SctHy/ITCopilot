@@ -32,6 +32,8 @@ from typing import Any, Callable, Dict, Optional
 
 from it_copilot.workflow.adapters import AdapterRegistry
 from it_copilot.workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank, target_level
+from it_copilot.infra.monitor.telemetry import trace_scope
+from it_copilot.infra.logging import action_fields
 from it_copilot.infra import admin_audit
 from it_copilot.infra.change_log import append_change
 from it_copilot.infra.protocols import SERVICE
@@ -104,7 +106,7 @@ class ExecutionWorker:
         self.lifecycle.send("stopped")
 
     def kick(self) -> None:
-        self._wake.set()
+        self.notifier.signal('kick')
 
     async def _loop(self) -> None:
         while not self._stopping:
@@ -151,7 +153,7 @@ class ExecutionWorker:
                 break
             seen.add(claimed[0]["id"])
             self._last_tenant = claimed[0]["tenant"]
-            with tenant_scope(claimed[0]["tenant"]):
+            with tenant_scope(claimed[0]["tenant"]), trace_scope(claimed[0]["traceparent"], "workflow.execute"), action_fields(claimed[0]):
                 if self.draining:
                     await self.store.actions.release_lease(claimed[0], uncertain=False)
                     break
@@ -160,6 +162,12 @@ class ExecutionWorker:
                 except asyncio.CancelledError:
                     try:
                         await self.store.actions.release_lease(claimed[0], uncertain=claimed[0].get("effect_started", False))
+                    except LeaseLost:
+                        pass
+                    raise
+                except Exception:
+                    try:
+                        await self.store.actions.release_lease(claimed[0], reason="error")
                     except LeaseLost:
                         pass
                     raise
@@ -208,6 +216,7 @@ class ExecutionWorker:
         return self.base_delay_s * (2 ** (attempts - 1)) * (0.5 + random.random())
 
     async def _emit(self, action, event: str, **data) -> None:
+        logger.info("workflow %s", event)
         metrics.WORKFLOW_ACTIONS.labels(kind=action["kind"], outcome=event).inc()
         if self.events:
             try:
@@ -252,11 +261,15 @@ class ExecutionWorker:
                     for item in await self.store.actions.apply_actions(action["approval_id"]):
                         await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
             observed = False
-            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} and (
-                    action["tool_name"] != "request_access" or action["result"] is not None):
+            if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING}:
                 flow.send("observe")
                 observed = await adapter.observe(action["id"], spec)
             if observed:
+                if action["tool_name"] == "request_access" and "baseline_level" not in (action["result"] or {}):
+                    flow.send("fail")
+                    await self.store.actions.fail(action, "外部效果已存在但缺少授权前基线", status=ActionStatus.MANUAL_REVIEW)
+                    await self._emit(action, "action_manual_review")
+                    return
                 if action["tool_name"] == "revoke_access":
                     latest = await self.store.run(self.store.revocation_context, action)
                     restore = target_level(adapter, latest["restore_to"])
@@ -350,13 +363,14 @@ class ExecutionWorker:
                 await self._settle(self.store.actions.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
                 await self._emit(action, "action_failed", error=str(exc))
             else:
-                await self._settle(self.store.actions.retry_later, action, ActionStatus.QUEUED, str(exc), self._delay(action["attempts"]))
+                status = ActionStatus.UNKNOWN if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} else ActionStatus.QUEUED
+                await self._settle(self.store.actions.retry_later, action, status, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_retry", error=str(exc))
         except Exception as exc:  # AmbiguousError and anything unexpected: outcome unknown
             if flow.state in flow.protocol.transitions:
                 flow.send("fail")
             if not isinstance(exc, AmbiguousError):
-                logger.exception("unexpected adapter failure for action %s", action["id"])
+                logger.error("unexpected adapter failure (%s)", type(exc).__name__)
             if action["attempts"] >= self.max_attempts:
                 await self._settle(self.store.actions.fail, action, f"结果持续未知，需人工核对：{exc}", status=ActionStatus.MANUAL_REVIEW)
                 await self._emit(action, "action_manual_review", error=str(exc))
