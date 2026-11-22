@@ -5,7 +5,7 @@ import time
 
 from it_copilot.agent.outcome import turn_outcome
 from it_copilot.infra.db import turn_records, upsert
-from it_copilot.workflow.actions import WRITE_TOOLS
+from it_copilot.workflow.catalog import WRITE_TOOLS
 
 
 def build_sha():

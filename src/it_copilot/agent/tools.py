@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from it_copilot.infra.monitor import metrics
 from it_copilot.agent.tooling.tool_spec import AgentToolSpec, ToolSet, make_tool
-from it_copilot.workflow.actions import WRITE_TOOLS
+from it_copilot.workflow.catalog import WRITE_TOOLS
 
 
 def _toolset(*specs: AgentToolSpec) -> ToolSet:

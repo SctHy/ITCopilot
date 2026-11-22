@@ -5,7 +5,6 @@ the approval ids, so the web client shows each approval card with its buttons; w
 or releasing is always a click by the person, never a model tool call. A prompt injection
 can at most make the agent mention these items.
 """
-import asyncio
 import json
 
 # Phrases that ask to take something back or to see one's own requests/grants.
@@ -26,7 +25,7 @@ class RequestRecall:
     async def recall(self, principal, message: str, intent: str = ""):
         if not self.relevant(message, intent):
             return []
-        return await asyncio.to_thread(self.read_items, principal)
+        return await self.read_items(principal)
 
     @staticmethod
     def prompt(items) -> str:

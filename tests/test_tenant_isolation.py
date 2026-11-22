@@ -104,6 +104,7 @@ COVERED = {
 # plan phase makes them per tenant.
 PLATFORM = {
     ("GET", "/admin/agents"): "Global version configuration; operator platform admin only",
+    ("GET", "/readyz"): "process readiness", ("GET", "/livez"): "process liveness",
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",
     ("GET", "/skills"): "", ("POST", "/skills/reload"): "仅运营方租户的平台管理员（ADR 0025）",

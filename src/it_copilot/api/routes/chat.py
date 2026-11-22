@@ -56,12 +56,12 @@ def _confirmation_verb(message: str) -> Optional[str]:
 
 async def _answer_drafts(state: AppContainer, payload: ChatRequest, principal: Principal, rid: str, conv_id: str, verb: str, emit=None) -> Optional[ChatResponse]:
     """申请人回复“确认/取消”且本会话有待确认的草稿：直接确认或取消，返回确定性的回答；没有草稿时返回 None，照常走 Agent。"""
-    drafts = await asyncio.to_thread(state.workflow.drafts, principal, conv_id)
+    drafts = await state.workflow.run(state.workflow.drafts, principal, conv_id)
     if payload.message.strip() == "确认锁定":
         drafts = [d for d in drafts if any(a["tool_name"] == "lock_device" for a in d["action_requests"])]
     if not drafts:
         if verb == "confirm":
-            current = await asyncio.to_thread(state.workflow.conversation_approvals, principal, conv_id)
+            current = await state.workflow.run(state.workflow.conversation_approvals, principal, conv_id)
             if payload.message.strip() == "确认锁定":
                 current = [a for a in current if "lock_device" in a["actions"]]
             pending = [a for a in current if a["status"] == "pending"]
@@ -76,9 +76,9 @@ async def _answer_drafts(state: AppContainer, payload: ChatRequest, principal: P
     for draft in drafts:
         try:
             if verb == "confirm":
-                last = await asyncio.to_thread(state.workflow.confirm, draft["approval_id"], principal)
+                last = await state.workflow.run(state.workflow.confirm, draft["approval_id"], principal)
             else:
-                last = await asyncio.to_thread(state.workflow.withdraw, draft["approval_id"], principal, "申请人在对话中取消草稿")
+                last = await state.workflow.run(state.workflow.withdraw, draft["approval_id"], principal, "申请人在对话中取消草稿")
         except (ApprovalStateConflict, ApprovalConflict, ValueError) as exc:
             lines.append(f"申请 {draft['approval_id']} 未能{'提交' if verb == 'confirm' else '取消'}：{exc}")
             continue
@@ -179,7 +179,7 @@ async def _run_turn(state: AppContainer, payload: ChatRequest, principal: Princi
         if state.workflow:
             try:
                 current = await asyncio.wait_for(
-                    asyncio.to_thread(state.workflow.conversation_approvals, principal, conv_id), 3)
+                    state.workflow.run(state.workflow.conversation_approvals, principal, conv_id), 3)
                 req.conversation_approvals = current
                 from it_copilot.agent.request_recall import approval_state_prompt
                 context += approval_state_prompt(current)
@@ -270,7 +270,7 @@ async def _record_turn(state: AppContainer, req, result, principal, channel, *, 
     def persist():
         with state.workflow.engine.begin() as db:
             record_turn(db, record)
-    await asyncio.to_thread(persist)
+    await state.workflow.run(persist)
     turn_attributes(record)
 
 
@@ -285,7 +285,7 @@ async def _record_history(state: AppContainer, principal: Principal, conv_id, ri
         with state.workflow.engine.begin() as db:
             record_exchange(db, principal, conv_id, rid, channel, message, response.model_dump())
     try:
-        await asyncio.to_thread(persist)
+        await state.workflow.run(persist)
     except Exception:
         logger.exception("chat history not recorded for %s", rid)
 
@@ -325,7 +325,7 @@ async def _complete_turn_scoped(state: AppContainer, payload, principal: Princip
         summary = {k: approval[k] for k in ("actions", "risk", "summary", "source_message")}
         try:
             with stages("approval"):
-                created = await asyncio.to_thread(
+                created = await state.workflow.run(
                     state.workflow.create, approval_id, request_id=rid, conv_id=conv_id, principal=principal,
                     action_requests=approval["action_requests"], summary=summary, ask_requester=True,
                     provenance=provenance(result.tool_traces, request_id=rid, intent=intent_result, knowledge=req.knowledge,

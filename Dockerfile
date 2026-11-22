@@ -34,6 +34,6 @@ COPY --chown=app:app . .
 
 EXPOSE 8001
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \
-  CMD python -c "import json,os,urllib.request; p=os.getenv('HEALTH_PORT','8001'); assert json.load(urllib.request.urlopen(f'http://127.0.0.1:{p}/health', timeout=2))['status']=='ok'"
+  CMD python -c "import os,urllib.request; p=os.getenv('HEALTH_PORT','8001'); urllib.request.urlopen(f'http://127.0.0.1:{p}/readyz', timeout=2)"
 
 CMD ["python", "-m", "it_copilot.cmd.api"]

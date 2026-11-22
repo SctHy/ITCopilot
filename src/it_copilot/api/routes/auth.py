@@ -3,7 +3,6 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-import asyncio
 
 from fastapi import Query
 from sqlalchemy import select
@@ -52,7 +51,7 @@ def _sessions(state: AppContainer):
 async def logout_everywhere(state: Container, principal: Principal = Depends(current_principal)):
     """让本人此前签发的全部令牌失效（含其他设备）；之后需重新登录。IdP 会话需另行退出。"""
     async with admin_change(state, principal, "sessions_revoked", principal.subject, {"self": True}) as change:
-        watermark = await asyncio.to_thread(_sessions(state).revoke, principal.tenant, principal.subject, actor=principal.subject, reason="logout-all")
+        watermark = await state.run_db(_sessions(state).revoke, principal.tenant, principal.subject, actor=principal.subject, reason="logout-all")
         change.detail["revoked_before"] = watermark
     return {"subject": principal.subject, "revoked_before": watermark}
 
@@ -77,9 +76,9 @@ async def revoke_sessions(state: Container, payload: SessionRevocationRequest, p
         raise HTTPException(422, "subject 与 username 需且仅需提供一个")
     if state.workflow is None:
         raise HTTPException(503, "service not ready")
-    subject = payload.subject or await asyncio.to_thread(_resolve_subject, state, principal.tenant, payload.username)
+    subject = payload.subject or await state.run_db(_resolve_subject, state, principal.tenant, payload.username)
     async with admin_change(state, principal, "sessions_revoked", subject, {"reason": payload.reason}) as change:
-        watermark = await asyncio.to_thread(_sessions(state).revoke, principal.tenant, subject, actor=principal.subject, reason=payload.reason)
+        watermark = await state.run_db(_sessions(state).revoke, principal.tenant, subject, actor=principal.subject, reason=payload.reason)
         change.detail["revoked_before"] = watermark
     return {"subject": subject, "revoked_before": watermark}
 
@@ -87,4 +86,4 @@ async def revoke_sessions(state: Container, payload: SessionRevocationRequest, p
 @router.get("/admin/sessions/revocations")
 async def list_revocations(state: Container, principal: Principal = Depends(require_roles(ROLE_IT_ADMIN, ROLE_AUDITOR)),
                            limit: int = Query(100, ge=1, le=500)):
-    return {"items": await asyncio.to_thread(_sessions(state).list, principal.tenant, limit)}
+    return {"items": await state.run_db(_sessions(state).list, principal.tenant, limit)}

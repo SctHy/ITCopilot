@@ -127,12 +127,13 @@ services:
 
   api:
     <<: *backend
-    env_file:
+    stop_grace_period: 30s
+    env_file: &runtime-env
       - path: .env
         required: true
     environment:
       <<: *app-env
-      IT_COPILOT_WORKER_ENABLED: "false"
+      IT_COPILOT_EMBED_WORKER: "false"
       IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: it-copilot-api
@@ -151,17 +152,22 @@ services:
       gitea-bootstrap:
         condition: service_completed_successfully
 
-  # 独立执行器：与 API 进程内 worker 共享同一 outbox，靠租约 + 版本号 CAS 保证同一动作只被一个 worker 执行。
+  # 独立执行器负责动作、授权巡检和保留期清理。
   worker:
     <<: *backend
+    stop_grace_period: 30s
+    env_file: *runtime-env
     command: ["python", "-m", "it_copilot.cmd.worker"]
     environment:
       <<: *app-env
+      IT_COPILOT_WORKER_METRICS_ADDR: "127.0.0.1:8002"
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
+      gitea-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readyz')"]
 
   frontend:
     build: ./frontend

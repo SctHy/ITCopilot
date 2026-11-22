@@ -229,7 +229,7 @@ def test_chat_reads_card_confirmation_before_followup():
 
     async def go():
         async with application(model=scripted_model(reply)) as (http, state):
-            body = draft(state.workflow, "card-confirm", conv_id="card-conversation")
+            body = await state.workflow.run(draft, state.workflow, "card-confirm", conv_id="card-conversation")
             response = await http.post("/approvals/card-confirm/confirm",
                                        json={"payload_hash": body["payload_hash"]})
             assert response.status_code == 200, response.text
@@ -275,8 +275,8 @@ def test_natural_confirmation_is_not_a_new_application(message):
 def test_action_specific_confirmation_leaves_other_drafts_untouched():
     async def go():
         async with application(model=counting_access_model([])) as (http, state):
-            draft(state.workflow, "access", conv_id="two")
-            draft(state.workflow, "lock", conv_id="two", actions=[
+            await state.workflow.run(draft, state.workflow, "access", conv_id="two")
+            await state.workflow.run(draft, state.workflow, "lock", conv_id="two", actions=[
                 {"tool_name": "lock_device", "arguments": {"employee_id": "1001", "device_id": "DEV-1001", "reason": "设备丢失"}}])
             response = await http.post("/chat", json={"message": "确认锁定", "conv_id": "two",
                                                       "client_request_id": "lock-confirm"})

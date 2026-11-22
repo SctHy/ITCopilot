@@ -7,7 +7,8 @@ what reconciliation relies on after an ambiguous failure.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from inspect import isawaitable
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import httpx2
 
@@ -21,7 +22,7 @@ PERMISSION_TO_LEVEL = {"read": "readonly", "write": "developer"}
 class GiteaAdapter:
     name = "gitea"
 
-    def __init__(self, base_url: str, token: str, repos: Dict[str, str], username_of: Callable[[str], Optional[str]],
+    def __init__(self, base_url: str, token: str, repos: Dict[str, str], username_of: Callable[[str], Optional[str] | Awaitable[Optional[str]]],
                  *, basic_auth: Optional[tuple] = None, timeout_s: float = 10.0, transport: Optional[httpx2.AsyncBaseTransport] = None):
         self.repos = repos                     # policy system -> "owner/repo"
         self.username_of = username_of
@@ -36,8 +37,10 @@ class GiteaAdapter:
     def level(self, role: str) -> str:
         return PERMISSION_TO_LEVEL[ROLE_TO_PERMISSION[role]]
 
-    def _user(self, employee_id: str) -> str:
+    async def _user(self, employee_id: str) -> str:
         username = self.username_of(employee_id)
+        if isawaitable(username):
+            username = await username
         if not username:
             raise PermanentError("员工在目录中没有对应的 Gitea 账号")
         return username
@@ -66,14 +69,14 @@ class GiteaAdapter:
 
     async def preflight(self, action: Dict[str, Any]) -> None:
         args = action["arguments"]
-        repo, username = self._repo(args["system"]), self._user(args["employee_id"])
+        repo, username = self._repo(args["system"]), await self._user(args["employee_id"])
         if (await self._request("GET", f"/users/{username}")).status_code == 404:
             raise PermanentError(f"Gitea 用户 {username} 不存在")
         if (await self._request("GET", f"/repos/{repo}")).status_code == 404:
             raise PermanentError(f"Gitea 仓库 {repo} 不存在")
 
     async def current_level(self, employee_id: str, system: str) -> Optional[str]:
-        repo, username = self._repo(system), self._user(employee_id)
+        repo, username = self._repo(system), await self._user(employee_id)
         # The permission endpoint answers "read" for anyone on a public repo, so check
         # explicit collaboration first.
         member = await self._request("GET", f"/repos/{repo}/collaborators/{username}")
@@ -95,7 +98,7 @@ class GiteaAdapter:
 
     async def apply(self, action_id: str, action: Dict[str, Any]) -> Dict[str, Any]:
         args = action["arguments"]
-        repo, username = self._repo(args["system"]), self._user(args["employee_id"])
+        repo, username = self._repo(args["system"]), await self._user(args["employee_id"])
         target = self._target(action)
         if target is None:
             response = await self._request("DELETE", f"/repos/{repo}/collaborators/{username}")

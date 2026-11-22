@@ -54,7 +54,7 @@ async def rate_limit_decision(state: AppContainer, principal: Principal, bucket:
         return Decision(True)
     decision = await state.rate_limiter.check(bucket, principal.scope_key)
     if decision.allowed and state.tenants is not None:
-        rule = await asyncio.to_thread(tenant_turn_rule, state, principal.tenant)
+        rule = await state.run_db(tenant_turn_rule, state, principal.tenant)
         if rule is not None:
             bucket = TENANT_AGENT_TURN
             decision = await state.rate_limiter.check(bucket, principal.tenant, rule)
@@ -88,16 +88,15 @@ async def admin_change(state: AppContainer, principal: Principal, event: str, su
         return
     from it_copilot.infra import admin_audit
 
-    engine = state.workflow.engine
-    ref = await asyncio.to_thread(admin_audit.begin, engine, principal, event, subject, detail)
+    ref = await state.workflow.run_with_engine(admin_audit.begin, principal, event, subject, detail)
     try:
         yield change
     except Exception as exc:
         reason = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
-        await asyncio.to_thread(admin_audit.finish, engine, ref, principal, event, ok=False, subject=change.subject,
+        await state.workflow.run_with_engine(admin_audit.finish, ref, principal, event, ok=False, subject=change.subject,
                                 detail={**change.detail, "error": str(reason)[:300]})
         raise
-    await asyncio.to_thread(admin_audit.finish, engine, ref, principal, event, ok=True, subject=change.subject,
+    await state.workflow.run_with_engine(admin_audit.finish, ref, principal, event, ok=True, subject=change.subject,
                             detail=change.detail or None)
 
 
@@ -162,11 +161,10 @@ def _admit(state: AppContainer, principal: Principal) -> None:
 async def current_principal(state: Container, authorization: Optional[str] = Header(None)) -> Principal:
     """The verified caller. Also enters the caller's tenant scope for the rest of the request
     (ADR 0023): async so the scope is set in the request's own context - a sync dependency runs in a
-    worker thread whose context changes never reach the endpoint. Database checks run in a thread,
-    which inherits the scope."""
+    worker thread whose context changes never reach the endpoint. Database checks inherit the request scope through the async driver."""
     principal = _verify(state, authorization)
     tenant_context.enter(principal.tenant)
-    await asyncio.to_thread(_admit, state, principal)
+    await state.run_db(_admit, state, principal)
     return principal
 
 

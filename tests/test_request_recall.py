@@ -64,7 +64,7 @@ def test_chat_shows_cards_and_the_model_cannot_withdraw():
     async def go():
         async with application(model=scripted_model(reply)) as (http, state):
             principal = ALICE
-            state.workflow.create("web-1", request_id="web-1", conv_id="other-conversation", principal=principal,
+            await state.workflow.run(state.workflow.create, "web-1", request_id="web-1", conv_id="other-conversation", principal=principal,
                                   action_requests=[access(system="Jira")])
             response = await http.post("/chat", json={"message": "我想撤回刚才的 Jira 申请", "conv_id": "c", "client_request_id": "r1"})
             assert response.status_code == 200, response.text

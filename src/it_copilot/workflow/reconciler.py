@@ -1,5 +1,4 @@
 """Compare live entitlements with the ledger without changing the target system."""
-import asyncio
 
 from sqlalchemy import and_, or_, select
 
@@ -7,7 +6,7 @@ from it_copilot.infra import db as schema
 from it_copilot.infra.db import access_grants, actions
 from it_copilot.infra.tenant_context import system_scope, tenant_scope
 from it_copilot.infra.monitor import metrics
-from it_copilot.workflow.actions import resource_key
+from it_copilot.workflow.catalog import resource_key
 from it_copilot.workflow.adapters.base import AmbiguousError, TransientError, target_level
 from it_copilot.workflow.states import ActionStatus, GrantStatus
 
@@ -18,18 +17,18 @@ class GrantReconciler:
 
     async def run_once(self):
         with system_scope():
-            tenants = await asyncio.to_thread(self._tenants)
+            tenants = await self.store.run(self._tenants)
         drifted = 0
         for tenant in tenants:
             with tenant_scope(tenant):
                 cursor = ""
                 while True:
-                    batch = await asyncio.to_thread(self._batch, tenant, cursor)
+                    batch = await self.store.run(self._batch, tenant, cursor)
                     if not batch:
                         break
                     for grant in batch:
                         cursor = grant["action_id"]
-                        snapshot = await asyncio.to_thread(self._snapshot, grant)
+                        snapshot = await self.store.run(self._snapshot, grant)
                         if not snapshot:
                             continue
                         adapter = self.registry.by_name(grant["adapter"])
@@ -40,7 +39,7 @@ class GrantReconciler:
                             continue
                         expected = target_level(adapter, snapshot["expected"])
                         if current != expected:
-                            changed = await asyncio.to_thread(self._mark, grant, snapshot, current, expected)
+                            changed = await self.store.run(self._mark, grant, snapshot, current, expected)
                             drifted += len(changed)
                             if changed:
                                 metrics.GRANT_DRIFT.labels(system=grant["system"]).inc()

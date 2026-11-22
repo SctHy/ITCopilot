@@ -1,5 +1,5 @@
 """Approval domain objects shared by API and the runtime."""
-from it_copilot.workflow.actions import WRITE_TOOLS, risk_of
+from it_copilot.workflow.catalog import WRITE_TOOLS, risk_of
 
 # Kept as a name for existing callers; the catalog in it_copilot.workflow.actions is the source.
 UNSAFE_TOOLS = WRITE_TOOLS

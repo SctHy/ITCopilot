@@ -42,9 +42,19 @@ class RetentionPolicy:
 
 class RetentionSweeper:
     def __init__(self, engine, policy: Optional[RetentionPolicy] = None, clock: Callable[[], float] = time.time,
-                 interval_s: float = 3600.0):
-        self.engine, self.policy, self.clock, self.interval_s = engine, policy or RetentionPolicy(), clock, interval_s
+                 interval_s: float = 3600.0, *, database=None):
+        self._engine, self.policy, self.clock, self.interval_s = engine, policy or RetentionPolicy(), clock, interval_s
+        self.database = database
         self._task: Optional[asyncio.Task] = None
+
+    @property
+    def engine(self):
+        return self.database.engine if self.database else self._engine
+
+    async def sweep_async(self):
+        if self.database:
+            return await self.database.run(self.sweep)
+        return await asyncio.to_thread(self.sweep)
 
     def sweep(self) -> Dict[str, int]:
         """One full pass; returns rows deleted per kind."""
@@ -114,7 +124,7 @@ class RetentionSweeper:
     async def _loop(self) -> None:
         while True:
             try:
-                await asyncio.to_thread(self.sweep)
+                await self.sweep_async()
             except Exception:
                 logger.exception("retention sweep failed")
             await asyncio.sleep(self.interval_s)

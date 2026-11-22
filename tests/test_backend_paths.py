@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import event, text
@@ -53,7 +54,6 @@ def test_private_context_reads_overlap_and_keep_other_results(monkeypatch, fail_
     async def run():
         arrived = set()
         ready = asyncio.Event()
-        loop = asyncio.get_running_loop()
 
         def signal(name):
             arrived.add(name)
@@ -67,8 +67,11 @@ def test_private_context_reads_overlap_and_keep_other_results(monkeypatch, fail_
                 raise RuntimeError("isolated unavailable source")
             return [name]
 
+        async def run_repo(operation, *args):
+            await recall("approval")
+            return operation(*args)
+
         def approvals(*args):
-            loop.call_soon_threadsafe(signal, "approval")
             return [{"approval_id": "a", "status": "pending", "execution": "not_executed"}]
 
         from it_copilot.agent.agent_orchestrator import AgentOrchestrator
@@ -81,6 +84,7 @@ def test_private_context_reads_overlap_and_keep_other_results(monkeypatch, fail_
             return value
 
         orchestrator.recognize_intent = intent
+        orchestrator.run = AsyncMock(return_value=None)
         for key, value in dict(
             orchestrator=orchestrator,
             memory=None,
@@ -88,7 +92,7 @@ def test_private_context_reads_overlap_and_keep_other_results(monkeypatch, fail_
             request_recall=SimpleNamespace(
                 recall=lambda *a: recall("request"), prompt=lambda v: "REQUEST-CONTEXT"
             ),
-            workflow=SimpleNamespace(conversation_approvals=approvals),
+            workflow=SimpleNamespace(conversation_approvals=approvals, run=run_repo),
         ).items():
             monkeypatch.setattr(state, key, value)
         _, req, _, _ = await _run_turn(state, ChatRequest(message="查询进度"), ALICE, "r", "c", _Stages())

@@ -12,7 +12,7 @@ from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 import yaml
 
-from it_copilot.workflow.actions import WRITE_ACTIONS
+from it_copilot.workflow.catalog import WRITE_ACTIONS
 
 _ROOT = pathlib.Path(__file__).resolve().parents[3]
 logger = logging.getLogger(__name__)

@@ -1,7 +1,6 @@
 """Execution worker: drains the action outbox against target-system adapters.
 
-Runs inside the API process by default and can run standalone
-(``python -m it_copilot.workflow.worker``); several workers may share one database because every
+Start with ``python -m it_copilot.cmd.worker``. Several workers may share one database because every
 claim and transition is a version CAS guarded by a lease.
 
 Per action:
@@ -29,7 +28,6 @@ import random
 import socket
 import time
 import uuid
-from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 from it_copilot.workflow.adapters import AdapterRegistry
@@ -40,9 +38,10 @@ from it_copilot.infra.protocols import SERVICE
 from it_copilot.infra.concurrency import LeaseLostError, run_leased
 from it_copilot.infra.tenant_context import system_scope, tenant_scope
 from it_copilot.infra.monitor import metrics
-from it_copilot.workflow.states import SETTLED, ActionStatus, ApprovalStatus, GrantStatus
+from it_copilot.workflow.states import ActionStatus, GrantStatus
 from it_copilot.workflow.store import LeaseLost, WorkflowStore
 from it_copilot.workflow.lifecycle import EFFECT
+from it_copilot.workflow.notifier import ActionNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ EventSink = Callable[[str, str, Dict[str, Any]], Any]
 
 class ExecutionWorker:
     def __init__(self, store: WorkflowStore, registry: AdapterRegistry, *, worker_id: Optional[str] = None,
-                 lease_s: float = 60.0, poll_s: float = 1.0, max_attempts: int = 5, base_delay_s: float = 2.0,
+                 lease_s: float = 60.0, poll_s: float = 5.0, max_attempts: int = 5, base_delay_s: float = 2.0,
                  events: Optional[EventSink] = None):
         self.store = store
         self._last_tenant: Optional[str] = None  # tenant served last; the next claim starts after it
@@ -62,7 +61,9 @@ class ExecutionWorker:
         self.max_attempts = max_attempts
         self.base_delay_s = base_delay_s
         self.events = events
-        self._wake = asyncio.Event()
+        self.notifier = ActionNotifier(store.url)
+        self._wake = self.notifier.event
+        self.draining = False
         self._task: Optional[asyncio.Task] = None
         self.lifecycle = SERVICE.start()
         self._policy_version: Optional[str] = None  # version the last revalidation sweep ran against
@@ -82,16 +83,23 @@ class ExecutionWorker:
     def start(self) -> None:
         if self.lifecycle.state == "running":
             return
+        self.draining = False
+        self.notifier.start()
         self.lifecycle.send("start")
         self._task = asyncio.create_task(self._loop(), name="execution-worker")
 
     async def stop(self) -> None:
         if self.lifecycle.state == "stopped":
             return
+        self.draining = True
         self.lifecycle.send("stop")
+        await self.notifier.close()
         self._wake.set()
         if self._task:
-            await asyncio.gather(self._task, return_exceptions=True)
+            try:
+                await asyncio.wait_for(self._task, float(os.getenv("IT_COPILOT_SHUTDOWN_GRACE_S", "15")))
+            except TimeoutError:
+                pass
         self._task = None
         self.lifecycle.send("stopped")
 
@@ -100,6 +108,7 @@ class ExecutionWorker:
 
     async def _loop(self) -> None:
         while not self._stopping:
+            self._wake.clear()
             try:
                 processed = await self.run_once()
             except Exception:
@@ -107,11 +116,7 @@ class ExecutionWorker:
                 processed = 0
             if processed:
                 continue
-            self._wake.clear()
-            try:
-                await asyncio.wait_for(self._wake.wait(), timeout=self.poll_s)
-            except TimeoutError:
-                pass
+            await self.notifier.wait(self.poll_s)
 
     async def run_once(self, limit: int = 10) -> int:
         # Expiry, revalidation and claiming span every tenant (system scope); each claimed action then
@@ -120,10 +125,10 @@ class ExecutionWorker:
             return await self._run_once(limit)
 
     async def _run_once(self, limit: int) -> int:
-        ages = await asyncio.to_thread(self.store.action_ages)
+        ages = await self.store.actions.action_ages()
         metrics.WORKFLOW_OLDEST_AGE.labels(state="unknown").set(ages["oldest_unknown_action_age_s"])
         metrics.WORKFLOW_OLDEST_AGE.labels(state="queued_due").set(ages["oldest_queued_due_action_age_s"])
-        await asyncio.to_thread(self.store.expire_pending)
+        await self.store.run(self.store.expire_pending)
         await self._revalidate_on_policy_change()
         now = self.store.clock()
         if self._last_reconcile is None or now - self._last_reconcile >= self.reconcile_interval_s:
@@ -132,25 +137,43 @@ class ExecutionWorker:
         processed = 0
         seen = set()
         for _ in range(limit):
-            claimed = await asyncio.to_thread(self.store.claim, self.worker_id, self.lease_s, 1, exclude_ids=seen,
-                                              after_tenant=self._last_tenant)
+            if self.draining:
+                break
+            claim = asyncio.create_task(self.store.actions.claim(self.worker_id, self.lease_s, 1,
+                exclude_ids=seen, after_tenant=self._last_tenant))
+            try:
+                claimed = await asyncio.shield(claim)
+            except asyncio.CancelledError:
+                for action in await claim:
+                    await self.store.actions.release_lease(action, uncertain=False)
+                raise
             if not claimed:
                 break
             seen.add(claimed[0]["id"])
             self._last_tenant = claimed[0]["tenant"]
             with tenant_scope(claimed[0]["tenant"]):
-                await self._process_owned(claimed[0])
+                if self.draining:
+                    await self.store.actions.release_lease(claimed[0], uncertain=False)
+                    break
+                try:
+                    await self._process_owned(claimed[0])
+                except asyncio.CancelledError:
+                    try:
+                        await self.store.actions.release_lease(claimed[0], uncertain=claimed[0].get("effect_started", False))
+                    except LeaseLost:
+                        pass
+                    raise
             processed += 1
         return processed
 
     async def _revalidate_on_policy_change(self) -> None:
         """Startup and every policy edit: re-check open approvals and grants (idempotent; several workers may race)."""
-        version = await asyncio.to_thread(lambda: self.store.policy.version)
+        version = self.store.policy.version
         if version == self._policy_version:
             return
-        report = await asyncio.to_thread(self.store.revalidate)
+        report = await self.store.run(self.store.revalidate)
         changed = {k: len(v) for k, v in report.items() if isinstance(v, list) and v}
-        await asyncio.to_thread(self._record_policy_loaded, self.store.policy.version, changed)
+        await self.store.run(self._record_policy_loaded, self.store.policy.version, changed)
         self._policy_version = version
         for outcome, count in changed.items():
             metrics.POLICY_REVALIDATIONS.labels(outcome=outcome).inc(count)
@@ -179,32 +202,6 @@ class ExecutionWorker:
             if not await self.run_once():
                 return
 
-    async def wait_settled(self, approval_id: str, timeout_s: float) -> Optional[Dict[str, Any]]:
-        """Wait until every apply action of the approval is terminal (or the timeout passes)."""
-        self.kick()
-        deadline = asyncio.get_running_loop().time() + timeout_s
-        while True:
-            body = await asyncio.to_thread(self.store.get, approval_id)
-            if body is None or body["status"] != ApprovalStatus.APPROVED or all(r["status"] in SETTLED for r in body["results"]):
-                return body
-            if asyncio.get_running_loop().time() >= deadline:
-                return body
-            await asyncio.sleep(0.05)
-
-    async def wait_revoked(self, approval_id: str, timeout_s: float) -> Optional[Dict[str, Any]]:
-        """Wait until no revocation of the approval is due and unfinished (or the timeout passes)."""
-        self.kick()
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_s
-        while True:
-            body = await asyncio.to_thread(self.store.get, approval_id)
-            now = self.store.clock()
-            due = [r for r in (body or {}).get("revocations", []) if r["status"] in {ActionStatus.EXECUTING, ActionStatus.UNKNOWN}
-                   or (r["status"] == ActionStatus.QUEUED and r["not_before"] and datetime.fromisoformat(r["not_before"]).timestamp() <= now)]
-            if body is None or not due or loop.time() >= deadline:
-                return body
-            await asyncio.sleep(0.05)
-
     # ── processing ──────────────────────────────────────────────────────────
 
     def _delay(self, attempts: int) -> float:
@@ -223,7 +220,7 @@ class ExecutionWorker:
     async def _process_owned(self, action):
         try:
             await run_leased(lambda: self._process(action),
-                             lambda: asyncio.to_thread(self.store.renew, action, self.lease_s), self.lease_s / 3)
+                             lambda: self.store.actions.renew(action, self.lease_s), self.lease_s / 3)
         except LeaseLostError:
             logger.warning("action lease lost for %s", action["id"])
 
@@ -236,9 +233,9 @@ class ExecutionWorker:
             if action["tool_name"] == "revoke_access":
                 saved = action["result"]
                 if saved is None:
-                    revocation = await asyncio.to_thread(self.store.revocation_context, action)
+                    revocation = await self.store.run(self.store.revocation_context, action)
                     saved = {"restore_to": target_level(adapter, revocation["restore_to"])}
-                    await asyncio.to_thread(self.store.save_result, action, saved)
+                    await self.store.actions.save_result(action, saved)
                 spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": saved["restore_to"]}}
             if action["kind"] == "apply" and (action["prev_status"] == ActionStatus.QUEUED or (
                     action["tool_name"] == "request_access" and action["result"] is None)):
@@ -246,13 +243,13 @@ class ExecutionWorker:
                 # The policy may have changed since approval. QUEUED means this action has made no
                 # change yet, including a retry after a definite (transient) failure: the policy sweep
                 # runs once per version and skips attempted actions, so every such attempt re-checks.
-                reason = await asyncio.to_thread(self.store.policy_block, action["approval_id"])
+                reason = await self.store.run(self.store.policy_block, action["approval_id"])
                 if reason:
                     raise PermanentError(reason)
-                if action["seq"] == 0 and action["attempts"] == 1:
+                if action["seq"] == 0:
                     # Validate the whole batch before the first effect: most partial failures
                     # (unknown user, missing repo) are caught with zero changes applied.
-                    for item in await asyncio.to_thread(self.store.apply_actions, action["approval_id"]):
+                    for item in await self.store.actions.apply_actions(action["approval_id"]):
                         await self.registry.by_name(item["adapter"]).preflight({"tool_name": item["tool_name"], "arguments": item["arguments"]})
             observed = False
             if action["prev_status"] in {ActionStatus.UNKNOWN, ActionStatus.EXECUTING} and (
@@ -261,12 +258,12 @@ class ExecutionWorker:
                 observed = await adapter.observe(action["id"], spec)
             if observed:
                 if action["tool_name"] == "revoke_access":
-                    latest = await asyncio.to_thread(self.store.revocation_context, action)
+                    latest = await self.store.run(self.store.revocation_context, action)
                     restore = target_level(adapter, latest["restore_to"])
                     current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                     if current != restore:
                         flow.send("baseline")
-                        await asyncio.to_thread(self.store.fail, action,
+                        await self.store.actions.fail(action,
                             f"旧回收目标 {spec['arguments']['restore_to']} 已生效，但当前权限 {current} 不等于最新台账目标 {restore}；不能复用幂等键修改目标，需要人工核查",
                             status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
                         flow.send("drift")
@@ -275,7 +272,7 @@ class ExecutionWorker:
                 flow.send("reconciled")
                 result = {**(action.get("result") or {}), "reconciled": True}
                 preexisting = action["tool_name"] == "request_access" and rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"]))
-                await asyncio.to_thread(self.store.succeed, action, result, preexisting=preexisting)
+                await self.store.actions.succeed(action, result, preexisting=preexisting)
                 flow.send("commit")
                 await self._emit(action, "action_reconciled")
                 return
@@ -283,11 +280,11 @@ class ExecutionWorker:
             if action["tool_name"] == "request_access":
                 flow.send("baseline")
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
-                grant_context = await asyncio.to_thread(self.store.grant_context, action, current)
+                grant_context = await self.store.run(self.store.grant_context, action, current)
                 if grant_context["covering"]:
                     expected = target_level(adapter, grant_context["expected_level"])
                     if current != expected:
-                        await asyncio.to_thread(self.store.fail, action,
+                        await self.store.actions.fail(action,
                             "当前权限与有效授权台账不一致，停止新授权并转人工核查", status=ActionStatus.MANUAL_REVIEW,
                             resource_drift={"current": current, "expected": expected})
                         flow.send("drift")
@@ -296,10 +293,10 @@ class ExecutionWorker:
                         return
                 if "baseline_level" not in result:
                     result["baseline_level"] = grant_context["baseline_level"]
-                    await asyncio.to_thread(self.store.save_result, action, result)
+                    await self.store.actions.save_result(action, result)
                 if rank(result["baseline_level"]) >= rank(adapter.level(spec["arguments"]["role"])):
                     flow.send("preexisting")
-                    await asyncio.to_thread(self.store.succeed, action, {**result, "preexisting": True}, preexisting=True)
+                    await self.store.actions.succeed(action, {**result, "preexisting": True}, preexisting=True)
                     flow.send("commit")
                     await self._emit(action, "action_succeeded", preexisting=True)
                     return
@@ -308,31 +305,32 @@ class ExecutionWorker:
                                 and rank(current) >= rank(adapter.level(spec["arguments"]["role"]))), None)
                 if covered is not None:
                     flow.send("preexisting")
-                    await asyncio.to_thread(self.store.succeed, action, {**result, "covered_by": covered})
+                    await self.store.actions.succeed(action, {**result, "covered_by": covered})
                     flow.send("commit")
                     await self._emit(action, "action_succeeded", covered_by=covered)
                     return
             elif action["tool_name"] == "revoke_access":
                 flow.send("baseline")
-                revocation = await asyncio.to_thread(self.store.revocation_context, action)
+                revocation = await self.store.run(self.store.revocation_context, action)
                 current = await adapter.current_level(spec["arguments"]["employee_id"], spec["arguments"]["system"])
                 if current != target_level(adapter, revocation["expected"]):
-                    await asyncio.to_thread(self.store.fail, action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
+                    await self.store.actions.fail(action, f"权限已被他人修改（当前 {current}），停止自动回收", status=ActionStatus.MANUAL_REVIEW, ledger_status=GrantStatus.DRIFTED)
                     flow.send("drift")
                     await self._emit(action, "action_drifted", current=current)
                     return
                 restore = target_level(adapter, revocation["restore_to"])
                 if result["restore_to"] != restore:
                     result["restore_to"] = restore
-                    await asyncio.to_thread(self.store.save_result, action, result)
+                    await self.store.actions.save_result(action, result)
                 spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": restore}}
             flow.send("apply")
+            action["effect_started"] = True
             result.update(await adapter.apply(action["id"], spec))
             flow.send("verify")
             if not await adapter.observe(action["id"], spec):
                 raise AmbiguousError("变更后回查未看到目标状态")
             flow.send("verified")
-            await asyncio.to_thread(self.store.succeed, action, result)
+            await self.store.actions.succeed(action, result)
             flow.send("commit")
             await self._emit(action, "action_succeeded")
         except asyncio.CancelledError:
@@ -344,15 +342,15 @@ class ExecutionWorker:
             logger.warning("lease lost for action %s; another worker owns it", action["id"])
         except PermanentError as exc:
             flow.send("fail")
-            await self._settle(self.store.fail, action, str(exc))
+            await self._settle(self.store.actions.fail, action, str(exc))
             await self._emit(action, "action_failed", error=str(exc))
         except TransientError as exc:
             flow.send("fail")
             if action["attempts"] >= self.max_attempts:
-                await self._settle(self.store.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
+                await self._settle(self.store.actions.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
                 await self._emit(action, "action_failed", error=str(exc))
             else:
-                await self._settle(self.store.retry_later, action, ActionStatus.QUEUED, str(exc), self._delay(action["attempts"]))
+                await self._settle(self.store.actions.retry_later, action, ActionStatus.QUEUED, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_retry", error=str(exc))
         except Exception as exc:  # AmbiguousError and anything unexpected: outcome unknown
             if flow.state in flow.protocol.transitions:
@@ -360,16 +358,15 @@ class ExecutionWorker:
             if not isinstance(exc, AmbiguousError):
                 logger.exception("unexpected adapter failure for action %s", action["id"])
             if action["attempts"] >= self.max_attempts:
-                await self._settle(self.store.fail, action, f"结果持续未知，需人工核对：{exc}", status=ActionStatus.MANUAL_REVIEW)
+                await self._settle(self.store.actions.fail, action, f"结果持续未知，需人工核对：{exc}", status=ActionStatus.MANUAL_REVIEW)
                 await self._emit(action, "action_manual_review", error=str(exc))
             else:
-                await self._settle(self.store.retry_later, action, ActionStatus.UNKNOWN, str(exc), self._delay(action["attempts"]))
+                await self._settle(self.store.actions.retry_later, action, ActionStatus.UNKNOWN, str(exc), self._delay(action["attempts"]))
                 await self._emit(action, "action_unknown", error=str(exc))
 
-    @staticmethod
-    async def _settle(fn, *args, **kwargs) -> None:
+    async def _settle(self, fn, *args, **kwargs) -> None:
         try:
-            await asyncio.to_thread(fn, *args, **kwargs)
+            await fn(*args, **kwargs)
         except LeaseLost:
             logger.warning("lease lost while settling action %s", args[0]["id"])
 
@@ -384,12 +381,12 @@ def build_registry(store: WorkflowStore) -> AdapterRegistry:
         from it_copilot.workflow.adapters.gitea import GiteaAdapter
 
         basic = (os.environ["IT_COPILOT_GITEA_USER"], os.getenv("IT_COPILOT_GITEA_PASSWORD", "")) if os.getenv("IT_COPILOT_GITEA_USER") else None
-        gitea = GiteaAdapter(os.environ["IT_COPILOT_GITEA_URL"], os.getenv("IT_COPILOT_GITEA_TOKEN", ""), repos, store.username_of,
+        gitea = GiteaAdapter(os.environ["IT_COPILOT_GITEA_URL"], os.getenv("IT_COPILOT_GITEA_TOKEN", ""), repos, lambda employee: store.run(store.username_of, employee),
                              basic_auth=basic, timeout_s=float(os.getenv("IT_COPILOT_GITEA_TIMEOUT_S", "10")))
         external = {system: gitea for system in repos}
     # The deployment's own credentials act for the operator tenant only (ADR 0025).
     shared = {os.getenv("IT_COPILOT_PLATFORM_TENANT", "default")}
-    return AdapterRegistry(LocalDirectoryAdapter(store.engine), external, shared_with=shared)
+    return AdapterRegistry(LocalDirectoryAdapter(store.directory), external, shared_with=shared)
 
 
 def database_url(default_dir: Optional[str] = None) -> str:
@@ -408,23 +405,3 @@ def configured_store(url):
         store.close()
         raise
     return store, registry
-
-
-async def run_worker() -> None:
-    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-    from it_copilot.infra import tenant_context
-
-    tenant_context.enter(tenant_context.SYSTEM)  # the standalone worker spans tenants; run_once scopes each action
-    store, registry = configured_store(database_url())
-    from contextlib import AsyncExitStack
-
-    async with AsyncExitStack() as resources:
-        resources.callback(store.close)
-        for adapter in registry.all():
-            if hasattr(adapter, "close"):
-                resources.push_async_callback(adapter.close)
-        worker = ExecutionWorker(store, registry, poll_s=float(os.getenv("IT_COPILOT_WORKER_POLL_S", "1")))
-        resources.push_async_callback(worker.stop)
-        worker.start()
-        logger.info("execution worker %s started", worker.worker_id)
-        await asyncio.Event().wait()

@@ -33,7 +33,7 @@ async def _add_knowledge(state: AppContainer, documents: list[Dict[str, Any]], p
         change.detail["chunks"] = chunks
     from it_copilot.infra.change_log import record_change
     version = await asyncio.to_thread(state.kb.collection_version, principal.tenant)
-    await asyncio.to_thread(record_change, state.workflow.engine, "knowledge", str(version),
+    await state.workflow.run_with_engine(record_change, "knowledge", str(version),
                            {"via": via, "documents": len(documents)}, tenant=principal.tenant, actor=principal.subject)
     return {"documents": len(documents), "chunks": chunks, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 
@@ -93,7 +93,7 @@ async def knowledge_delete(state: Container, document_id: str, principal: Princi
         change.detail = {k: removed[k] for k in ("title", "source", "chunks", "demo_seed")}
     from it_copilot.infra.change_log import record_change
     version = await asyncio.to_thread(state.kb.collection_version, principal.tenant)
-    await asyncio.to_thread(record_change, state.workflow.engine, "knowledge", str(version),
+    await state.workflow.run_with_engine(record_change, "knowledge", str(version),
                            {"deleted": document_id}, tenant=principal.tenant, actor=principal.subject)
     return {**removed, "total_chunks": await state.kb.doc_count_async(tenant=principal.tenant)}
 

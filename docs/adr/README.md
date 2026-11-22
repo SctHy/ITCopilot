@@ -39,3 +39,4 @@
 - [ADR 0038：网页私聊历史：本人可见、写入前脱敏、90 天保留](0038-private-chat-history.md)
 - [ADR 0039：模型出站脱敏与本地工具参数恢复](0039-model-outbound-masking.md)
 - [0040 仅支持当前架构与数据契约](0040-current-contracts-only.md)
+- [0041 工作流进程与事务边界](0041-workflow-processes.md)

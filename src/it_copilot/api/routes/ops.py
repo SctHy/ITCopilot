@@ -1,5 +1,4 @@
 """运行状态：健康检查、Skill、监控、指标、请求 trace 与离线评测报告。"""
-import asyncio
 import os
 from typing import Any, Dict, Optional
 
@@ -15,6 +14,13 @@ from it_copilot.infra.identity import ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 router = APIRouter()
 
 
+@router.get("/readyz")
+async def ready(state: Container):
+    available = not state.draining and state.lifecycle and state.lifecycle.state in {"ready", "degraded"}
+    return Response(status_code=200 if available else 503)
+
+
+@router.get("/livez")
 @router.get("/health")
 async def health(state: Container):
     return {"status": "ok", "lifecycle": state.lifecycle.state if state.lifecycle else "uninitialized", "service": "IT-Copilot", "port": int(os.getenv("IT_COPILOT_PORT", "8001"))}
@@ -40,7 +46,7 @@ async def monitor_status(state: Container):
         "agent": state.orchestrator.get_stats() if state.orchestrator else {},
         "tools": state.tool_manager.monitor_snapshot() if state.tool_manager else {},
         "agent_tools": state.orchestrator.tool_executor.snapshot() if state.orchestrator else {},
-        "workflow": {"pending_actions": await asyncio.to_thread(state.workflow.pending_work)} if state.workflow else None,
+        "workflow": {"pending_actions": await state.workflow.actions.pending_work()} if state.workflow else None,
         "monitor": state.monitor.summary() if state.monitor else None,
         "mcp": state.mcp_client.summary() if state.mcp_client else {"enabled": False, "servers": []},
     }
@@ -89,7 +95,7 @@ async def run_retention(state: Container, principal: Principal = Depends(require
     if state.retention is None:
         raise HTTPException(503, "service not ready")
     async with admin_change(state, principal, "retention_run") as change:
-        deleted = await asyncio.to_thread(state.retention.sweep)
+        deleted = await state.retention.sweep_async()
         change.detail = deleted
     return {"deleted": deleted, "policy": {
         "episodic_days": state.retention.policy.episodic_days, "turn_days": state.retention.policy.turn_days, "history_days": state.retention.policy.history_days}}
@@ -107,7 +113,7 @@ async def admin_audit_log(state: Container, principal: Principal = Depends(requi
 
     if state.workflow is None:
         raise HTTPException(503, "service not ready")
-    items = await asyncio.to_thread(recent, state.workflow.engine, principal.tenant, limit=limit, before=before, event=event, outcome=outcome)
+    items = await state.workflow.run_with_engine(recent, principal.tenant, limit=limit, before=before, event=event, outcome=outcome)
     return {"items": items, "next_before": items[-1]["id"] if len(items) == limit else None}
 
 
@@ -127,4 +133,4 @@ async def behavior_changes(state: Container, since: Optional[float] = Query(None
             query = query.where(change_events.c.kind == kind)
         with read(state.workflow.engine) as db:
             return [dict(r) for r in db.execute(query.order_by(change_events.c.at.desc()).limit(500)).mappings()]
-    return {"items": await asyncio.to_thread(fetch)}
+    return {"items": await state.workflow.run(fetch)}

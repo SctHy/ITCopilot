@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import pathlib
+import time
 from contextlib import AsyncExitStack, asynccontextmanager
 
 _ROOT = str(pathlib.Path(__file__).resolve().parents[3])
@@ -74,12 +75,12 @@ async def lifespan(app: FastAPI):
             llm = {"api_key": os.getenv("OPENAI_API_KEY", "sk-local"), "base_url": os.getenv("OPENAI_BASE_URL") or None, "model": os.getenv("OPENAI_MODEL", "deepseek-flash")}
             db_url = database_url(os.getenv("IT_COPILOT_DATA_DIR", str(pathlib.Path(_ROOT) / "data")))
             state.workflow, state.registry = await asyncio.to_thread(configured_store, db_url)
-            resources.callback(state.workflow.close)
+            resources.push_async_callback(state.workflow.aclose)
             for adapter in state.registry.all():
                 if hasattr(adapter, "close"):
                     resources.push_async_callback(adapter.close)
             from it_copilot.infra.change_log import record_deploy
-            await asyncio.to_thread(record_deploy, state.workflow.engine, sha)
+            await state.workflow.run_with_engine(record_deploy, sha)
             from it_copilot.agent.registry import AgentRegistry, default_spec
             state.skills = SkillManager(str(pathlib.Path(_ROOT) / default_spec().skills.root), change_engine=state.workflow.engine)
             state.skills.load()
@@ -112,21 +113,21 @@ async def lifespan(app: FastAPI):
                     logger.error("Redis is required for safe startup: %s", type(exc).__name__)
                     raise RuntimeError("Redis 不可用，拒绝启动：会话锁和幂等保护不能被绕过") from exc
                 logger.warning("memory degraded by explicit IT_COPILOT_REQUIRE_REDIS=false: %s", type(exc).__name__)
-            state.worker = ExecutionWorker(state.workflow, state.registry, poll_s=env_float("IT_COPILOT_WORKER_POLL_S", 1))
-            services.push_async_callback(state.worker.stop)
-            if env_flag("IT_COPILOT_WORKER_ENABLED", "true"):
+            if env_flag("IT_COPILOT_EMBED_WORKER"):
+                state.worker = ExecutionWorker(state.workflow, state.registry, poll_s=env_float("IT_COPILOT_WORKER_POLL_S", 5))
+                services.push_async_callback(state.worker.stop)
                 state.worker.start()
             state.events = RedisEventBus(state.memory._redis) if state.memory else InMemoryEventBus()
             rules = rules_from_env(os.getenv)
             # Always a limiter, even with the per-identity limit off: tenants have their own (ADR 0035).
             state.rate_limiter = RedisRateLimiter(state.memory._redis, rules) if state.memory else MemoryRateLimiter(rules)
-            state.request_recall = RequestRecall(state.workflow.requester_items)
-            state.sessions = SessionRevocations(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_REVOCATION_CACHE_S", 5))
-            state.tenants = TenantRegistry(state.workflow.engine, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
-            state.retention = RetentionSweeper(state.workflow.engine, RetentionPolicy.from_env(),
+            state.request_recall = RequestRecall(lambda principal: state.workflow.run(state.workflow.requester_items, principal))
+            state.sessions = SessionRevocations(state.workflow.database, cache_ttl_s=env_float("IT_COPILOT_REVOCATION_CACHE_S", 5))
+            state.tenants = TenantRegistry(state.workflow.database, cache_ttl_s=env_float("IT_COPILOT_TENANT_CACHE_S", 5))
+            state.retention = RetentionSweeper(state.workflow.engine, RetentionPolicy.from_env(), database=state.workflow.database,
                                                interval_s=env_float("IT_COPILOT_RETENTION_INTERVAL_S", 3600))
             services.push_async_callback(state.retention.stop)
-            if env_flag("IT_COPILOT_RETENTION_ENABLED", "true"):
+            if env_flag("IT_COPILOT_EMBED_WORKER") and env_flag("IT_COPILOT_RETENTION_ENABLED", "true"):
                 state.retention.start()
             mcp_server = create_server(state.kb, state.tool_manager, tenant=os.getenv("IT_COPILOT_PLATFORM_TENANT", "default"))
             _mcp_mount.app = create_http_app(mcp_server)
@@ -150,7 +151,12 @@ async def lifespan(app: FastAPI):
             finally:
                 # Producers stop first; requests drain before any dependency is closed.
                 if state.background_tasks:
-                    await asyncio.gather(*state.background_tasks, return_exceptions=True)
+                    remaining = (max(0, state.shutdown_deadline - time.monotonic()) if state.shutdown_deadline is not None
+                                 else env_float("IT_COPILOT_SHUTDOWN_GRACE_S", 15))
+                    _, pending = await asyncio.wait(state.background_tasks, timeout=remaining)
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
 
 
 class _LazyMount:

@@ -146,7 +146,7 @@ def commands(profile, tests=()):
         result += [("frontend-" + name.replace(":", "-"), ["npm", "run", name], "frontend")
                    for name in ("typecheck", "test", "test:ui", "build")]
     if profile == "postgres":
-        result.append(("postgres", pytest + [f"tests/test_{name}.py" for name in POSTGRES_TESTS], "."))
+        result.append(("postgres", pytest + ["tests/integration/test_postgres_engine.py", *(f"tests/test_{name}.py" for name in POSTGRES_TESTS)], "."))
     if profile == "integration":
         result.append(("integration", pytest + ["tests/test_integration_live.py"], "."))
     return result

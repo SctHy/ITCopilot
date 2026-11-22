@@ -15,7 +15,10 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     url = config.get_main_option("sqlalchemy.url")
     engine = make_engine(url)
-    with engine.connect() as connection:
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            # API and workers may bootstrap the same schema concurrently.
+            connection.exec_driver_sql("SELECT pg_advisory_xact_lock(hashtext(current_schema()), 17001)")
         # render_as_batch lets future ALTERs work on SQLite.
         context.configure(connection=connection, target_metadata=metadata, render_as_batch=True)
         with context.begin_transaction():

@@ -7,7 +7,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from it_copilot.workflow.actions import WRITE_ACTIONS as _CATALOG
+from it_copilot.workflow.catalog import WRITE_ACTIONS as _CATALOG
 
 
 class IntentCategory(str, Enum):

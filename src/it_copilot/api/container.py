@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class AppContainer:
+    draining: bool = False
+    shutdown_deadline: float | None = None
     agent_registry: AgentRegistry | None = None
     kb: KnowledgeBase | None = None
     lifecycle: Flow | None = None
@@ -50,6 +52,12 @@ class AppContainer:
     workflow: WorkflowStore | None = None
     events: InMemoryEventBus | RedisEventBus = field(default_factory=InMemoryEventBus)
     background_tasks: set[asyncio.Task] = field(default_factory=set)
+
+    async def run_db(self, operation, *args, **kwargs):
+        if self.workflow is None:
+            # A partial container may provide independent synchronous identity stores.
+            return await asyncio.to_thread(operation, *args, **kwargs)
+        return await self.workflow.run(operation, *args, **kwargs)
 
 
 def get_container(request: Request) -> AppContainer:

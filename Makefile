@@ -6,6 +6,7 @@ up-oidc:
 	IT_COPILOT_AUTH_MODE=oidc docker compose --profile oidc up -d --build
 down:
 	docker compose --profile oidc down
+# Start these targets in separate terminals for local development.
 run-api:
 	.venv/bin/python -m it_copilot.cmd.api
 run-worker:

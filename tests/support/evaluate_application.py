@@ -58,7 +58,7 @@ async def trial(http, state, case, repeat):
     requester = auth("alice", subject=f"eval:{unique}", employee_id=login, department="engineering")
     reader = auth("grace")  # auditor: reads business state without being party to the request
     # Unique identities isolate working/episodic memory; sandbox rows reset between sequential cases.
-    state.workflow.reset_directory([e for e, _, _ in SEED_EMPLOYEES])
+    await state.workflow.run(state.workflow.reset_directory, [e for e, _, _ in SEED_EMPLOYEES])
     start = time.monotonic()
     try:
         for index, message in enumerate(case["turns"]):

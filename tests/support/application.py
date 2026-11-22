@@ -25,13 +25,14 @@ def auth(username: str = "alice", **overrides) -> dict:
 
 
 @asynccontextmanager
-async def application(*, model=None, redis_url=None, documents=(), maintenance=False, agent_spec=None, database_url=None):
+async def application(*, model=None, redis_url=None, documents=(), maintenance=False, agent_spec=None, database_url=None, embed_worker=True):
     from it_copilot.api.app import create_app
     app = create_app()
     state = app.state.container
 
     with tempfile.TemporaryDirectory(prefix="it-copilot-eval-") as directory:
         env = {
+            "IT_COPILOT_EMBED_WORKER": str(embed_worker).lower(),
             "IT_COPILOT_DATA_DIR": directory,
             "IT_COPILOT_BUILD_SHA": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip(),
             "IT_COPILOT_ENV": "development",
@@ -67,7 +68,7 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                     )
                 async with app.router.lifespan_context(app):
                     # Same reason as the per-identity limit above: the demo tenant's own limit is off too (ADR 0035).
-                    await asyncio.to_thread(state.tenants.set_quotas, "default", {"agent_turn": "off"}, actor="evaluation")
+                    await state.run_db(state.tenants.set_quotas, "default", {"agent_turn": "off"}, actor="evaluation")
                     if agent_spec is not None:
                         state.orchestrator.forced_spec = state.agent_registry.get(*agent_spec)
                     if documents:

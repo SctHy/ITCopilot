@@ -11,12 +11,14 @@ from it_copilot.api.schemas import ApprovalConfirmation, ApprovalDecision, Appro
 from it_copilot.infra.env import env_float
 from it_copilot.infra.identity import ROLE_APPROVER, ROLE_AUDITOR, ROLE_IT_ADMIN, Principal
 
+from it_copilot.workflow.approval_service import wait_settled
+
 router = APIRouter()
 
 
 async def _readable_approval(state: AppContainer, approval_id: str, principal: Principal) -> Dict[str, Any]:
     store = require_workflow(state)
-    body = await asyncio.to_thread(store.get, approval_id)
+    body = await store.run(store.get, approval_id)
     if not body:
         raise HTTPException(404, "approval not found")
     if not store.can_read(body, principal):
@@ -28,7 +30,8 @@ async def _readable_approval(state: AppContainer, approval_id: str, principal: P
 async def list_approvals(state: Container, status: Optional[str] = Query(None, pattern="^(draft|pending|approved|rejected|expired|superseded|invalidated|withdrawn)$"),
                          principal: Principal = Depends(current_principal)):
     """申请人看到自己的申请；审批人、管理员、审计员看到全部（审批收件箱），但别人尚未确认的草稿只有管理员与审计员可见。"""
-    return {"items": await asyncio.to_thread(require_workflow(state).list, principal, status)}
+    store = require_workflow(state)
+    return {"items": await store.run(store.approvals.list, principal, status)}
 
 
 @router.get("/approvals/{approval_id}")
@@ -63,11 +66,10 @@ async def release(state: Container, approval_id: str, principal: Principal = Dep
 async def reconcile_approval(state: Container, approval_id: str, principal: Principal = Depends(require_admin)):
     """人工对账：把 manual_review/unknown 的动作重新交给 worker，先回查目标系统再决定是否重做。"""
     await _readable_approval(state, approval_id, principal)
-    body = await asyncio.to_thread(require_workflow(state).requeue, approval_id, principal)
+    body = await require_workflow(state).actions.requeue(approval_id, principal)
     if not body:
         raise HTTPException(404, "approval not found")
-    if state.worker:
-        body = await state.worker.wait_settled(approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
+    body = await wait_settled(require_workflow(state), approval_id, env_float("IT_COPILOT_APPROVAL_WAIT_S", 5)) or body
     return body
 
 
@@ -92,7 +94,7 @@ async def policy_revalidate(state: Container, principal: Principal = Depends(req
     store = require_workflow(state)
     scope = None if is_platform_admin(principal) else principal.tenant
     async with admin_change(state, principal, "policy_revalidated", store.policy.version, {"scope": scope or "*"}) as change:
-        report = await asyncio.to_thread(store.revalidate, scope)
+        report = await store.run(store.revalidate, scope)
         change.subject = report["policy_version"]
         change.detail.update({k: len(v) for k, v in report.items() if isinstance(v, list)})
     if state.worker:
@@ -103,7 +105,7 @@ async def policy_revalidate(state: Container, principal: Principal = Depends(req
 @router.get("/approvals/{approval_id}/audit")
 async def approval_audit(state: Container, approval_id: str, principal: Principal = Depends(current_principal)):
     await _readable_approval(state, approval_id, principal)
-    return {"events": await asyncio.to_thread(state.workflow.audit, approval_id)}
+    return {"events": await state.workflow.run(state.workflow.audit, approval_id)}
 
 
 @router.get("/business/employees/{employee_id}")
@@ -111,7 +113,8 @@ async def business_employee(state: Container, employee_id: str, principal: Princ
     """沙箱目录中的员工状态与限时授权台账：本人、审批人、管理员、审计员可查。"""
     if employee_id != principal.employee_id and not principal.has_any(ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR):
         raise forbid("只能查看本人账号状态")
-    body = await asyncio.to_thread(require_workflow(state).employee, employee_id, principal.tenant)
+    store = require_workflow(state)
+    body = await store.run(store.directory.employee, employee_id, principal.tenant)
     if not body:
         raise HTTPException(404, "employee not found")
     return body
