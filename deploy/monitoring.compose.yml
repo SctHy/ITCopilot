@@ -1,0 +1,11 @@
+# Run both projects on the same Docker context; create agent-monitoring first.
+services:
+  api:
+    networks:
+      default:
+      shared-monitoring:
+        aliases: [it-copilot-api]
+networks:
+  shared-monitoring:
+    external: true
+    name: agent-monitoring

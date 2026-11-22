@@ -1,7 +1,8 @@
 """Isolated evaluation of the SAME application lifespan and HTTP handlers.
 
 Offline uses only a model substitute and fakeredis. Live uses a dedicated Redis
-DB/server supplied by the caller. All SQLite files are temporary. Requests
+DB/server supplied by the caller. All SQLite files are temporary. An optional
+PostgreSQL database_url must be a newly created isolated database owned by the caller. Requests
 authenticate with dev-mode tokens (default caller: alice; pass ``headers=auth(...)``
 for approvers or other identities). No flush
 of a user database, external MCP connection, or notification webhook is performed.
@@ -24,7 +25,7 @@ def auth(username: str = "alice", **overrides) -> dict:
 
 
 @asynccontextmanager
-async def application(*, model=None, redis_url=None, documents=(), maintenance=False, agent_spec=None):
+async def application(*, model=None, redis_url=None, documents=(), maintenance=False, agent_spec=None, database_url=None):
     import api.main as api
     from api import state
 
@@ -40,7 +41,7 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
             "IT_COPILOT_TASK_CONTACTS": "{}",
             "IT_COPILOT_SMTP_HOST": "",
             "IT_COPILOT_AUTH_MODE": "dev",
-            "IT_COPILOT_DATABASE_URL": f"sqlite:///{directory}/it_copilot.sqlite3",
+            "IT_COPILOT_DATABASE_URL": database_url or f"sqlite:///{directory}/it_copilot.sqlite3",
             "IT_COPILOT_GITEA_REPOS": "",
             "IT_COPILOT_APPROVAL_WAIT_S": "10",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "",

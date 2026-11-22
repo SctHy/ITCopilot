@@ -31,6 +31,8 @@ jobs:
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
           activate-environment: true
       - run: uv pip install -r requirements-dev.txt
+      - name: Install isolated Redis test runtime
+        run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: python scripts/dev.py check --profile backend
       - uses: actions/upload-artifact@v4
         if: always()
@@ -65,6 +67,13 @@ jobs:
       - run: uv pip install -r requirements-dev.txt
       # Same migrations, CAS/lease and vector-store tests as SQLite, against PostgreSQL + pgvector.
       - run: python scripts/dev.py check --profile postgres
+      - name: Backup and restore with real PostgreSQL and Redis
+        run: |
+          sudo apt-get update && sudo apt-get install -y redis-server
+          python -m pytest -q tests/test_backup.py
+        env:
+          IT_COPILOT_BACKUP_TEST_ADMIN_URL: postgresql+psycopg://itc:itc-pass@127.0.0.1:5432/postgres
+          IT_COPILOT_BACKUP_TEST_CONTAINER: ${{ job.services.postgres.id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

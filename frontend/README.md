@@ -32,3 +32,5 @@ Query 管理列表快照；写请求不自动重试，不持久化 token/私有�
 `npm run check` 统一执行严格类型检查、Vitest 逻辑测试、Testing Library UI 测试和生产构建。`test` 使用 Node 环境，`test:ui` 使用 jsdom；两者共享 Vite 的 TS/TSX 转换与 `@/` 路径别名。`build` 自带类型检查，Docker 构建同样执行。TS 配置同时检查源码、TS 测试与 Vite/Vitest 配置，包含索引空值和未使用声明检查。
 
 Query 查询将 AbortSignal 传入 API，身份或连接切换时取消旧查询并丢弃旧缓存。现有 SSE、审批与任务控制器继续管理业务流程；局部 UI 使用 React Hooks，不将控制器的 Proxy 状态容器推广为通用数据缓存。原 Node test runner 入口已经移除，现有逻辑测试保留原业务断言并改由 Vitest 运行。
+
+跨项目升级时执行 `python3 scripts/check_frontend_contract.py ../GCFeed/apps/web/package.json`（在 IT-Copilot 根目录）。统一核心版本与检查命令；界面主题、业务组件和 Query 刷新策略独立。通用 Base UI 组件变更同步复核两边 vendor 来源与许可，不将业务控制器抽成通用组件库。
