@@ -8,23 +8,23 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from sqlalchemy import func, select
 
 from tests import runtime as api
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.base_agent import BaseAgent
-from it_copilot.agent.outcome import turn_outcome
-from it_copilot.agent.types import AgentRunDeps, Request
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.base_agent import BaseAgent
+from servicedesk_agent.agent.outcome import turn_outcome
+from servicedesk_agent.agent.types import AgentRunDeps, Request
 from tests.runtime import state
-from it_copilot.infra.change_log import record_deploy, record_change
-from it_copilot.infra.db import change_events, turn_records
-from it_copilot.infra.events import InMemoryEventBus
-from it_copilot.infra.retention import RetentionPolicy
-from it_copilot.agent.skill_loader import SkillManager
-from it_copilot.infra.tenant_context import tenant_scope
-from it_copilot.infra.turn_records import build_sha
+from servicedesk_agent.infra.change_log import record_deploy, record_change
+from servicedesk_agent.infra.db import change_events, turn_records
+from servicedesk_agent.infra.events import InMemoryEventBus
+from servicedesk_agent.infra.retention import RetentionPolicy
+from servicedesk_agent.agent.skill_loader import SkillManager
+from servicedesk_agent.infra.tenant_context import tenant_scope
+from servicedesk_agent.infra.turn_records import build_sha
 from tests.support.fake_model import scripted_model
 from tests.conftest import auth, with_read_tool
 from tests.test_workflow import ALICE
-from it_copilot.agent.tooling.tool_spec import make_tool
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.agent.tooling.tool_spec import make_tool
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def test_chat_settles_body_free_record_with_complete_versions(store, monkeypatch
     assert row["model_requests"] == 2
     assert row["tools"] == [{"name": "diagnose", "outcome": "success", "error_class": "success", "latency_ms": row["tools"][0]["latency_ms"]}]
     assert all(len(row[k]) == 64 for k in ("prompt_fp", "tools_fp", "skill_fp"))
-    assert row["agent_version"] == "1.0.0" and row["build_sha"] == os.environ["IT_COPILOT_BUILD_SHA"] and row["policy_version"] == store.policy.version
+    assert row["agent_version"] == "1.0.0" and row["build_sha"] == os.environ["SERVICEDESK_AGENT_BUILD_SHA"] and row["policy_version"] == store.policy.version
     assert "VPN-691" not in str(dict(row))
     assert row["latency_ms"] > 0 and row["first_token_ms"] is None
     streamed = http.post("/chat/stream", json={"message": "VPN报错VPN-691", "conv_id": "streamed"})
@@ -114,10 +114,10 @@ def test_outcome_has_one_definition(record, expected):
 
 
 def test_build_revision_is_required(monkeypatch):
-    monkeypatch.delenv("IT_COPILOT_BUILD_SHA")
+    monkeypatch.delenv("SERVICEDESK_AGENT_BUILD_SHA")
     with pytest.raises(KeyError):
         build_sha()
-    monkeypatch.setenv("IT_COPILOT_BUILD_SHA", " ")
+    monkeypatch.setenv("SERVICEDESK_AGENT_BUILD_SHA", " ")
     with pytest.raises(ValueError):
         build_sha()
 
@@ -136,6 +136,6 @@ def test_changes_api_filters_tenants_and_roles(store, monkeypatch):
 
 
 def test_turn_retention_setting_rejects_invalid_values(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_RETENTION_TURN_DAYS", "not-a-number")
+    monkeypatch.setenv("SERVICEDESK_AGENT_RETENTION_TURN_DAYS", "not-a-number")
     with pytest.raises(ValueError):
         RetentionPolicy.from_env()

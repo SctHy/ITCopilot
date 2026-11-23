@@ -9,11 +9,11 @@ import pytest
 from prometheus_client import REGISTRY
 from sqlalchemy import select
 
-from it_copilot.infra.db import actions, approvals, admin_audit
-from it_copilot.infra.logging import WorkflowFormatter
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.base import TransientError
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.infra.db import actions, approvals, admin_audit
+from servicedesk_agent.infra.logging import WorkflowFormatter
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.base import TransientError
+from servicedesk_agent.workflow.worker import ExecutionWorker
 from tests.support.application import application, auth
 from tests.test_application_execution import access_model
 from tests.test_observability import sample
@@ -46,10 +46,10 @@ async def test_operator_resolution(resolution, expected, monkeypatch):
                 patch.setattr(state.registry.local, "observe", unavailable)
                 assert (await post()).status_code == 409
             assert store.get("a")["results"][0]["version"] == step["version"]
-            from it_copilot.infra.tenant_context import tenant_scope
+            from servicedesk_agent.infra.tenant_context import tenant_scope
             with tenant_scope("default"):
                 await state.registry.local.apply(action["id"], action)
-        metric = "it_copilot_workflow_manual_resolutions_total"
+        metric = "servicedesk_agent_workflow_manual_resolutions_total"
         before = sample(metric, resolution=resolution)
         responses = await asyncio.gather(post(), post())
         assert sorted(r.status_code for r in responses) == [200, 409]
@@ -85,7 +85,7 @@ async def test_chat_outbox_gitea_and_expiry_trace(incoming, monkeypatch):
         return httpx2.Response(204)
 
     async with application(model=access_model(), embed_worker=False) as (http, state):
-        monkeypatch.setenv("IT_COPILOT_APPROVAL_WAIT_S", "0")
+        monkeypatch.setenv("SERVICEDESK_AGENT_APPROVAL_WAIT_S", "0")
         adapter = gitea(target)
         store = state.workflow
         registry = AdapterRegistry(state.registry.local, {"gitlab": adapter})
@@ -107,7 +107,7 @@ async def test_chat_outbox_gitea_and_expiry_trace(incoming, monkeypatch):
             stream = io.StringIO()
             handler = logging.StreamHandler(stream)
             handler.setFormatter(WorkflowFormatter("api", True))
-            logger = logging.getLogger("it_copilot.workflow.worker")
+            logger = logging.getLogger("servicedesk_agent.workflow.worker")
             logger.addHandler(handler)
             try:
                 await worker.run_until_idle()
@@ -133,8 +133,8 @@ async def test_chat_outbox_gitea_and_expiry_trace(incoming, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("resolution,status", [("mark_resolved", "resolved"), ("accept_external", "revoked")])
 async def test_review_drifted_grant_after_automatic_revoke_was_cancelled(resolution, status):
-    from it_copilot.infra.tenant_context import tenant_scope
-    from it_copilot.workflow.reconciler import GrantReconciler
+    from servicedesk_agent.infra.tenant_context import tenant_scope
+    from servicedesk_agent.workflow.reconciler import GrantReconciler
 
     async with application(embed_worker=False) as (http, state):
         store = state.workflow
@@ -157,19 +157,19 @@ def test_registry_cardinality():
     forbidden = {"user_id", "tenant", "approval_id", "action_id", "conv_id", "request_id"}
     for collector in REGISTRY._collector_to_names:
         for family in collector.describe() if hasattr(collector, "describe") else []:
-            if family.name.startswith("it_copilot_"):
-                assert not family.name.startswith(("it_copilot_channel_messages", "it_copilot_channel_deliveries"))
+            if family.name.startswith("servicedesk_agent_"):
+                assert not family.name.startswith(("servicedesk_agent_channel_messages", "servicedesk_agent_channel_deliveries"))
                 assert forbidden.isdisjoint(collector._labelnames), family.name
 
 
 @pytest.mark.asyncio
 async def test_queue_measurements(db_url):
-    from it_copilot.workflow.store import WorkflowStore
+    from servicedesk_agent.workflow.store import WorkflowStore
     store = WorkflowStore(db_url)
     try:
         notifier = store.notifier
         for source in ("notify", "kick", "poll"):
-            metric = "it_copilot_workflow_wakeups_total"
+            metric = "servicedesk_agent_workflow_wakeups_total"
             before = sample(metric, source=source)
             notifier.event.clear()
             if source != "poll":
@@ -179,11 +179,11 @@ async def test_queue_measurements(db_url):
         draft = create(store)
         store.decide("a", "approved", BOB, draft["payload_hash"])
         for reason in ("shutdown", "error"):
-            before = sample("it_copilot_workflow_dispatch_latency_seconds_count")
+            before = sample("servicedesk_agent_workflow_dispatch_latency_seconds_count")
             action, = await store.actions.claim("test", 60)
-            assert sample("it_copilot_workflow_dispatch_latency_seconds_count") == before + 1
-            before = sample("it_copilot_workflow_leases_released_total", reason=reason)
+            assert sample("servicedesk_agent_workflow_dispatch_latency_seconds_count") == before + 1
+            before = sample("servicedesk_agent_workflow_leases_released_total", reason=reason)
             await store.actions.release_lease(action, reason=reason)
-            assert sample("it_copilot_workflow_leases_released_total", reason=reason) == before + 1
+            assert sample("servicedesk_agent_workflow_leases_released_total", reason=reason) == before + 1
     finally:
         await store.aclose()

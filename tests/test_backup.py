@@ -64,12 +64,12 @@ def test_manifest_paths_cannot_escape_backup(tmp_path):
 
 
 def test_postgres_snapshot_and_restore(tmp_path):
-    admin_url = os.getenv("IT_COPILOT_BACKUP_TEST_ADMIN_URL")
+    admin_url = os.getenv("SERVICEDESK_AGENT_BACKUP_TEST_ADMIN_URL")
     if not admin_url:
-        pytest.skip("set dedicated IT_COPILOT_BACKUP_TEST_ADMIN_URL for pg_dump/restore drill")
-    options = {"container": os.getenv("IT_COPILOT_BACKUP_TEST_CONTAINER"), "context": os.getenv("IT_COPILOT_BACKUP_TEST_CONTEXT")}
+        pytest.skip("set dedicated SERVICEDESK_AGENT_BACKUP_TEST_ADMIN_URL for pg_dump/restore drill")
+    options = {"container": os.getenv("SERVICEDESK_AGENT_BACKUP_TEST_CONTAINER"), "context": os.getenv("SERVICEDESK_AGENT_BACKUP_TEST_CONTEXT")}
     with isolated_postgres(admin_url) as url:
-        from it_copilot.workflow.store import WorkflowStore
+        from servicedesk_agent.workflow.store import WorkflowStore
         store = WorkflowStore(url)
         store.engine.dispose()
         engine = create_engine(url)

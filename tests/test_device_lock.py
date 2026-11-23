@@ -4,12 +4,12 @@ from tests.conftest import run_in_tenant
 
 import pytest
 
-from it_copilot.agent.tools import lock_device
-from it_copilot.agent.types import Request
+from servicedesk_agent.agent.tools import lock_device
+from servicedesk_agent.agent.types import Request
 from tests.test_workflow import ALICE, BOB, ERIN, env, run  # noqa: F401 (env is a fixture)
-from it_copilot.workflow.approval import approval_from_traces
-from it_copilot.workflow.policy import PolicyViolation
-from it_copilot.workflow.store import ApprovalForbidden
+from servicedesk_agent.workflow.approval import approval_from_traces
+from servicedesk_agent.workflow.policy import PolicyViolation
+from servicedesk_agent.workflow.store import ApprovalForbidden
 
 
 def lock(device="DEV-1001", employee="1001"):

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from it_copilot.infra.events import StreamConflict, _binding
+from servicedesk_agent.infra.events import StreamConflict, _binding
 from tests.support.evaluator import load_intent_cases
 
 

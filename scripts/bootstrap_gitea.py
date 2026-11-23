@@ -1,11 +1,11 @@
 """Idempotently prepare the Gitea sandbox used as the real permission system for `gitlab`.
 
 Creates the sandbox org + private repo and one Gitea account per directory employee
-(usernames from it_copilot.workflow.store.SEED_EMPLOYEES). The service account itself is created
+(usernames from servicedesk_agent.workflow.store.SEED_EMPLOYEES). The service account itself is created
 by the `gitea-init` compose job via `gitea admin user create`.
 
-    IT_COPILOT_GITEA_URL=http://127.0.0.1:3001 IT_COPILOT_GITEA_USER=itc-svc \
-    IT_COPILOT_GITEA_PASSWORD=... python scripts/bootstrap_gitea.py
+    SERVICEDESK_AGENT_GITEA_URL=http://127.0.0.1:3001 SERVICEDESK_AGENT_GITEA_USER=servicedesk-agent-svc \
+    SERVICEDESK_AGENT_GITEA_PASSWORD=... python scripts/bootstrap_gitea.py
 """
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ import time
 
 import httpx2
 
-from it_copilot.workflow.store import SEED_EMPLOYEES  # noqa: E402
+from servicedesk_agent.workflow.store import SEED_EMPLOYEES  # noqa: E402
 
 
 def main() -> int:
-    base = os.environ.get("IT_COPILOT_GITEA_URL", "http://127.0.0.1:3001").rstrip("/") + "/api/v1"
-    auth = (os.environ.get("IT_COPILOT_GITEA_USER", "itc-svc"), os.environ["IT_COPILOT_GITEA_PASSWORD"])
-    repos = dict(item.split("=", 1) for item in os.getenv("IT_COPILOT_GITEA_REPOS", "gitlab=it-sandbox/platform").split(",") if "=" in item)
+    base = os.environ.get("SERVICEDESK_AGENT_GITEA_URL", "http://127.0.0.1:3001").rstrip("/") + "/api/v1"
+    auth = (os.environ.get("SERVICEDESK_AGENT_GITEA_USER", "servicedesk-agent-svc"), os.environ["SERVICEDESK_AGENT_GITEA_PASSWORD"])
+    repos = dict(item.split("=", 1) for item in os.getenv("SERVICEDESK_AGENT_GITEA_REPOS", "gitlab=it-sandbox/platform").split(",") if "=" in item)
     with httpx2.Client(base_url=base, auth=auth, timeout=10) as http:
         for _ in range(60):
             try:

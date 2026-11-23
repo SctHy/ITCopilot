@@ -4,14 +4,14 @@ import asyncio
 import fakeredis.aioredis
 import pytest
 
-from it_copilot.infra.events import InMemoryEventBus, RedisEventBus, StreamConflict, request_fingerprint
-from it_copilot.infra.states import IllegalTransition
-from it_copilot.agent.tooling.executor import ToolExecutor
-from it_copilot.agent.tooling.tool_spec import make_tool
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.infra.events import InMemoryEventBus, RedisEventBus, StreamConflict, request_fingerprint
+from servicedesk_agent.infra.states import IllegalTransition
+from servicedesk_agent.agent.tooling.executor import ToolExecutor
+from servicedesk_agent.agent.tooling.tool_spec import make_tool
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 from tests.test_workflow import BOB, Clock, create
 
 
@@ -88,7 +88,7 @@ def test_worker_expires_unattended_approval_once_at_deadline(db_url):
 
 @pytest.mark.asyncio
 async def test_renewal_loss_cancels_work_and_parent_cancellation_is_preserved():
-    from it_copilot.infra.concurrency import LeaseLostError, run_leased
+    from servicedesk_agent.infra.concurrency import LeaseLostError, run_leased
     cancelled = asyncio.Event()
 
     async def work():
@@ -118,7 +118,7 @@ async def test_renewal_loss_cancels_work_and_parent_cancellation_is_preserved():
 
 @pytest.mark.asyncio
 async def test_transient_renewal_error_is_retried_but_persistent_errors_cancel_before_expiry():
-    from it_copilot.infra.concurrency import LeaseLostError, run_leased
+    from servicedesk_agent.infra.concurrency import LeaseLostError, run_leased
     attempts = []
 
     async def flaky():
@@ -148,7 +148,7 @@ async def test_transient_renewal_error_is_retried_but_persistent_errors_cancel_b
 
 
 def test_expired_worker_cannot_commit_or_renew_even_before_reclaim(db_url):
-    from it_copilot.workflow.store import LeaseLost
+    from servicedesk_agent.workflow.store import LeaseLost
     clock = Clock()
     store = WorkflowStore(db_url, clock=clock)
     try:
@@ -167,7 +167,7 @@ def test_expired_worker_cannot_commit_or_renew_even_before_reclaim(db_url):
 
 @pytest.mark.asyncio
 async def test_archive_outbox_survives_compression_failure_and_replays_without_new_chat(db_url):
-    from it_copilot.agent.memory.conversation_memory import MemoryManager
+    from servicedesk_agent.agent.memory.conversation_memory import MemoryManager
     from pydantic_ai.messages import ModelResponse, TextPart
     from pydantic_ai.models.function import FunctionModel
 
@@ -177,6 +177,7 @@ async def test_archive_outbox_survives_compression_failure_and_replays_without_n
     async def summarize(messages, info):
         return ModelResponse(parts=[TextPart("VPN 认证失败，已检查账号。")])
 
+    manager.COMPRESS_AT = 15
     manager._llm = FunctionModel(summarize)
     attempts = []
 
@@ -189,7 +190,7 @@ async def test_archive_outbox_survives_compression_failure_and_replays_without_n
         for i in range(8):
             await manager.commit_turn("u", "c", str(i), "VPN 问题", {"response": "答复"})
         assert await manager._compress("u", "c") == "archive_pending"
-        assert await manager._redis.llen(manager._wm_key("u", "c")) == 5
+        assert await manager._redis.llen(manager._wm_key("u", "c")) == 4
         assert await manager._redis.hlen(manager._archive_key("u", "c")) == 1
 
         async def recovered(*args):
@@ -209,7 +210,7 @@ async def test_archive_outbox_survives_compression_failure_and_replays_without_n
 @pytest.mark.asyncio
 async def test_pending_archive_replay_uses_the_committed_index_without_scanning(db_url):
     import json
-    from it_copilot.agent.memory.conversation_memory import MemoryManager
+    from servicedesk_agent.agent.memory.conversation_memory import MemoryManager
     manager = MemoryManager(redis_url="redis://localhost:1/0", database_url=db_url, api_key="sk-local")
     manager._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     stored, scans = [], []
@@ -241,7 +242,7 @@ async def test_pending_archive_replay_uses_the_committed_index_without_scanning(
 def test_document_replacement_rolls_back_if_stale_chunk_removal_fails(db_url):
     import numpy as np
     from sqlalchemy import event
-    from it_copilot.infra.vector_store import VectorStore
+    from servicedesk_agent.infra.vector_store import VectorStore
 
     class Embedder:
         model_name = "test"
@@ -269,13 +270,13 @@ def test_document_replacement_rolls_back_if_stale_chunk_removal_fails(db_url):
 
 @pytest.mark.asyncio
 async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
-    monkeypatch.setenv("IT_COPILOT_DATABASE_URL", db_url)
+    monkeypatch.setenv("SERVICEDESK_AGENT_DATABASE_URL", db_url)
     from types import SimpleNamespace
-    import it_copilot.agent.agent_orchestrator
-    import it_copilot.api.app
-    import it_copilot.agent.memory.conversation_memory
-    import it_copilot.infra.monitor.telemetry
-    import it_copilot.agent.tooling.knowledge_base
+    import servicedesk_agent.agent.agent_orchestrator
+    import servicedesk_agent.api.app
+    import servicedesk_agent.agent.memory.conversation_memory
+    import servicedesk_agent.infra.monitor.telemetry
+    import servicedesk_agent.agent.tooling.knowledge_base
 
     closed = []
 
@@ -293,16 +294,16 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
         async def close(self):
             closed.append("memory")
 
-    app = it_copilot.api.app.create_app()
+    app = servicedesk_agent.api.app.create_app()
     state = app.state.container
-    monkeypatch.setenv("IT_COPILOT_REQUIRE_REDIS", "true")
-    monkeypatch.setattr(it_copilot.agent.agent_orchestrator, "AgentOrchestrator", Orchestrator)
-    monkeypatch.setattr(it_copilot.agent.memory.conversation_memory, "MemoryManager", Memory)
-    monkeypatch.setattr(it_copilot.agent.tooling.knowledge_base, "KnowledgeBase", lambda url: SimpleNamespace(collection_version=lambda tenant: 0))
-    monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "setup_tracing", lambda: None)
-    monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "shutdown_tracing", lambda x: closed.append("tracing"))
+    monkeypatch.setenv("SERVICEDESK_AGENT_REQUIRE_REDIS", "true")
+    monkeypatch.setattr(servicedesk_agent.agent.agent_orchestrator, "AgentOrchestrator", Orchestrator)
+    monkeypatch.setattr(servicedesk_agent.agent.memory.conversation_memory, "MemoryManager", Memory)
+    monkeypatch.setattr(servicedesk_agent.agent.tooling.knowledge_base, "KnowledgeBase", lambda url: SimpleNamespace(collection_version=lambda tenant: 0))
+    monkeypatch.setattr(servicedesk_agent.infra.monitor.telemetry, "setup_tracing", lambda: None)
+    monkeypatch.setattr(servicedesk_agent.infra.monitor.telemetry, "shutdown_tracing", lambda x: closed.append("tracing"))
     with pytest.raises(RuntimeError, match="Redis"):
-        async with it_copilot.api.app.lifespan(app):
+        async with servicedesk_agent.api.app.lifespan(app):
             pytest.fail("unreachable")
     assert closed == ["memory", "tracing"]
     assert state.lifecycle.state == "closed"

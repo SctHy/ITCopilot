@@ -19,8 +19,8 @@ def isolated_postgres(admin_url):
         return
     parsed = make_url(admin_url)
     if parsed.get_backend_name() != "postgresql":
-        raise ValueError("IT_COPILOT_BENCH_POSTGRES_URL must be PostgreSQL")
-    name = "itc_bench_" + uuid.uuid4().hex
+        raise ValueError("SERVICEDESK_AGENT_BENCH_POSTGRES_URL must be PostgreSQL")
+    name = "servicedesk_agent_bench_" + uuid.uuid4().hex
     admin = create_engine(parsed.set(database="postgres"), isolation_level="AUTOCOMMIT")
     created = False
     try:

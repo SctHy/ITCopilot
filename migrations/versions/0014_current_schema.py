@@ -6,7 +6,7 @@ Includes append-only audit enforcement and tenant/resource concurrency constrain
 import time
 from alembic import op
 import sqlalchemy as sa
-import it_copilot.infra.db
+import servicedesk_agent.infra.db
 
 revision = "0014"
 down_revision = None
@@ -571,7 +571,7 @@ def upgrade():
     sa.Column('id', sa.String(length=200), nullable=False),
     sa.Column('document', sa.Text(), nullable=False),
     sa.Column('meta', sa.JSON(), nullable=False),
-    sa.Column('embedding', it_copilot.infra.db.Embedding(), nullable=False),
+    sa.Column('embedding', servicedesk_agent.infra.db.Embedding(), nullable=False),
     sa.Column('model', sa.String(length=120), nullable=False),
     sa.Column('updated_at', sa.Float(), nullable=False),
     sa.PrimaryKeyConstraint('collection', 'id', name='pk_vector_documents')
@@ -579,7 +579,7 @@ def upgrade():
     op.create_index('ix_vector_documents_updated', 'vector_documents', ['collection', 'updated_at'], unique=False)
     if op.get_bind().dialect.name == "postgresql":
         op.execute("""
-            CREATE OR REPLACE FUNCTION it_copilot_append_only() RETURNS trigger AS $$
+            CREATE OR REPLACE FUNCTION servicedesk_agent_append_only() RETURNS trigger AS $$
             BEGIN
                 RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
             END;
@@ -587,9 +587,9 @@ def upgrade():
         """)
         for table in APPEND_ONLY:
             op.execute(f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
-                       "FOR EACH ROW EXECUTE FUNCTION it_copilot_append_only()")
+                       "FOR EACH ROW EXECUTE FUNCTION servicedesk_agent_append_only()")
             op.execute(f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
-                       "FOR EACH STATEMENT EXECUTE FUNCTION it_copilot_append_only()")
+                       "FOR EACH STATEMENT EXECUTE FUNCTION servicedesk_agent_append_only()")
     else:
         for table in APPEND_ONLY:
             for verb in ("UPDATE", "DELETE"):
@@ -687,4 +687,4 @@ def downgrade():
     op.drop_table('access_grants')
 
     if op.get_bind().dialect.name == "postgresql":
-        op.execute("DROP FUNCTION IF EXISTS it_copilot_append_only()")
+        op.execute("DROP FUNCTION IF EXISTS servicedesk_agent_append_only()")

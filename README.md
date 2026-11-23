@@ -1,6 +1,6 @@
-# IT-Copilot
+# ServiceDesk Agent：支持审批、权限校验与故障恢复的企业 IT 服务台
 
-IT-Copilot 是一个企业内部 IT 服务助手，拆分为 **API** 和 **Worker** 两个独立进程：
+ServiceDesk Agent 是一个企业内部 IT 服务助手，拆分为 **API** 和 **Worker** 两个独立进程：
 - **API 进程**（FastAPI + PydanticAI）：负责接收对话、搜索知识库、起草权限或工单变更，并通过 SSE 实时流式推送回复。
 - **Worker 进程**：独立从 PostgreSQL 领取已审批通过的任务，调用外部系统（Gitea 权限沙箱）执行权限开通、到期自动回收以及异常状态核对。
 - **Redis Streams**：保存流式对话消息，支持断线重连后从上次位置继续接收。
@@ -64,10 +64,13 @@ BM25、向量与 RRF 的逐查询平均 Recall@5 分别为 0.9141、0.9297、0.9
 
 ## 快速开始
 
-先复制环境变量文件，填入大模型服务的地址、模型名和 API Key，再用 Docker Compose 一键启动：
+克隆仓库并复制环境变量示例，在 `.env` 中填入模型服务地址、模型名和 API Key 后启动：
 
 ```sh
+git clone https://github.com/SctHy/ServiceDesk-Agent.git
+cd ServiceDesk-Agent
 cp .env.example .env
+# 编辑 .env 后启动
 make up
 ```
 
@@ -98,7 +101,7 @@ make run-worker
 ## 项目结构
 
 ```text
-src/it_copilot/
+src/servicedesk_agent/
   cmd/        API、Worker 和验收测试的启动入口
   api/        HTTP 路由、SSE 推送、请求依赖组装
   agent/      大模型调用、数据脱敏、工具治理与知识库检索
@@ -115,16 +118,16 @@ skills/       IT 服务台业务说明与技能配置
 | 环境变量 | 说明 |
 |---|---|
 | `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` | 兼容 OpenAI 协议的大模型服务配置 |
-| `IT_COPILOT_DATABASE_URL` / `REDIS_URL` | API 与 Worker 共享的 PostgreSQL 和 Redis 连接地址 |
-| `IT_COPILOT_AUTH_MODE` | 认证模式：`dev`（本地演示身份）或 `oidc`（Keycloak） |
-| `IT_COPILOT_MASK_MODEL` | 脱敏本地模型策略：`on`（强制启用）、`auto`（不可用时用规则替代）、`off`（仅用规则） |
-| `IT_COPILOT_ACCESS_POLICY` | 权限与审批策略配置文件路径 |
-| `IT_COPILOT_GITEA_URL` / `IT_COPILOT_GITEA_REPOS` | Gitea 沙箱地址及系统名到仓库的映射关系 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `IT_COPILOT_WORKER_METRICS_ADDR` | OpenTelemetry 链路导出地址与 Worker 监控端口 |
+| `SERVICEDESK_AGENT_DATABASE_URL` / `REDIS_URL` | API 与 Worker 共享的 PostgreSQL 和 Redis 连接地址 |
+| `SERVICEDESK_AGENT_AUTH_MODE` | 认证模式：`dev`（本地演示身份）或 `oidc`（Keycloak） |
+| `SERVICEDESK_AGENT_MASK_MODEL` | 脱敏本地模型策略：`on`（强制启用）、`auto`（不可用时用规则替代）、`off`（仅用规则） |
+| `SERVICEDESK_AGENT_ACCESS_POLICY` | 权限与审批策略配置文件路径 |
+| `SERVICEDESK_AGENT_GITEA_URL` / `SERVICEDESK_AGENT_GITEA_REPOS` | Gitea 沙箱地址及系统名到仓库的映射关系 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `SERVICEDESK_AGENT_WORKER_METRICS_ADDR` | OpenTelemetry 链路导出地址与 Worker 监控端口 |
 
 ## 监控与常用验证命令
 
-API 默认暴露 `/livez`（存活检查）、`/readyz`（就绪检查）和 `/metrics`（Prometheus 指标）；Worker 配置 `IT_COPILOT_WORKER_METRICS_ADDR` 后同样提供这三个接口，用来观察任务积压、调度耗时、租约恢复以及外部权限异常情况。
+API 默认暴露 `/livez`（存活检查）、`/readyz`（就绪检查）和 `/metrics`（Prometheus 指标）；Worker 配置 `SERVICEDESK_AGENT_WORKER_METRICS_ADDR` 后同样提供这三个接口，用来观察任务积压、调度耗时、租约恢复以及外部权限异常情况。
 
 ```sh
 make lint test frontend-check

@@ -7,14 +7,14 @@ import fakeredis.aioredis
 import pytest
 
 from tests.runtime import state
-from it_copilot.api.deps import request_id
-from it_copilot.infra.scopes import identity_scope
-from it_copilot.infra.events import InMemoryEventBus
-from it_copilot.agent.memory.conversation_memory import MemoryManager
+from servicedesk_agent.api.deps import request_id
+from servicedesk_agent.infra.scopes import identity_scope
+from servicedesk_agent.infra.events import InMemoryEventBus
+from servicedesk_agent.agent.memory.conversation_memory import MemoryManager
 from tests.conftest import auth
 from tests.test_chat_endpoint import chat_client as base_chat_client
 from tests.test_workflow import ALICE, BOB, ERIN, access
-from it_copilot.workflow.store import ApprovalForbidden, ApprovalConflict
+from servicedesk_agent.workflow.store import ApprovalForbidden, ApprovalConflict
 chat_client = base_chat_client
 from tests.test_workflow import env  # noqa: F401
 
@@ -46,7 +46,7 @@ def test_private_working_and_cross_conversation_memory_are_scoped(db_url):
 
 def test_private_chat_passes_scoped_identity_through_every_memory_port(chat_client, monkeypatch):
     from contextlib import asynccontextmanager
-    from it_copilot.agent.memory.conversation_memory import MemoryContext
+    from servicedesk_agent.agent.memory.conversation_memory import MemoryContext
     calls, receipts = [], {}
 
     class Memory:

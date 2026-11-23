@@ -4,14 +4,14 @@ from dataclasses import replace
 
 import pytest
 
-from it_copilot.api import deps
+from servicedesk_agent.api import deps
 from tests.runtime import state
-from it_copilot.infra import quotas
-from it_copilot.infra.db import shared_engine
-from it_copilot.infra.fair_queue import rotate
-from it_copilot.infra.identity import Principal
-from it_copilot.infra.rate_limit import MemoryRateLimiter, RateRule
-from it_copilot.infra.tenancy import TenantRegistry
+from servicedesk_agent.infra import quotas
+from servicedesk_agent.infra.db import shared_engine
+from servicedesk_agent.infra.fair_queue import rotate
+from servicedesk_agent.infra.identity import Principal
+from servicedesk_agent.infra.rate_limit import MemoryRateLimiter, RateRule
+from servicedesk_agent.infra.tenancy import TenantRegistry
 
 from tests.test_workflow import ALICE, BOB, access, env  # noqa: F401
 
@@ -31,7 +31,7 @@ def test_quotas_are_validated_when_written():
 def test_quota_changes_are_audited(db_url):
     from sqlalchemy import select
 
-    from it_copilot.infra.db import admin_audit
+    from servicedesk_agent.infra.db import admin_audit
 
     registry = TenantRegistry(shared_engine(db_url), cache_ttl_s=0)
     registry.create("acme", actor="cli:op", quotas={"agent_turn": "10/60"})

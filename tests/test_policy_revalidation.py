@@ -5,15 +5,15 @@ import copy
 import pytest
 import yaml
 
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow import policy as policy_module
-from it_copilot.workflow.policy import AccessPolicy, load_policy
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow import policy as policy_module
+from servicedesk_agent.workflow.policy import AccessPolicy, load_policy
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 from sqlalchemy import update
 
-from it_copilot.infra.db import approvals
+from servicedesk_agent.infra.db import approvals
 from tests.test_workflow import ALICE, BOB, CAROL, ERIN, Clock, access, create, run
 
 
@@ -203,7 +203,7 @@ def test_policy_file_edits_apply_without_restart_and_a_broken_edit_keeps_the_las
     path = tmp_path / "policy.yaml"
     data = copy.deepcopy(load_policy().data)
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
-    monkeypatch.setenv("IT_COPILOT_ACCESS_POLICY", str(path))
+    monkeypatch.setenv("SERVICEDESK_AGENT_ACCESS_POLICY", str(path))
     assert load_policy().declared_version == data["version"]
     data["version"] = "edited"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
@@ -250,7 +250,7 @@ class _FlakyOnce(LocalDirectoryAdapter):
     async def apply(self, action_id, action):
         if not self.failed:
             self.failed = True
-            from it_copilot.workflow.adapters.base import TransientError
+            from servicedesk_agent.workflow.adapters.base import TransientError
             raise TransientError("gitea 503")
         return await super().apply(action_id, action)
 

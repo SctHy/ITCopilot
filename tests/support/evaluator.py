@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 
-from it_copilot.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
 
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────────

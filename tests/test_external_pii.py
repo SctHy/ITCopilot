@@ -67,8 +67,8 @@ def test_frozen_source_overlay_loads_the_hashed_implementation(tmp_path):
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     import os
-    package = Path("src/it_copilot/agent/masking")
-    shutil.copytree(root / "src/it_copilot", tmp_path / "src/it_copilot")
+    package = Path("src/servicedesk_agent/agent/masking")
+    shutil.copytree(root / "src/servicedesk_agent", tmp_path / "src/servicedesk_agent")
     with (tmp_path / package / "pii_rules.py").open("a") as stream:
         stream.write('\nOVERLAY_TEST_MARKER = "frozen"\n')
     subprocess.run([sys.executable, "-c", """
@@ -76,6 +76,6 @@ import sys
 sys.argv = ['evaluation', '--source-root', sys.argv[1]]
 import tests.support.evaluate_masking_external as evaluator
 evaluator.source_hashes()
-from it_copilot.agent.masking import pii_rules
+from servicedesk_agent.agent.masking import pii_rules
 assert pii_rules.OVERLAY_TEST_MARKER == 'frozen'
 """, str(tmp_path)], cwd=root, env={**os.environ, "PYTHONPATH": str(tmp_path / "src")}, check=True, capture_output=True, text=True)

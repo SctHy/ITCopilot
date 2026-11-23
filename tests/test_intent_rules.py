@@ -2,9 +2,9 @@
 
 import pytest
 
-from it_copilot.agent.intent.entities import extract_entities
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.intent.taxonomy import (
+from servicedesk_agent.agent.intent.entities import extract_entities
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.intent.taxonomy import (
     CATEGORY_GUIDE,
     INTENT_CRITERIA,
     INTENT_RULES,

@@ -11,8 +11,8 @@ from pydantic_ai.output import ToolOutput
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
-from it_copilot.agent.intent.recognizer import IntentClassification, CATEGORY_GUIDE
-from it_copilot.agent.model_router import MODEL_ERRORS
+from servicedesk_agent.agent.intent.recognizer import IntentClassification, CATEGORY_GUIDE
+from servicedesk_agent.agent.model_router import MODEL_ERRORS
 from tests.support.attribution import wilson
 from tests.support.reporting import percentile
 

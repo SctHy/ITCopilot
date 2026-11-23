@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from tests import runtime as api
 from tests.runtime import state
 from tests.conftest import auth
-from it_copilot.agent.tooling.tool_manager import ToolManager
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager
 
 
 class FakeKnowledgeBase:
@@ -41,7 +41,7 @@ class FakeKnowledgeBase:
 
 @pytest.fixture
 def client(monkeypatch, db_url):
-    from it_copilot.workflow.store import WorkflowStore
+    from servicedesk_agent.workflow.store import WorkflowStore
     monkeypatch.setattr(state, "workflow", WorkflowStore(db_url))
     kb = FakeKnowledgeBase()
     monkeypatch.setattr(state, "kb", kb)
@@ -99,7 +99,7 @@ def test_roles_guard_write_endpoints(client):
 def test_dev_tokens_are_refused_in_production(client, monkeypatch):
     http, _ = client
     token = auth("erin")
-    monkeypatch.setenv("IT_COPILOT_ENV", "production")
+    monkeypatch.setenv("SERVICEDESK_AGENT_ENV", "production")
     assert http.post("/knowledge/add", json={"documents": [{"title": "t", "content": "c"}]}, headers=token).status_code == 401
     assert http.post("/auth/dev-token", json={"username": "erin"}).status_code == 404
 
@@ -120,8 +120,8 @@ def test_stats_reports_the_chunk_count_expected_by_the_frontend(client):
 
 @pytest.mark.parametrize("top_k", [9, 10, 20])
 def test_search_accepts_the_full_advertised_range(client, top_k):
-    from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
-    from it_copilot.agent.tooling.tool_manager import Tool
+    from servicedesk_agent.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA
+    from servicedesk_agent.agent.tooling.tool_manager import Tool
     http, _ = client
     state.tool_manager.register(Tool("knowledge_search", "search", lambda p, c: [{"title": "hit"}], KNOWLEDGE_SEARCH_SCHEMA))
     response = http.post("/search", params={"query": "VPN", "top_k": top_k})

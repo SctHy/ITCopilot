@@ -8,13 +8,13 @@ import uvicorn
 from sqlalchemy import true
 from sqlalchemy.dialects import postgresql
 
-from it_copilot.api.routes.ops import ready
-from it_copilot.cmd.api import DrainingServer
-from it_copilot.cmd.worker import management_app, serve
-from it_copilot.workflow.actions import ActionTransactions
-from it_copilot.workflow.notifier import ActionNotifier
-from it_copilot.workflow.store import LeaseLost, WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker, build_registry
+from servicedesk_agent.api.routes.ops import ready
+from servicedesk_agent.cmd.api import DrainingServer
+from servicedesk_agent.cmd.worker import management_app, serve
+from servicedesk_agent.workflow.actions import ActionTransactions
+from servicedesk_agent.workflow.notifier import ActionNotifier
+from servicedesk_agent.workflow.store import LeaseLost, WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker, build_registry
 from tests.support.application import application
 from tests.test_workflow import BOB, create
 
@@ -26,7 +26,7 @@ def test_postgres_claim_and_notification_sql():
     db.dialect.name = "postgresql"
     ActionNotifier("postgresql://").publish(db, "action")
     stmt, params = db.execute.call_args.args
-    assert str(stmt) == "SELECT pg_notify('it_copilot_action_ready', :payload)"
+    assert str(stmt) == "SELECT pg_notify('servicedesk_agent_action_ready', :payload)"
     assert params == {"payload": "action"}
 
 
@@ -87,8 +87,8 @@ async def test_worker_signal_drains_or_releases(db_url, monkeypatch, finish):
     loop = asyncio.get_running_loop()
     monkeypatch.setattr(loop, "add_signal_handler", handlers.__setitem__)
     monkeypatch.setattr(loop, "remove_signal_handler", handlers.pop)
-    monkeypatch.delenv("IT_COPILOT_WORKER_METRICS_ADDR", raising=False)
-    monkeypatch.setenv("IT_COPILOT_SHUTDOWN_GRACE_S", "1" if finish else ".02")
+    monkeypatch.delenv("SERVICEDESK_AGENT_WORKER_METRICS_ADDR", raising=False)
+    monkeypatch.setenv("SERVICEDESK_AGENT_SHUTDOWN_GRACE_S", "1" if finish else ".02")
     service = asyncio.create_task(serve(worker, store))
     await asyncio.wait_for(started.wait(), 3)
     handlers[signal.SIGTERM]()
@@ -119,23 +119,23 @@ def test_standalone_processes_serve_probes_and_exit_on_sigterm(tmp_path, monkeyp
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
 
-    monkeypatch.setenv("IT_COPILOT_BUILD_SHA", "test")
-    monkeypatch.setenv("IT_COPILOT_DATABASE_URL", f"sqlite:///{tmp_path}/app.sqlite")
-    monkeypatch.setenv("IT_COPILOT_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("IT_COPILOT_REQUIRE_REDIS", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_BUILD_SHA", "test")
+    monkeypatch.setenv("SERVICEDESK_AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/app.sqlite")
+    monkeypatch.setenv("SERVICEDESK_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SERVICEDESK_AGENT_REQUIRE_REDIS", "false")
     monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1")
-    monkeypatch.setenv("IT_COPILOT_EMBED_WORKER", "false")
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
-    monkeypatch.setenv("IT_COPILOT_GITEA_REPOS", "")
+    monkeypatch.setenv("SERVICEDESK_AGENT_EMBED_WORKER", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_GITEA_REPOS", "")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
     with ExitStack() as resources:
         processes = {}
         for name in ("api", "worker"):
             port = unused_port()
-            env = dict(os.environ, IT_COPILOT_PORT=str(port), IT_COPILOT_WORKER_METRICS_ADDR=f"127.0.0.1:{port}")
+            env = dict(os.environ, SERVICEDESK_AGENT_PORT=str(port), SERVICEDESK_AGENT_WORKER_METRICS_ADDR=f"127.0.0.1:{port}")
             log = resources.enter_context((tmp_path / f"{name}.log").open("w+"))
-            proc = subprocess.Popen([sys.executable, "-m", f"it_copilot.cmd.{name}"], env=env, stdout=log, stderr=log)
+            proc = subprocess.Popen([sys.executable, "-m", f"servicedesk_agent.cmd.{name}"], env=env, stdout=log, stderr=log)
             resources.callback(proc.wait, 5)
             resources.callback(proc.kill)
             processes[name] = proc
@@ -164,7 +164,7 @@ async def test_sigterm_finishes_inflight_sse_before_lifespan_closes():
     import httpx2
     from fastapi import FastAPI
     from fastapi.responses import StreamingResponse
-    from it_copilot.api.container import AppContainer
+    from servicedesk_agent.api.container import AppContainer
 
     finish = asyncio.Event()
     closed = asyncio.Event()
@@ -264,7 +264,7 @@ async def test_listen_protocol_uses_dedicated_autocommit_connection(monkeypatch)
     listener.start()
     try:
         await asyncio.wait_for(listener.event.wait(), 1)
-        assert statements == ["LISTEN it_copilot_action_ready"]
+        assert statements == ["LISTEN servicedesk_agent_action_ready"]
         listener.event.clear()
         incoming.set()
         await asyncio.wait_for(listener.event.wait(), 1)

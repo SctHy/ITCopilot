@@ -5,10 +5,10 @@ import time
 import httpx2
 import pytest
 
-from it_copilot.agent.tooling.executor import ToolExecutor, ToolTimeout, ToolUnavailable
-from it_copilot.agent.tooling.tool_spec import make_tool
-from it_copilot.workflow.adapters.base import AmbiguousError, PermanentError, TransientError
-from it_copilot.workflow.adapters.gitea import GiteaAdapter
+from servicedesk_agent.agent.tooling.executor import ToolExecutor, ToolTimeout, ToolUnavailable
+from servicedesk_agent.agent.tooling.tool_spec import make_tool
+from servicedesk_agent.workflow.adapters.base import AmbiguousError, PermanentError, TransientError
+from servicedesk_agent.workflow.adapters.gitea import GiteaAdapter
 
 
 def spec(handler, retry_safe=True, name="probe"):

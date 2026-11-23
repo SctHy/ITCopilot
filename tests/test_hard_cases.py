@@ -3,7 +3,7 @@
 每组都针对一个真实出过或容易出的错：编号误识别、无据声称、历史结构破坏、缓存串部门、
 并行预取把整轮拖垮、流式草稿与最终答案不一致等。随机用例用固定种子，结果可复现。
 """
-from it_copilot.agent.memory.recall import rank_memory_rows
+from servicedesk_agent.agent.memory.recall import rank_memory_rows
 import asyncio
 import random
 import string
@@ -18,14 +18,14 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.conversation_state import with_login_employee
-from it_copilot.agent.intent.entities import extract_entities
-from it_copilot.agent.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, history_messages
-from it_copilot.agent.types import Request
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.conversation_state import with_login_employee
+from servicedesk_agent.agent.intent.entities import extract_entities
+from servicedesk_agent.agent.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, history_messages
+from servicedesk_agent.agent.types import Request
 from tests.support.fake_model import scripted_model
-from it_copilot.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
-from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
+from servicedesk_agent.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager, Tool
 from tests.conftest import with_read_tool
 
 # ── 编号抽取：对抗输入 ──────────────────────────────────────────────────────────
@@ -158,12 +158,12 @@ def test_tool_cache_never_leaks_results_across_departments():
 # ── 故障注入：预取失败不能拖垮整轮 ───────────────────────────────────────────────
 
 def test_chat_turn_survives_a_crashing_knowledge_prefetch(monkeypatch):
-    from it_copilot.agent.intent.recognizer import IntentResult
-    from it_copilot.agent.intent.taxonomy import IntentCategory
+    from servicedesk_agent.agent.intent.recognizer import IntentResult
+    from servicedesk_agent.agent.intent.taxonomy import IntentCategory
     from tests.runtime import state
-    from it_copilot.api.routes import chat as chat_routes
-    from it_copilot.api.schemas import ChatRequest
-    from it_copilot.infra.identity import Principal
+    from servicedesk_agent.api.routes import chat as chat_routes
+    from servicedesk_agent.api.schemas import ChatRequest
+    from servicedesk_agent.infra.identity import Principal
 
     class BrokenTools:
         async def search(self, *args, **kwargs):
@@ -235,7 +235,8 @@ def test_refused_write_does_not_count_as_evidence_and_correction_happens_once():
     agent = with_read_tool(AgentOrchestrator("sk-local")).agent
     agent._llm = scripted_model(reply)
     response = asyncio.run(agent.handle(Request("VPN 怎么办", conversation_state={}, allowed_writes=frozenset())))
-    assert response.tool_traces == []  # Not offered to the model, so the tool cannot execute.
+    assert response.tools_used == []
+    assert [(t["tool_name"], t["success"]) for t in response.tool_traces] == [("create_ticket", False)]
     assert len(calls) == 3                                        # 工具一轮 + 回答一轮 + 纠正一轮，不会无限纠正
 
 

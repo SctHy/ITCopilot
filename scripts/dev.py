@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = Path("output/dev-workflow")
-TOOL = "it-copilot-dev-v1"
+TOOL = "servicedesk-agent-dev-v1"
 ENTRY_DOCS = (
     "AGENTS.md", "CLAUDE.md", "README.md", "docs/benchmarks.md",
     ".github/pull_request_template.md",
@@ -37,8 +37,8 @@ POSTGRES_TESTS = (
 )
 PROFILES = ("docs", "backend", "frontend", "local", "postgres", "integration")
 TEST_ENV = (
-    "IT_COPILOT_TEST_DATABASE_URL", "IT_COPILOT_TEST_OIDC_ISSUER",
-    "IT_COPILOT_TEST_GITEA_URL", "IT_COPILOT_TEST_GITEA_PASSWORD",
+    "SERVICEDESK_AGENT_TEST_DATABASE_URL", "SERVICEDESK_AGENT_TEST_OIDC_ISSUER",
+    "SERVICEDESK_AGENT_TEST_GITEA_URL", "SERVICEDESK_AGENT_TEST_GITEA_PASSWORD",
 )
 
 
@@ -127,8 +127,8 @@ def check_environment(profile, environ):
         if key not in required:
             env.pop(key, None)
     env.update(PYTHONUNBUFFERED="1", PYDANTIC_AI_NO_BANNER="1",
-               PYTHON_DOTENV_DISABLED="1", IT_COPILOT_MASK_MODEL="off",
-               IT_COPILOT_SEED_DEMO_DOCS="false")
+               PYTHON_DOTENV_DISABLED="1", SERVICEDESK_AGENT_MASK_MODEL="off",
+               SERVICEDESK_AGENT_SEED_DEMO_DOCS="false")
     return env
 
 

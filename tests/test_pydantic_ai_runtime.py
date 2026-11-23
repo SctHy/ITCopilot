@@ -5,11 +5,11 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.intent.taxonomy import IntentCategory
-from it_copilot.agent.types import AgentCallError, Request
-from it_copilot.agent.tooling.tool_manager import ToolManager
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.intent.taxonomy import IntentCategory
+from servicedesk_agent.agent.types import AgentCallError, Request
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager
 from tests.conftest import with_read_tool
 
 
@@ -41,7 +41,7 @@ def test_tool_loop_records_trace_usage_and_lean_prompt():
         assert result.tools_used == ["diagnose"]
         assert result.tool_traces[0]["tool_use_id"] == "c1" and result.tool_traces[0]["success"] is True
         assert result.tool_traces[0]["phase"] == "completed"
-        assert result.token_usage == {"requests": 2, "input_tokens": 30, "output_tokens": 10, "cache_read_tokens": 0}
+        assert result.token_usage == {"last_context_tokens": 26, "requests": 2, "input_tokens": 30, "output_tokens": 10, "cache_read_tokens": 0, "cache_hit_rate": 0.0}
         assert seen["tool_content"]["meaning"] == "测试诊断结果"
         assert {"diagnose", "reset_password", "create_ticket"} <= set(seen["tools"])
         # 工具清单只随工具定义下发，不在 system prompt 里重复。
@@ -202,8 +202,8 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 
     import yaml
 
-    from it_copilot.agent.llm import complete_text
-    from it_copilot.agent.model_router import DEFAULT_CONFIG, RoutingConfig, model_defaults
+    from servicedesk_agent.agent.llm import complete_text
+    from servicedesk_agent.agent.model_router import DEFAULT_CONFIG, RoutingConfig, model_defaults
 
     seen = {}
 
@@ -222,7 +222,7 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 
 
 def _search_manager(rows):
-    from it_copilot.agent.tooling.tool_manager import Tool
+    from servicedesk_agent.agent.tooling.tool_manager import Tool
 
     manager = ToolManager("sk-local")
     calls = []
@@ -236,7 +236,7 @@ def _search_manager(rows):
 
 
 def test_search_defaults_to_single_hybrid_query_without_llm(monkeypatch):
-    monkeypatch.delenv("IT_COPILOT_RAG_REWRITE", raising=False)
+    monkeypatch.delenv("SERVICEDESK_AGENT_RAG_REWRITE", raising=False)
     manager, calls = _search_manager([{"title": "VPN", "content": "证书"}])
 
     async def no_llm(messages, info):
@@ -251,8 +251,8 @@ def test_search_defaults_to_single_hybrid_query_without_llm(monkeypatch):
 
 
 def test_search_rewrite_alone_merges_sub_queries_without_reranking(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_RAG_REWRITE", "true")
-    monkeypatch.delenv("IT_COPILOT_RAG_RERANK", raising=False)
+    monkeypatch.setenv("SERVICEDESK_AGENT_RAG_REWRITE", "true")
+    monkeypatch.delenv("SERVICEDESK_AGENT_RAG_RERANK", raising=False)
     manager, calls = _search_manager([{"title": "VPN", "content": "证书"}])
     seen = []
 
@@ -267,8 +267,8 @@ def test_search_rewrite_alone_merges_sub_queries_without_reranking(monkeypatch):
 
 
 def test_search_rerank_alone_recalls_candidates_and_reorders(monkeypatch):
-    monkeypatch.delenv("IT_COPILOT_RAG_REWRITE", raising=False)
-    monkeypatch.setenv("IT_COPILOT_RAG_RERANK", "true")
+    monkeypatch.delenv("SERVICEDESK_AGENT_RAG_REWRITE", raising=False)
+    monkeypatch.setenv("SERVICEDESK_AGENT_RAG_RERANK", "true")
     rows = [{"title": f"doc{i}", "content": f"片段{i}"} for i in range(6)]
     manager, calls = _search_manager(rows)
     seen = []

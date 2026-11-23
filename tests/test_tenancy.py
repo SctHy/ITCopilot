@@ -6,8 +6,8 @@ from sqlalchemy import select
 
 from tests import runtime as api
 from tests.runtime import state
-from it_copilot.infra.db import admin_audit, shared_engine
-from it_copilot.infra.tenancy import TenantExists, TenantRegistry, TenantStatus, TenantUnavailable
+from servicedesk_agent.infra.db import admin_audit, shared_engine
+from servicedesk_agent.infra.tenancy import TenantExists, TenantRegistry, TenantStatus, TenantUnavailable
 from tests.conftest import auth
 
 
@@ -89,7 +89,7 @@ def test_registry_failure_refuses_the_request(http, registry, monkeypatch):
 def test_cli_adds_suspends_and_lists(db_url, monkeypatch, capsys):
     import scripts.tenants as cli
 
-    monkeypatch.setenv("IT_COPILOT_DATABASE_URL", db_url)
+    monkeypatch.setenv("SERVICEDESK_AGENT_DATABASE_URL", db_url)
     assert cli.main(["add", "acme", "--tier", "enterprise", "--quotas", '{"agent_turn": "600/m"}']) == 1   # malformed rate
     assert cli.main(["add", "acme", "--tier", "enterprise", "--quotas", '{"agent_turn": "600/60"}']) == 0
     assert cli.main(["add", "acme"]) == 1

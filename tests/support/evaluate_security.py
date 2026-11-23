@@ -59,8 +59,8 @@ def access(employee="1001", role="readonly", **extra):
 def forged_tokens():
     now = int(time.time())
     claims = {
-        "iss": "it-copilot-dev",
-        "aud": "it-copilot",
+        "iss": "servicedesk-agent-dev",
+        "aud": "servicedesk-agent",
         "sub": "dev:erin",
         "preferred_username": "erin",
         "department": "it",

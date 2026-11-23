@@ -1,16 +1,16 @@
-export IT_COPILOT_BUILD_SHA ?= $(shell git rev-parse HEAD)
+export SERVICEDESK_AGENT_BUILD_SHA ?= $(shell git rev-parse HEAD)
 .PHONY: up up-oidc down run-api run-worker test lint frontend-check
 up:
 	docker compose up -d --build
 up-oidc:
-	IT_COPILOT_AUTH_MODE=oidc docker compose --profile oidc up -d --build
+	SERVICEDESK_AGENT_AUTH_MODE=oidc docker compose --profile oidc up -d --build
 down:
 	docker compose --profile oidc down
 # Start these targets in separate terminals for local development.
 run-api:
-	.venv/bin/python -m it_copilot.cmd.api
+	.venv/bin/python -m servicedesk_agent.cmd.api
 run-worker:
-	.venv/bin/python -m it_copilot.cmd.worker
+	.venv/bin/python -m servicedesk_agent.cmd.worker
 test:
 	.venv/bin/pytest -q
 lint:
@@ -21,9 +21,9 @@ frontend-check:
 .PHONY: bench bench-concurrency bench-fault bench-sse
 bench: bench-concurrency bench-fault bench-sse
 bench-concurrency bench-fault bench-sse:
-	.venv/bin/python -m it_copilot.cmd.bench $(@:bench-%=%) $(BENCH_ARGS)
+	.venv/bin/python -m servicedesk_agent.cmd.bench $(@:bench-%=%) $(BENCH_ARGS)
 
-EVAL = .venv/bin/python -m it_copilot.cmd.eval
+EVAL = .venv/bin/python -m servicedesk_agent.cmd.eval
 BASELINE ?= evaluation/baseline.json
 CANDIDATE ?= evaluation/candidate.json
 

@@ -6,11 +6,11 @@ from fastapi.testclient import TestClient
 
 from tests import runtime as api
 from tests.runtime import state
-from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
+from servicedesk_agent.infra.retention import RetentionPolicy, RetentionSweeper
 from tests.conftest import auth
 from tests.test_api_admin import FakeKnowledgeBase
-from it_copilot.agent.tooling.tool_manager import ToolManager
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_failed_attempts_are_kept_but_listed_only_when_asked(http):
 
 def test_a_change_that_never_reported_back_shows_as_interrupted(http, monkeypatch):
     """A crash after the change ran but before its outcome was written must not erase it."""
-    from it_copilot.infra import admin_audit
+    from servicedesk_agent.infra import admin_audit
 
     monkeypatch.setattr(admin_audit, "finish", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("process died")))
     erin = auth("erin")
@@ -100,7 +100,7 @@ def test_a_change_that_never_reported_back_shows_as_interrupted(http, monkeypatc
 
 
 def test_a_change_whose_audit_cannot_be_written_does_not_run(http, monkeypatch):
-    from it_copilot.infra import admin_audit
+    from servicedesk_agent.infra import admin_audit
 
     monkeypatch.setattr(admin_audit, "begin", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("audit unavailable")))
     with pytest.raises(RuntimeError):
@@ -127,10 +127,10 @@ def test_audit_tables_refuse_update_and_delete(http, table):
 
 
 def test_the_effective_policy_is_recorded_once_and_shown_to_every_tenant(http):
-    from it_copilot.infra import admin_audit
-    from it_copilot.workflow.adapters import AdapterRegistry
-    from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-    from it_copilot.workflow.worker import ExecutionWorker
+    from servicedesk_agent.infra import admin_audit
+    from servicedesk_agent.workflow.adapters import AdapterRegistry
+    from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+    from servicedesk_agent.workflow.worker import ExecutionWorker
 
     store = state.workflow
     for worker_id in ("w1", "w2"):                                          # two workers / a restart see the same file

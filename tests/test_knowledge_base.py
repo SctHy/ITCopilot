@@ -3,14 +3,14 @@ import math
 
 import pytest
 
-from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
+from servicedesk_agent.agent.tooling.knowledge_base import KnowledgeBase
 
 pytestmark = pytest.mark.usefixtures("default_tenant")
 
 
 @pytest.fixture
 def kb(tmp_path, monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "false")
     base = KnowledgeBase(f"sqlite:///{tmp_path / 'kb.sqlite3'}")
     base.add_documents([
         {"title": "VPN 指南", "content": "VPN 客户端证书与 DNS 排障", "department": "研发"},
@@ -124,12 +124,12 @@ def test_demo_seeding_updates_its_own_docs_but_never_overwrites_admin_docs(tmp_p
     (seed / "it" / "access.md").write_text("# 权限申请流程\n新版演示正文\n", encoding="utf-8")
     (seed / "it" / "sla.md").write_text("# 工单优先级与 SLA\n新版 SLA 正文\n", encoding="utf-8")
     (seed / "it" / "vpn.md").write_text("# VPN 指南\n演示 VPN 正文 v1\n", encoding="utf-8")
-    monkeypatch.setenv("IT_COPILOT_KNOWLEDGE_DIR", str(seed))
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_KNOWLEDGE_DIR", str(seed))
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "false")
     KnowledgeBase(url).add_documents([
         {"title": "权限申请流程", "content": "管理员维护的正式流程"},  # admin upload, source defaults to title
     ])
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "true")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "true")
     contents = lambda base: {r["title"]: r["content"] for r in base.search("流程 SLA VPN 正文", top_k=20, mode="bm25")}
     seeded = contents(KnowledgeBase(url))
     assert seeded["权限申请流程"] == "管理员维护的正式流程"
@@ -158,8 +158,8 @@ def test_deleting_a_demo_document_reports_that_seeding_brings_it_back(tmp_path, 
     seed = tmp_path / "knowledge"
     seed.mkdir()
     (seed / "vpn.md").write_text("# VPN 指南\n演示 VPN 正文\n", encoding="utf-8")
-    monkeypatch.setenv("IT_COPILOT_KNOWLEDGE_DIR", str(seed))
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "true")
+    monkeypatch.setenv("SERVICEDESK_AGENT_KNOWLEDGE_DIR", str(seed))
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "true")
     url = f"sqlite:///{tmp_path / 'kb.sqlite3'}"
     base = KnowledgeBase(url)
     base.add_documents([{"title": "管理员文档", "content": "正文", "source": "../outside.md"}])

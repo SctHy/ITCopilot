@@ -12,7 +12,7 @@ import { Toaster, toast } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { BookOpenIcon, ExternalLinkIcon, FileTextIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PencilIcon, SearchIcon, ShieldCheckIcon, SlidersHorizontalIcon, SquarePenIcon, SunIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useStore } from './hooks/useStore.ts'
-import { backendMeta } from './api/http.ts'
+import { backendMeta, requestFor } from './api/http.ts'
 import { createInitialSettings, saveSettings } from './api/settings.ts'
 import { requestChatStream, requestToolTrace } from './api/chat.ts'
 import { deleteConversation, getConversation, listConversations, renameConversation, type ConversationSummary } from './api/conversations.ts'
@@ -36,7 +36,7 @@ const views: { id: ViewId; label: string; icon: ReactNode; hint: string }[] = [
   { id: 'knowledge', label: '知识库', icon: <BookOpenIcon />, hint: '检索与管理 IT 知识' },
   { id: 'approvals', label: '审批', icon: <ShieldCheckIcon />, hint: '确认、审批与回收' },
 ]
-const THEME_KEY = 'it-copilot.theme'
+const THEME_KEY = 'servicedesk-agent.theme'
 
 function showToast(message: string) { toast(message) }
 
@@ -115,6 +115,10 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
     const timer = setTimeout(() => setHistoryQuery(searchText.trim()), 300)
     return () => clearTimeout(timer)
   }, [searchText])
+  const catalog = useQuery({ queryKey: ['models'], enabled: authenticated && activeView === 'chat',
+    queryFn: ({ signal }) => requestFor<{ models: { id: string; name: string; configured: boolean }[];
+      defaults: { agent_read: { model: string }; agent_write: { model: string } } }>(snapshot.backend, snapshot, '/models', { signal }) }, queryClient)
+  useEffect(() => { runtime.settings.model = undefined }, [viewKey, runtime])
   const chatsResult = useQuery({ queryKey: ['conversations', historyQuery, chatsLimit], enabled: authenticated,
     queryFn: ({ signal }) => listConversations(snapshot.backend, snapshot, { q: historyQuery, limit: chatsLimit }, signal) }, queryClient)
   const chats = chatsResult.isError ? [] : chatsResult.data?.items || []
@@ -206,8 +210,8 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center justify-between px-4">
-        <button type="button" onClick={() => navigate('chat')} className="flex items-center text-left" aria-label="IT-Copilot 首页">
-          <span className="brand-mark mr-2" aria-hidden="true" /><span className="text-base font-semibold tracking-tight">IT-Copilot</span>
+        <button type="button" onClick={() => navigate('chat')} className="flex items-center text-left" aria-label="ServiceDesk Agent 首页">
+          <span className="brand-mark mr-2" aria-hidden="true" /><span className="text-base font-semibold tracking-tight">ServiceDesk Agent</span>
         </button>
         <Hint label={<>新对话</>}><Button type="button" size="icon" variant="ghost" aria-label="新对话" onClick={newConversation}><SquarePenIcon className="size-4" /></Button></Hint>
       </div>
@@ -302,11 +306,19 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
       <SidebarInset className="h-svh min-w-0 overflow-hidden">
         <Header className="shrink-0 border-b [&>div>div:last-child]:ml-auto">
           <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="hidden text-muted-foreground sm:inline">IT-Copilot</span>
+            <span className="hidden text-muted-foreground sm:inline">ServiceDesk Agent</span>
             <span className="hidden text-muted-foreground/60 sm:inline">/</span>
             <span className="truncate font-medium">{activeView === 'chat' && chatState.messages.length ? (chatState.messages[0]?.content.slice(0, 40) || currentView.label) : currentView.label}</span>
           </div>
           <div className="flex items-center gap-1">
+            {activeView === 'chat' && chatState.lastResponse?.raw?.model &&
+              <span className="text-xs text-muted-foreground">上次回复 · {chatState.lastResponse.raw.model}</span>}
+            {activeView === 'chat' && catalog.data?.defaults && <select aria-label="对话模型"
+              className="rounded-md border bg-background px-2 py-1 text-xs" value={settings.model || ''}
+              onChange={event => { runtime.settings.model = event.target.value || undefined }}>
+              <option value="">默认 · {catalog.data.defaults.agent_read.model}{catalog.data.defaults.agent_read.model !== catalog.data.defaults.agent_write.model && ` / ${catalog.data.defaults.agent_write.model}`}</option>
+              {catalog.data.models.map(model => <option key={model.id} value={model.id} disabled={!model.configured}>{model.name}</option>)}
+            </select>}
             <Hint label={<>{health.ok ? `${currentBackend.label} 服务 · ${currentBackend.baseUrl}` : health.detail || health.label}</>}><span className="inline-flex h-6 shrink-0 cursor-default items-center gap-1.5 rounded-full border bg-card px-2 text-xs text-muted-foreground">
                 <span className={`size-1.5 rounded-full ${health.ok ? 'bg-success ring-2 ring-success/15' : health.label === '未检查' ? 'bg-muted' : 'bg-destructive'}`} />
                 {statusText}

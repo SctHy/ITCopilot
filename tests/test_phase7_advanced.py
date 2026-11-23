@@ -1,5 +1,5 @@
 """Offline Phase 7 boundary tests; no network or real model calls."""
-from it_copilot.agent.memory.recall import budget_texts
+from servicedesk_agent.agent.memory.recall import budget_texts
 import asyncio
 import os
 import tempfile
@@ -9,13 +9,13 @@ from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.types import Request
-from it_copilot.agent.masking.redaction import redact
-from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import CircuitBreaker, CircuitState, ToolManager, Tool
-from it_copilot.workflow.approval import approval_summary
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.masking.redaction import redact
+from servicedesk_agent.agent.tooling.knowledge_base import KnowledgeBase
+from servicedesk_agent.agent.tooling.tool_manager import CircuitBreaker, CircuitState, ToolManager, Tool
+from servicedesk_agent.workflow.approval import approval_summary
 
 
 @pytest.mark.parametrize("key", ["password", "secret", "authorization", "api_key"])
@@ -30,14 +30,14 @@ def test_memory_token_budget(texts, budget, expected):
 
 @pytest.mark.usefixtures("default_tenant")
 def test_rag_vector_bm25_hybrid_and_citation():
-    os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
+    os.environ["SERVICEDESK_AGENT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:
         kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
         kb.add_documents([{"title": "研发 VPN", "content": "VPN DNS 客户端排障", "department": "研发"}, {"title": "财务 ERP", "content": "ERP 权限审批", "department": "财务"}])
         for mode in ("vector", "bm25", "hybrid"):
             rows = kb.search("VPN DNS", mode=mode, department="研发")
             assert rows and rows[0]["title"] == "研发 VPN" and rows[0]["citation"]
-    os.environ.pop("IT_COPILOT_SEED_DEMO_DOCS", None)
+    os.environ.pop("SERVICEDESK_AGENT_SEED_DEMO_DOCS", None)
 
 
 @pytest.mark.parametrize("threshold", [1, 2, 3])
@@ -129,10 +129,10 @@ def test_sse_stream_emits_status_and_completed_events(monkeypatch):
     from fastapi.testclient import TestClient
 
     import tests.runtime
-    from it_copilot.api import schemas
+    from servicedesk_agent.api import schemas
     from tests.runtime import state
-    from it_copilot.api.routes import chat as chat_routes
-    from it_copilot.infra.events import InMemoryEventBus
+    from servicedesk_agent.api.routes import chat as chat_routes
+    from servicedesk_agent.infra.events import InMemoryEventBus
     from tests.conftest import auth
 
     async def fake_chat(state, payload, principal, rid, emit=None, channel="web"):
@@ -201,7 +201,7 @@ def test_trace_tools_route_is_not_shadowed_by_request_id_route():
 
 
 def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():
-    from it_copilot.api import schemas
+    from servicedesk_agent.api import schemas
     base = dict(request_id="r2", response="ok", status="success", intent="vpn_issue")
     no_kb = schemas.ChatResponse(**base, tools_used=["diagnose"])
     with_kb = schemas.ChatResponse(**base, tools_used=["search_knowledge_base"], knowledge_used=True)

@@ -4,8 +4,8 @@ import asyncio
 import pytest
 from pydantic_ai.models.function import FunctionModel
 
-from it_copilot.agent.base_agent import BaseAgent
-from it_copilot.agent.types import ModelUnavailableError, Request
+from servicedesk_agent.agent.base_agent import BaseAgent
+from servicedesk_agent.agent.types import ModelUnavailableError, Request
 
 
 def _raising_model(exc: Exception):

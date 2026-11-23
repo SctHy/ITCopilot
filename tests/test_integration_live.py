@@ -1,8 +1,8 @@
 """Opt-in integration tests against real services (skipped unless configured).
 
     docker compose up -d keycloak gitea gitea-init gitea-bootstrap   # or standalone containers
-    IT_COPILOT_TEST_OIDC_ISSUER=http://127.0.0.1:8180/realms/it-copilot \
-    IT_COPILOT_TEST_GITEA_URL=http://127.0.0.1:3001 IT_COPILOT_TEST_GITEA_PASSWORD=... \
+    SERVICEDESK_AGENT_TEST_OIDC_ISSUER=http://127.0.0.1:8180/realms/servicedesk-agent \
+    SERVICEDESK_AGENT_TEST_GITEA_URL=http://127.0.0.1:3001 SERVICEDESK_AGENT_TEST_GITEA_PASSWORD=... \
     pytest tests/test_integration_live.py
 """
 import os
@@ -10,31 +10,31 @@ import os
 import httpx2
 import pytest
 
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.gitea import GiteaAdapter
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.infra.identity import AuthError, principal_from_token
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.gitea import GiteaAdapter
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.infra.identity import AuthError, principal_from_token
 from tests.test_workflow import ALICE, BOB, Clock, access
 from tests.conftest import run_in_tenant
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 
-ISSUER = os.getenv("IT_COPILOT_TEST_OIDC_ISSUER")
-GITEA = os.getenv("IT_COPILOT_TEST_GITEA_URL")
+ISSUER = os.getenv("SERVICEDESK_AGENT_TEST_OIDC_ISSUER")
+GITEA = os.getenv("SERVICEDESK_AGENT_TEST_GITEA_URL")
 
 
 def keycloak_token(username):
     response = httpx2.post(f"{ISSUER}/protocol/openid-connect/token", data={
-        "grant_type": "password", "client_id": "it-copilot-web", "username": username, "password": f"{username}-pass"})
+        "grant_type": "password", "client_id": "servicedesk-agent-web", "username": username, "password": f"{username}-pass"})
     response.raise_for_status()
     return response.json()["access_token"]
 
 
-@pytest.mark.skipif(not ISSUER, reason="IT_COPILOT_TEST_OIDC_ISSUER not set")
+@pytest.mark.skipif(not ISSUER, reason="SERVICEDESK_AGENT_TEST_OIDC_ISSUER not set")
 def test_keycloak_tokens_map_to_principals(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SERVICEDESK_AGENT_AUTH_MODE", "oidc")
     monkeypatch.setenv("OIDC_ISSUER", ISSUER)
-    monkeypatch.setenv("OIDC_AUDIENCE", "it-copilot")
+    monkeypatch.setenv("OIDC_AUDIENCE", "servicedesk-agent")
     bob = principal_from_token(keycloak_token("bob"))
     assert (bob.username, bob.employee_id, bob.department, bob.roles) == ("bob", "2001", "engineering", frozenset({"employee", "approver"}))
     token = keycloak_token("alice")
@@ -46,30 +46,30 @@ def test_keycloak_tokens_map_to_principals(monkeypatch):
         principal_from_token(token)
 
 
-@pytest.mark.skipif(not ISSUER, reason="IT_COPILOT_TEST_OIDC_ISSUER not set")
+@pytest.mark.skipif(not ISSUER, reason="SERVICEDESK_AGENT_TEST_OIDC_ISSUER not set")
 def test_http_api_accepts_keycloak_and_rejects_dev_tokens(monkeypatch):
     from fastapi.testclient import TestClient
 
     from tests import runtime as api
     from tests.conftest import auth
 
-    monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SERVICEDESK_AGENT_AUTH_MODE", "oidc")
     monkeypatch.setenv("OIDC_ISSUER", ISSUER)
     client = TestClient(api.app)
     me = client.get("/auth/me", headers={"Authorization": "Bearer " + keycloak_token("grace")}).json()
     assert me["roles"] == ["auditor"] and me["department"] == "security"
-    monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "dev")
+    monkeypatch.setenv("SERVICEDESK_AGENT_AUTH_MODE", "dev")
     dev = auth("erin")
-    monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SERVICEDESK_AGENT_AUTH_MODE", "oidc")
     assert client.get("/auth/me", headers=dev).status_code == 401
 
 
-@pytest.mark.skipif(not GITEA, reason="IT_COPILOT_TEST_GITEA_URL not set")
+@pytest.mark.skipif(not GITEA, reason="SERVICEDESK_AGENT_TEST_GITEA_URL not set")
 def test_real_gitea_grant_expiry_and_drift(tmp_path):
     clock = Clock()
     store = WorkflowStore(f"sqlite:///{tmp_path / 'wf.sqlite3'}", clock=clock, route=lambda a: "gitea" if a["tool_name"] == "request_access" else "local")
     gitea = GiteaAdapter(GITEA, "", {"gitlab": "it-sandbox/platform", "jira": "it-sandbox/platform"}, store.username_of,
-                         basic_auth=(os.getenv("IT_COPILOT_TEST_GITEA_USER", "itc-svc"), os.environ["IT_COPILOT_TEST_GITEA_PASSWORD"]))
+                         basic_auth=(os.getenv("SERVICEDESK_AGENT_TEST_GITEA_USER", "servicedesk-agent-svc"), os.environ["SERVICEDESK_AGENT_TEST_GITEA_PASSWORD"]))
     worker = ExecutionWorker(store, AdapterRegistry(LocalDirectoryAdapter(store.engine), {"gitlab": gitea, "jira": gitea}), worker_id="live", base_delay_s=0)
 
     async def run():

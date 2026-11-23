@@ -6,9 +6,9 @@ import yaml
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
-from it_copilot.agent.base_agent import BaseAgent
-from it_copilot.agent.types import Request
-from it_copilot.agent.model_router import DEFAULT_CONFIG, ModelRouter
+from servicedesk_agent.agent.base_agent import BaseAgent
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.model_router import DEFAULT_CONFIG, ModelRouter
 from tests.support.application import application
 from tests.support.fake_model import scripted_model
 from tests.test_workflow import ALICE
@@ -16,8 +16,9 @@ from tests.test_workflow import ALICE
 
 def router_for(tmp_path, model, *, deadline=.05, request_timeout=1):
     config = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    config["models"].pop("gpt-6.2-sol")
     for name in ("agent_read", "agent_write"):
-        config["routes"][name].update(turn_deadline_s=deadline, request_timeout_s=request_timeout)
+        config["routes"][name].update(candidates=["deepseek-flash"], turn_deadline_s=deadline, request_timeout_s=request_timeout)
     path = tmp_path / "routes.yaml"
     path.write_text(yaml.safe_dump(config))
     return ModelRouter(path, models={"deepseek-flash": model})
@@ -78,7 +79,7 @@ def test_turn_deadline_holds_when_the_loop_clock_differs_from_monotonic(tmp_path
 
 
 def test_each_model_request_gets_the_remaining_budget(tmp_path):
-    from it_copilot.agent.tooling.tool_spec import make_tool
+    from servicedesk_agent.agent.tooling.tool_spec import make_tool
 
     timeouts = []
     async def call(messages, info):
@@ -121,7 +122,7 @@ def test_deadline_keeps_a_real_draft_and_its_turn_record(tmp_path):
 
     async def scenario():
         from sqlalchemy import select
-        from it_copilot.infra.db import read, turn_records
+        from servicedesk_agent.infra.db import read, turn_records
 
         async with application(model=scripted_model(reply)) as (http, state):
             for route in ("agent_read", "agent_write"):
@@ -173,8 +174,8 @@ def test_streamed_prefix_is_reset_when_the_turn_deadline_expires(tmp_path):
 
 
 def test_timeout_at_deadline_releases_half_open_model_probe(tmp_path):
-    from it_copilot.agent.model_router import TurnDeadlineExceeded
-    from it_copilot.agent.tooling.tool_manager import CircuitState
+    from servicedesk_agent.agent.model_router import TurnDeadlineExceeded
+    from servicedesk_agent.agent.tooling.tool_manager import CircuitState
 
     async def timeout_before_timer_runs(messages, info):
         # Exhausting the budget before the next request raises without cancellation.

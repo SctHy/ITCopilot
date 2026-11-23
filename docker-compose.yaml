@@ -1,4 +1,4 @@
-# IT-Copilot 一键部署
+# ServiceDesk Agent 一键部署
 #
 #   cp .env.example .env                                                          # 填写 OPENAI_* 模型配置
 #   docker compose up -d --build                                                  # 前端 http://127.0.0.1:8080
@@ -7,54 +7,56 @@
 # 业务状态：PostgreSQL；真实权限系统：Gitea 沙箱（http://127.0.0.1:3001）承接 gitlab 权限申请。
 # 只在本机回环地址暴露端口；对外发布前请替换所有默认口令、关闭 Keycloak 密码模式，并在前面加 TLS 反向代理。
 
+name: servicedesk-agent
+
 x-backend: &backend
   build:
     context: .
     args:
-      BUILD_SHA: ${IT_COPILOT_BUILD_SHA:-local-development}
-  image: it-copilot-backend:local
+      BUILD_SHA: ${SERVICEDESK_AGENT_BUILD_SHA:-local-development}
+  image: servicedesk-agent-backend:local
   restart: unless-stopped
 
 x-app-env: &app-env
-  REDIS_URL: redis://:${REDIS_PASSWORD:-it-copilot123}@redis:6379/0
-  IT_COPILOT_DATA_DIR: /app/data
-  IT_COPILOT_DATABASE_URL: postgresql+psycopg://itc:${POSTGRES_PASSWORD:-itc-pass}@postgres:5432/it_copilot
-  IT_COPILOT_AUTH_MODE: ${IT_COPILOT_AUTH_MODE:-dev}
+  REDIS_URL: redis://:${REDIS_PASSWORD:-servicedesk-agent123}@redis:6379/0
+  SERVICEDESK_AGENT_DATA_DIR: /app/data
+  SERVICEDESK_AGENT_DATABASE_URL: postgresql+psycopg://servicedesk_agent:${POSTGRES_PASSWORD:-servicedesk-agent-pass}@postgres:5432/servicedesk_agent
+  SERVICEDESK_AGENT_AUTH_MODE: ${SERVICEDESK_AGENT_AUTH_MODE:-dev}
   # 浏览器拿到的 token 的 iss 是对外地址；JWKS 走 compose 内网。
-  OIDC_ISSUER: http://127.0.0.1:8180/realms/it-copilot
-  OIDC_JWKS_URL: http://keycloak:8080/realms/it-copilot/protocol/openid-connect/certs
-  OIDC_AUDIENCE: it-copilot
-  IT_COPILOT_GITEA_URL: http://gitea:3000
-  IT_COPILOT_GITEA_USER: itc-svc
-  IT_COPILOT_GITEA_PASSWORD: ${GITEA_SVC_PASSWORD:-itc-svc-pass-123}
-  IT_COPILOT_GITEA_REPOS: gitlab=it-sandbox/platform
+  OIDC_ISSUER: http://127.0.0.1:8180/realms/servicedesk-agent
+  OIDC_JWKS_URL: http://keycloak:8080/realms/servicedesk-agent/protocol/openid-connect/certs
+  OIDC_AUDIENCE: servicedesk-agent
+  SERVICEDESK_AGENT_GITEA_URL: http://gitea:3000
+  SERVICEDESK_AGENT_GITEA_USER: servicedesk-agent-svc
+  SERVICEDESK_AGENT_GITEA_PASSWORD: ${GITEA_SVC_PASSWORD:-servicedesk-agent-svc-pass-123}
+  SERVICEDESK_AGENT_GITEA_REPOS: gitlab=it-sandbox/platform
 
 services:
   redis:
     image: redis:8.10.3-alpine
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-it-copilot123}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-servicedesk-agent123}"]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-it-copilot123}\" --no-auth-warning ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-servicedesk-agent123}\" --no-auth-warning ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-it-copilot123}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-servicedesk-agent123}
     restart: unless-stopped
 
   postgres:
     image: pgvector/pgvector:0.8.3-pg18   # PostgreSQL 18 + pgvector（知识库与记忆向量）
     environment:
-      POSTGRES_USER: itc
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itc-pass}
-      POSTGRES_DB: it_copilot
+      POSTGRES_USER: servicedesk_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-servicedesk-agent-pass}
+      POSTGRES_DB: servicedesk_agent
     volumes:
       # 18 起镜像的 PGDATA 是 /var/lib/postgresql/18/docker，挂父目录；与 17 的数据卷不兼容，故换卷名。
       - postgres18-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U itc -d it_copilot"]
+      test: ["CMD-SHELL", "pg_isready -U servicedesk_agent -d servicedesk_agent"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -103,9 +105,9 @@ services:
   gitea-init:
     image: gitea/gitea:1.27
     user: git
-    entrypoint: ["/bin/sh", "-c", "gitea admin user create --admin --username itc-svc --password \"$$GITEA_SVC_PASSWORD\" --email svc@example.com --must-change-password=false --config /data/gitea/conf/app.ini || gitea admin user list --config /data/gitea/conf/app.ini | grep -q itc-svc"]
+    entrypoint: ["/bin/sh", "-c", "gitea admin user create --admin --username servicedesk-agent-svc --password \"$$GITEA_SVC_PASSWORD\" --email svc@example.com --must-change-password=false --config /data/gitea/conf/app.ini || gitea admin user list --config /data/gitea/conf/app.ini | grep -q servicedesk-agent-svc"]
     environment:
-      GITEA_SVC_PASSWORD: ${GITEA_SVC_PASSWORD:-itc-svc-pass-123}
+      GITEA_SVC_PASSWORD: ${GITEA_SVC_PASSWORD:-servicedesk-agent-svc-pass-123}
     volumes:
       - gitea-data:/data
     depends_on:
@@ -133,10 +135,10 @@ services:
         required: true
     environment:
       <<: *app-env
-      IT_COPILOT_EMBED_WORKER: "false"
-      IT_COPILOT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
+      SERVICEDESK_AGENT_EMBED_WORKER: "false"
+      SERVICEDESK_AGENT_CORS_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      OTEL_SERVICE_NAME: it-copilot-api
+      OTEL_SERVICE_NAME: servicedesk-agent-api
     ports:
       - "127.0.0.1:8001:8001"   # API 文档 /docs、/metrics
     volumes:
@@ -157,10 +159,10 @@ services:
     <<: *backend
     stop_grace_period: 30s
     env_file: *runtime-env
-    command: ["python", "-m", "it_copilot.cmd.worker"]
+    command: ["python", "-m", "servicedesk_agent.cmd.worker"]
     environment:
       <<: *app-env
-      IT_COPILOT_WORKER_METRICS_ADDR: "127.0.0.1:8002"
+      SERVICEDESK_AGENT_WORKER_METRICS_ADDR: "127.0.0.1:8002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,7 +173,7 @@ services:
 
   frontend:
     build: ./frontend
-    image: it-copilot-frontend:local
+    image: servicedesk-agent-frontend:local
     environment:
       PYTHON_API_URL: /api
     ports:

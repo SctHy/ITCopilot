@@ -5,12 +5,12 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DatabaseError
 
-from it_copilot.infra.db import admin_audit, change_events
-from it_copilot.infra.tenant_context import system_scope
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.infra.db import admin_audit, change_events
+from servicedesk_agent.infra.tenant_context import system_scope
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 
 
 def reject_policy_changes(engine):

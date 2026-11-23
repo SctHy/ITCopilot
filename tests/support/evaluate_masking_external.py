@@ -35,7 +35,7 @@ SPECS = {
                 "sha256": "4ddacd78dfac49b723032de5e1c29c432a44049245e03a8ea960c86bbf3b765c"},
 }
 SPECS["nemotron_unseen_v3"] = {**SPECS["nemotron"], "limit": 5000}
-SOURCES = ["src/it_copilot/agent/masking/redaction.py", "src/it_copilot/agent/masking/pii_rules.py", "src/it_copilot/agent/masking/local_pii.py", "src/it_copilot/agent/masking/model_masking.py",
+SOURCES = ["src/servicedesk_agent/agent/masking/redaction.py", "src/servicedesk_agent/agent/masking/pii_rules.py", "src/servicedesk_agent/agent/masking/local_pii.py", "src/servicedesk_agent/agent/masking/model_masking.py",
            "tests/support/masking_benchmark.py", "tests/support/external_pii.py",
            "tests/support/frozen.py", "tests/support/fixtures/manifest.json", "tests/support/fixtures/masking-prior.json",
            "tests/support/evaluate_masking_external.py", "tests/support/evaluate_masking_public.py"]
@@ -44,9 +44,9 @@ SOURCES = ["src/it_copilot/agent/masking/redaction.py", "src/it_copilot/agent/ma
 def source_hashes():
     import importlib
     for name in ("redaction", "pii_rules", "local_pii", "model_masking"):
-        module = importlib.import_module("it_copilot.agent.masking." + name)
-        assert Path(module.__file__).resolve() == SOURCE_ROOT / "src/it_copilot/agent/masking" / (name + ".py"), "Wrong core implementation loaded"
-    return {p: sha((SOURCE_ROOT if p.startswith("src/it_copilot/agent/masking/") else ROOT) / p) for p in SOURCES}
+        module = importlib.import_module("servicedesk_agent.agent.masking." + name)
+        assert Path(module.__file__).resolve() == SOURCE_ROOT / "src/servicedesk_agent/agent/masking" / (name + ".py"), "Wrong core implementation loaded"
+    return {p: sha((SOURCE_ROOT if p.startswith("src/servicedesk_agent/agent/masking/") else ROOT) / p) for p in SOURCES}
 
 
 def prior_hashes():
@@ -127,14 +127,14 @@ def prepare(dataset, output, evaluation_role=None):
 
 async def run(output):
     import httpx2
-    from it_copilot.agent.masking.local_pii import detector
-    from it_copilot.agent.masking.model_masking import MaskingError, MaskingTransport, masking_scope
+    from servicedesk_agent.agent.masking.local_pii import detector
+    from servicedesk_agent.agent.masking.model_masking import MaskingError, MaskingTransport, masking_scope
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["source_sha256"] == source_hashes(), "Source changed after freeze"
     assert sha(output / "prepared.jsonl") == manifest["prepared_sha256"]
     rows = [json.loads(line) for line in (output / "prepared.jsonl").read_text().splitlines()]
-    os.environ.update(IT_COPILOT_MASK_MODEL_THRESHOLD="0.8", IT_COPILOT_MASK_MODEL_TIMEOUT_S="10", IT_COPILOT_MASK_WORDS="[]",
-                      IT_COPILOT_ASTRLINK_DIR=str(ROOT / "data/models/astrlink-guard/7216b6a3b897"))
+    os.environ.update(SERVICEDESK_AGENT_MASK_MODEL_THRESHOLD="0.8", SERVICEDESK_AGENT_MASK_MODEL_TIMEOUT_S="10", SERVICEDESK_AGENT_MASK_WORDS="[]",
+                      SERVICEDESK_AGENT_ASTRLINK_DIR=str(ROOT / "data/models/astrlink-guard/7216b6a3b897"))
     model, captured, records = detector(), [], defaultdict(list)
 
     def upstream(request):
@@ -148,7 +148,7 @@ async def run(output):
             for i, row in enumerate(rows):
                 text, gold = row["text"], [tuple(s) for s in row["gold_spans"]]
                 for mode in ("off", "on"):
-                    os.environ["IT_COPILOT_MASK_MODEL"] = mode
+                    os.environ["SERVICEDESK_AGENT_MASK_MODEL"] = mode
                     model.cache.clear()
                     captured.clear()
                     start, blocked, restored, predicted = time.perf_counter(), False, False, []

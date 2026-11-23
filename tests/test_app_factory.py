@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from it_copilot.api.app import create_app
-from it_copilot.infra.protocols import APPLICATION
+from servicedesk_agent.api.app import create_app
+from servicedesk_agent.infra.protocols import APPLICATION
 
 
 def test_dependencies_and_streams_belong_to_one_app():

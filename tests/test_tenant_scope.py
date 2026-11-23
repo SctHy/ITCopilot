@@ -9,15 +9,15 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from tests.runtime import state
-from it_copilot.api.deps import current_principal
-from it_copilot.infra import identity
-from it_copilot.infra.db import shared_engine
-from it_copilot.infra.identity import AuthError
-from it_copilot.infra.tenancy import TenantRegistry, TenantStatus
-from it_copilot.infra.tenant_context import SYSTEM, TenantContextMissing, current_tenant, system_scope, tenant_scope
+from servicedesk_agent.api.deps import current_principal
+from servicedesk_agent.infra import identity
+from servicedesk_agent.infra.db import shared_engine
+from servicedesk_agent.infra.identity import AuthError
+from servicedesk_agent.infra.tenancy import TenantRegistry, TenantStatus
+from servicedesk_agent.infra.tenant_context import SYSTEM, TenantContextMissing, current_tenant, system_scope, tenant_scope
 from tests.conftest import auth
 from tests.test_workflow import ALICE, BOB, access, env  # noqa: F401  (fixture)
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
 
 ACME_ALICE, ACME_BOB = replace(ALICE, tenant="acme"), replace(BOB, tenant="acme")
 
@@ -79,7 +79,7 @@ def test_a_token_only_speaks_for_the_tenant_bound_to_its_issuer(registry, monkey
 
 
 def test_oidc_trusts_only_configured_and_tenant_issuers_before_fetching_keys(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SERVICEDESK_AGENT_AUTH_MODE", "oidc")
     monkeypatch.setenv("OIDC_ISSUER", "https://sso.example/realms/main")
     fetched = []
 
@@ -174,8 +174,8 @@ def test_inactive_tenant_still_loses_expired_access(env, registry, status):  # n
 
 
 def test_the_deployments_own_target_systems_act_only_for_the_operator_tenant(env, monkeypatch):  # noqa: F811
-    from it_copilot.workflow.adapters import AdapterRegistry
-    from it_copilot.workflow.worker import build_registry
+    from servicedesk_agent.workflow.adapters import AdapterRegistry
+    from servicedesk_agent.workflow.worker import build_registry
 
     store, _, _ = env
     local, gitea = LocalDirectoryAdapter(store.engine), object()
@@ -186,5 +186,5 @@ def test_the_deployments_own_target_systems_act_only_for_the_operator_tenant(env
     with tenant_scope("acme"):
         assert registry.for_action({"tool_name": "request_access", "arguments": grant}) is local
     assert build_registry(store).shared_with == {"default"}
-    monkeypatch.setenv("IT_COPILOT_PLATFORM_TENANT", "ops")
+    monkeypatch.setenv("SERVICEDESK_AGENT_PLATFORM_TENANT", "ops")
     assert build_registry(store).shared_with == {"ops"}

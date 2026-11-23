@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-from it_copilot.agent.skill_loader import SkillManager
+from servicedesk_agent.agent.skill_loader import SkillManager
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -55,9 +55,9 @@ def test_disabled_skill_is_never_injected(tmp_path):
 
 
 def test_agent_skills_live_in_fixed_system_prompt_not_in_user_turn(shipped):
-    from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-    from it_copilot.agent.prompting import AGENT_RULES, turn_prompt
-    from it_copilot.agent.types import Request
+    from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+    from servicedesk_agent.agent.prompting import AGENT_RULES, turn_prompt
+    from servicedesk_agent.agent.types import Request
     agent = AgentOrchestrator("sk-local", skill_manager=shipped).agent
     req = Request("VPN 连不上，DNS 解析失败")
     system = agent._build_system_prompt(req)
@@ -71,13 +71,13 @@ def test_agent_skills_live_in_fixed_system_prompt_not_in_user_turn(shipped):
 def test_progressive_disclosure_puts_index_in_system_and_selected_bodies_in_the_turn(monkeypatch):
     """渐进式披露：system 只放固定目录（可命中前缀缓存），本轮相关技能正文进本轮消息；auto 在技能少时用 full。"""
     from pathlib import Path
-    from it_copilot.agent.skill_loader import SkillManager
-    from it_copilot.agent.prompting import turn_prompt
-    from it_copilot.agent.types import Request
+    from servicedesk_agent.agent.skill_loader import SkillManager
+    from servicedesk_agent.agent.prompting import turn_prompt
+    from servicedesk_agent.agent.types import Request
     manager = SkillManager(str(Path(__file__).resolve().parents[1] / "skills"))
     manager.load()
     assert manager.disclosure() == "full"                       # 默认 auto，当前技能总量远低于阈值
-    monkeypatch.setenv("IT_COPILOT_SKILL_DISCLOSURE", "progressive")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SKILL_DISCLOSURE", "progressive")
     assert manager.disclosure() == "progressive"
     assert [s.name for s in manager.select("笔记本黑屏，帮我建单", "endpoint", {"create_ticket"})] == ["endpoint-support", "ticket-service"]
     assert manager.select("谢谢", "general") == []

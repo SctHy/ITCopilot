@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from it_copilot.agent.tools import lookup_asset, query_ticket
+from servicedesk_agent.agent.tools import lookup_asset, query_ticket
 
 LEDGER = {
     "1001": {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}],

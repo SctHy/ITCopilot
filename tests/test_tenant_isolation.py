@@ -21,14 +21,14 @@ from sqlalchemy import func, select
 
 from tests import runtime as api
 from tests.runtime import state
-from it_copilot.infra import admin_audit
-from it_copilot.infra.db import approval_decisions, approvals
-from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
-from it_copilot.infra.session_revocation import SessionRevocations
+from servicedesk_agent.infra import admin_audit
+from servicedesk_agent.infra.db import approval_decisions, approvals
+from servicedesk_agent.infra.retention import RetentionPolicy, RetentionSweeper
+from servicedesk_agent.infra.session_revocation import SessionRevocations
 from tests.conftest import auth
 from tests.test_workflow import ALICE, ERIN, access
-from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
+from servicedesk_agent.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager, Tool
 
 MARK = "TENANT-A-7F3E"
 INTRUDERS = ("erin", "grace", "bob", "alice")   # it_admin, auditor, approver, owner's own subject
@@ -81,6 +81,7 @@ GAPS: Dict[Tuple[str, str], Tuple[Request, str, str]] = {}
 # Act on the caller's own tenant only; ``test_own_scope_writes_stay_in_the_callers_tenant`` checks
 # the owner's data afterwards, and the routes' own tests cover the rest.
 OWN_SCOPE = {
+    ("GET", "/models"),
     ("GET", "/memory/me"), ("DELETE", "/memory/me"), ("DELETE", "/memory/me/episodic/{episodic_id}"),
     ("GET", "/auth/me"), ("POST", "/auth/logout-all"), ("POST", "/admin/sessions/revoke"),
     ("POST", "/knowledge/add"), ("POST", "/knowledge/upload"), ("GET", "/knowledge/stats"),
@@ -104,6 +105,7 @@ COVERED = {
 # Platform-wide by design today: no tenant data, or deployment-wide state. The note says which
 # plan phase makes them per tenant.
 PLATFORM = {
+    ("POST", "/ops/models/default"): "platform administrator, audited deployment default",
     ("GET", "/readyz"): "process readiness", ("GET", "/livez"): "process liveness",
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
     ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签",
@@ -114,9 +116,9 @@ PLATFORM = {
 
 @pytest.fixture
 def world(db_url, monkeypatch):  # noqa: F811
-    from it_copilot.workflow.store import WorkflowStore
+    from servicedesk_agent.workflow.store import WorkflowStore
     workflow = WorkflowStore(db_url)
-    monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SEED_DEMO_DOCS", "false")
     kb = KnowledgeBase(db_url)
     tools = ToolManager("sk-local")
 

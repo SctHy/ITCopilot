@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy import event, text
 
 from tests.runtime import state
-from it_copilot.api.routes.chat import ChatRequest, _Stages, _run_turn
+from servicedesk_agent.api.routes.chat import ChatRequest, _Stages, _run_turn
 from tests.test_workflow import ALICE, create
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 
@@ -74,9 +74,9 @@ def test_private_context_reads_overlap_and_keep_other_results(monkeypatch, fail_
         def approvals(*args):
             return [{"approval_id": "a", "status": "pending", "execution": "not_executed"}]
 
-        from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+        from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
         orchestrator = AgentOrchestrator("sk-local")
-        from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
+        from servicedesk_agent.agent.intent.taxonomy import IntentCategory, UrgencyLevel
 
         async def intent(*args, **kwargs):
             value = SimpleNamespace(intent=IntentCategory.PERMISSION_REQUEST, intent_group="access", confidence=1, urgency=UrgencyLevel.LOW, entities={}, missing_slots=[], recognition_source="test", requested_actions=frozenset())

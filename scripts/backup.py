@@ -131,7 +131,7 @@ def temporary_redis():
     executable = shutil.which("redis-server")
     if not executable:
         raise RuntimeError("redis-server is required for an isolated Redis restore drill")
-    with tempfile.TemporaryDirectory(prefix="itc-restore-redis-") as directory:
+    with tempfile.TemporaryDirectory(prefix="servicedesk-agent-restore-redis-") as directory:
         socket_path = str(Path(directory) / "redis.sock")
         process = subprocess.Popen([executable, "--port", "0", "--unixsocket", socket_path, "--unixsocketperm", "700", "--save", "", "--appendonly", "no", "--dir", directory], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         client = redis.Redis(unix_socket_path=socket_path)
@@ -173,9 +173,9 @@ def drill(backup, *, admin_url=None, container=None, context=None):
     report = {"passed": False, "workers_started": False, "redis_included": manifest["redis_included"]}
     engine = admin = None
     created = False
-    database = "itc_restore_test_" + uuid.uuid4().hex
+    database = "servicedesk_agent_restore_test_" + uuid.uuid4().hex
     try:
-        with tempfile.TemporaryDirectory(prefix="itc-restore-") as directory:
+        with tempfile.TemporaryDirectory(prefix="servicedesk-agent-restore-") as directory:
             if manifest["engine"] == "sqlite":
                 path = Path(directory) / "restored.sqlite3"
                 shutil.copyfile(backup / artifact, path)
@@ -185,7 +185,7 @@ def drill(backup, *, admin_url=None, container=None, context=None):
                 engine = create_engine("sqlite:///" + str(path))
             else:
                 if not admin_url or make_url(admin_url).get_backend_name() != "postgresql":
-                    raise ValueError("PostgreSQL drill requires IT_COPILOT_BACKUP_ADMIN_URL with CREATE DATABASE privilege")
+                    raise ValueError("PostgreSQL drill requires SERVICEDESK_AGENT_BACKUP_ADMIN_URL with CREATE DATABASE privilege")
                 parsed = make_url(admin_url)
                 admin = create_engine(parsed.set(database="postgres"), isolation_level="AUTOCOMMIT")
                 with admin.connect() as conn:
@@ -251,11 +251,11 @@ def main():
     if args.command == "create":
         if not args.quiesced:
             parser.error("Stop writers, then pass --quiesced to establish cross-store consistency")
-        url = os.environ["IT_COPILOT_DATABASE_URL"]
+        url = os.environ["SERVICEDESK_AGENT_DATABASE_URL"]
         result = create(url, args.directory, redis_url=None if args.without_redis else os.getenv("REDIS_URL"), without_redis=args.without_redis, **options)
         print(json.dumps({"backup": str(args.directory.resolve()), "engine": result["engine"], "redis_included": result["redis_included"]}))
     else:
-        result = drill(args.directory, admin_url=os.getenv("IT_COPILOT_BACKUP_ADMIN_URL"), **options)
+        result = drill(args.directory, admin_url=os.getenv("SERVICEDESK_AGENT_BACKUP_ADMIN_URL"), **options)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["passed"] else 1
     return 0

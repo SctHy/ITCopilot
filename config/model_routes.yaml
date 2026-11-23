@@ -1,10 +1,32 @@
 # Official prices checked 2026-11-12: https://api-docs.deepseek.com/quick_start/pricing/
 # Peak USD/1M tokens; off-peak is half. Cost is a conservative estimate, not an invoice.
 models:
+  gpt-6.2-sol:
+    api: responses
+    base_url_env: OPENAI_GPT_BASE_URL
+    default_base_url: https://api.openai.com/v1
+    key_env: OPENAI_GPT_API_KEY
+    name: gpt-6.2-sol
+    context_window: 272000
+    compact_reserve_tokens: 32000
+    keep_recent_tokens: 24000
+    thinking_api: openai
+    prompt_cache_mode: openai_key
+    prompt_cache_scope: tenant
+    prompt_cache_retention: 24h
+    supports: [tools, tool_choice_required]
+    data_classes: [public, internal]
+    regions: [us, cn]
+    # Conservative internal budgeting estimate in USD per million tokens.
+    price_per_mtok: {input: 10, output: 60, cache_read: 2}
   deepseek-flash:
+    default_base_url: https://api.deepseek.com
     base_url_env: OPENAI_BASE_URL
     key_env: OPENAI_API_KEY
     name: deepseek-flash
+    context_window: 1000000
+    compact_reserve_tokens: 32000
+    keep_recent_tokens: 24000
     price_per_mtok: {input: 0.30, output: 1.20, cache_read: 0.006}
     regions: [cn]
     data_classes: [public, internal]
@@ -12,8 +34,8 @@ models:
     thinking_api: deepseek
 routes:
   intent_fallback: {candidates: [deepseek-flash], timeout_s: 3}
-  agent_read: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 3, turn_deadline_s: 20}
-  agent_write: {candidates: [deepseek-flash], thinking: disabled, max_rounds: 5}
+  agent_read: {candidates: [deepseek-flash, gpt-6.2-sol], thinking: low, max_rounds: 15, turn_deadline_s: 90, request_timeout_s: 60}
+  agent_write: {candidates: [deepseek-flash, gpt-6.2-sol], thinking: low, max_rounds: 20, turn_deadline_s: 120, request_timeout_s: 60}
   summary: {candidates: [deepseek-flash]}
   rewrite_rerank: {candidates: [deepseek-flash]}
   judge: {candidates: [deepseek-flash]}

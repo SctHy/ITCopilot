@@ -9,15 +9,15 @@ from pydantic import ValidationError
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from it_copilot.agent.base_agent import BaseAgent
-from it_copilot.agent.types import Request
-from it_copilot.agent.model_router import DEFAULT_CONFIG, ModelRouter, RoutingConfig
-from it_copilot.infra.tenancy import TenantRegistry
-from it_copilot.infra.tenant_context import tenant_scope
+from servicedesk_agent.agent.base_agent import BaseAgent
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.model_router import DEFAULT_CONFIG, ModelRouter, RoutingConfig
+from servicedesk_agent.infra.tenancy import TenantRegistry
+from servicedesk_agent.infra.tenant_context import tenant_scope
 from tests.support.fake_model import scripted_model
 from tests.test_workflow import ALICE
-from it_copilot.agent.tooling.tool_spec import make_tool
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.agent.tooling.tool_spec import make_tool
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 async def okay(messages, info):
@@ -26,8 +26,10 @@ async def okay(messages, info):
 
 def configured(tmp_path, *, config=None, models=None, engine=None):
     config = copy.deepcopy(yaml.safe_load(DEFAULT_CONFIG.read_text())) if config is None else config
+    config["models"].pop("gpt-6.2-sol", None)
     config["models"]["backup"] = copy.deepcopy(config["models"]["deepseek-flash"])
     for route in config["routes"].values():
+        route["thinking"] = "disabled"
         route["candidates"] = ["deepseek-flash", "backup"]
     path = tmp_path / "routes.yaml"
     path.write_text(yaml.safe_dump(config))
@@ -122,12 +124,15 @@ def test_no_failover_after_answer_delta(tmp_path):
     assert not result.success and "answer_delta" in events and calls == ["primary"]
 
 
-def test_budget_hides_write_tools_but_allows_reads(tmp_path, db_url):
+def test_budget_preserves_tools_and_blocks_write_execution(tmp_path, db_url):
     store = WorkflowStore(db_url)
     TenantRegistry(store.engine).create("budget", actor="system", quotas={"daily_cost_usd": 0})
     seen = []
     async def respond(messages, info):
         seen.append({tool.name for tool in info.function_tools})
+        if len(seen) == 1:
+            from pydantic_ai.messages import ToolCallPart
+            return ModelResponse(parts=[ToolCallPart("create_ticket", {})])
         return ModelResponse(parts=[TextPart("当日预算已用完，不能起草申请")])
     router = configured(tmp_path, engine=store.engine,
         models={"deepseek-flash": FunctionModel(respond), "backup": FunctionModel(respond)})
@@ -138,13 +143,14 @@ def test_budget_hides_write_tools_but_allows_reads(tmp_path, db_url):
         with tenant_scope("budget"):
             return await agent.handle(Request("申请工单", principal=replace(ALICE, tenant="budget")))
     result = asyncio.run(run())
-    assert result.success and seen == [{"diagnose"}]
+    assert result.success and all(tools == {"diagnose", "create_ticket"} for tools in seen)
+    assert not result.tools_used and result.tool_traces[0]["success"] is False
     assert result.observability["route_reason"] == "budget"
     assert router.pick("agent_read", "default").reason != "budget"
 
 
 def test_invalid_hot_reload_keeps_last_good_config_and_valid_reload_applies(tmp_path, db_url):
-    from it_copilot.infra.db import change_events
+    from servicedesk_agent.infra.db import change_events
     from sqlalchemy import select
     store = WorkflowStore(db_url)
     router = configured(tmp_path, engine=store.engine)
@@ -152,14 +158,14 @@ def test_invalid_hot_reload_keeps_last_good_config_and_valid_reload_applies(tmp_
     data = router.config.model_dump()
     data["routes"]["agent_read"]["max_rounds"] = 0
     router.path.write_text(yaml.safe_dump(data))
-    assert router.pick("agent_read", "default").max_rounds == 3
-    assert router.pick("agent_read", "default").max_rounds == 3
+    assert router.pick("agent_read", "default").max_rounds == 15
+    assert router.pick("agent_read", "default").max_rounds == 15
     assert router.fingerprint == kept
     router.path.write_text("routes: [")
-    assert router.pick("agent_read", "default").max_rounds == 3
-    data["routes"]["agent_read"]["max_rounds"] = 4
+    assert router.pick("agent_read", "default").max_rounds == 15
+    data["routes"]["agent_read"]["max_rounds"] = 18
     router.path.write_text(yaml.safe_dump(data))
-    assert router.pick("agent_read", "default").max_rounds == 4
+    assert router.pick("agent_read", "default").max_rounds == 18
     with store.engine.connect() as db:
         kinds = db.execute(select(change_events.c.kind, change_events.c.detail).order_by(change_events.c.id)).all()
     assert [kind for kind, _ in kinds] == ["model_route_rejected", "model_route_rejected", "model_route"]
@@ -170,7 +176,7 @@ def test_thinking_is_route_config_not_an_environment_toggle(tmp_path):
     router = configured(tmp_path)
     route = router.pick("agent_write", "default")
     assert route.settings["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert route.max_rounds == 5
+    assert route.max_rounds == 20
     data = router.config.model_dump()
     data["routes"]["agent_write"]["thinking"] = "max"
     router.path.write_text(yaml.safe_dump(data))
@@ -182,6 +188,8 @@ def test_thinking_is_route_config_not_an_environment_toggle(tmp_path):
 def test_models_without_a_thinking_api_get_no_vendor_parameters(tmp_path):
     config = yaml.safe_load(DEFAULT_CONFIG.read_text())
     config["models"]["deepseek-flash"]["thinking_api"] = "none"
+    for route_name in ("agent_read", "agent_write"):
+        config["routes"][route_name]["thinking"] = "disabled"
     router = configured(tmp_path, config=config)
     settings = router.pick("agent_read", "default").settings
     assert "extra_body" not in settings and settings["temperature"] == .2
@@ -200,10 +208,73 @@ def test_failed_turn_keeps_known_tokens_and_cost():
             return ModelResponse(parts=[ToolCallPart("diagnose", {})],
                 usage=RequestUsage(input_tokens=1000, output_tokens=20))
         raise TimeoutError("provider failed after a tool result")
-    router = ModelRouter(models={"deepseek-flash": FunctionModel(respond)})
+    router = ModelRouter(models=dict.fromkeys(["deepseek-flash", "gpt-6.2-sol"], FunctionModel(respond)))
     agent = BaseAgent(None, "", router=router)
     agent.set_shared_tools({"diagnose": make_tool("diagnose", "诊断", {}, lambda req, args: {"ok": True})})
     result = asyncio.run(agent.handle(Request("检查VPN", allowed_writes=frozenset())))
     assert not result.success and result.error_code == "model_unavailable"
     assert result.token_usage["input_tokens"] == 1000 and result.token_usage["output_tokens"] == 20
     assert result.observability["cost_usd"] == pytest.approx(router.cost("deepseek-flash", result.token_usage))
+
+
+def test_prompt_cache_key_is_scoped_and_opt_in(tmp_path):
+    data = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    router = configured(tmp_path, config=data)
+    assert "prompt_cache_key" not in router.pick("agent_read", conv_id="c").settings["extra_body"]
+    data["models"]["deepseek-flash"]["prompt_cache_mode"] = "openai_key"
+    router = configured(tmp_path, config=data)
+
+    def key(tenant, conv):
+        body = router.pick("agent_read", tenant, conv_id=conv).settings["extra_body"]
+        assert "thinking" in body
+        return body["prompt_cache_key"]
+
+    digest = key("tenant-a", "employee@example.org")
+    assert len(bytes.fromhex(digest)) == 32 and digest == key("tenant-a", "employee@example.org")
+    assert digest != key("tenant-b", "employee@example.org") and digest == key("tenant-a", "other")
+    assert digest == key("tenant-a", None)
+    data["models"]["deepseek-flash"]["prompt_cache_scope"] = "conversation"
+    router = configured(tmp_path, config=data)
+    assert key("tenant-a", "first") != key("tenant-a", "second")
+
+
+@pytest.mark.parametrize("endpoint", [None, "https://gpt.test/v1"])
+def test_responses_provider_and_route_settings_are_isolated(monkeypatch, endpoint):
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+    from servicedesk_agent.agent.masking.model_masking import MaskingTransport
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-ds")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://ds.test/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-flash")
+    monkeypatch.setenv("OPENAI_GPT_API_KEY", "synthetic-gpt")
+    monkeypatch.delenv("OPENAI_GPT_BASE_URL", raising=False)
+    if endpoint:
+        monkeypatch.setenv("OPENAI_GPT_BASE_URL", endpoint)
+    router = ModelRouter()
+    for route in ("agent_read", "agent_write"):
+        default_choice = router.pick(route, conv_id="one")
+        assert default_choice.name == default_choice.model.model_name == "deepseek-flash"
+        assert default_choice.settings["extra_body"] == {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+        choice = router.pick(route, model="gpt-6.2-sol", thinking="high", conv_id="one")
+        assert choice.name == choice.model.model_name == "gpt-6.2-sol"
+        assert isinstance(choice.model, OpenAIResponsesModel)
+        assert choice.settings["openai_prompt_cache_retention"] == "24h"
+        assert choice.settings["openai_reasoning_effort"] == "high"
+        assert choice.settings["openai_store"] is False and choice.settings["max_tokens"] == 16000
+        assert "temperature" not in choice.settings and len(choice.settings["openai_prompt_cache_key"]) == 64
+        assert str(choice.model.client.base_url) == (endpoint or "https://api.openai.com/v1") + "/"
+        assert choice.model.client.api_key == "synthetic-gpt"
+    ds = router.pick("summary").model
+    assert isinstance(ds, OpenAIChatModel) and str(ds.client.base_url) == "https://ds.test/v1/"
+    assert ds.client.api_key == "synthetic-ds"
+    for model in router.models.values():
+        assert isinstance(model.client._client._transport, MaskingTransport)
+
+
+def test_requested_primary_can_fail_over_without_changing_default(tmp_path):
+    router = configured(tmp_path)
+    preferred = router.pick("agent_read", model="backup")
+    assert preferred.name == "backup"
+    for _ in range(5):
+        router.record(preferred, success=False)
+    assert router.pick("agent_read", model="backup").name == "deepseek-flash"
+    assert router.pick("agent_read").reason == "primary"

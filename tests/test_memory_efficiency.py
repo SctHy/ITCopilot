@@ -4,7 +4,7 @@ import tempfile
 
 import fakeredis.aioredis
 
-from it_copilot.agent.memory.conversation_memory import MemoryContext, MemoryManager
+from servicedesk_agent.agent.memory.conversation_memory import MemoryContext, MemoryManager
 
 
 def manager(path):
@@ -15,8 +15,8 @@ def manager(path):
 
 def test_trace_masking_preserves_identity_for_authorization(tmp_path):
     from dataclasses import replace
-    from it_copilot.api.routes.ops import _owns_trace
-    from it_copilot.infra.identity import Principal
+    from servicedesk_agent.api.routes.ops import _owns_trace
+    from servicedesk_agent.infra.identity import Principal
 
     async def run():
         m = manager(tmp_path)
@@ -54,7 +54,7 @@ def test_episodic_recall_skips_the_current_conversation():
 
 
 def test_history_window_trims_in_blocks_so_prefix_stays_cacheable():
-    from it_copilot.agent.memory.conversation_memory import Message, MsgRole
+    from servicedesk_agent.agent.memory.conversation_memory import Message, MsgRole
 
     def first(n):
         msgs = [Message(role=MsgRole.USER if i % 2 == 0 else MsgRole.ASSISTANT, content=f"m{i}") for i in range(n)]

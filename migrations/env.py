@@ -1,7 +1,7 @@
-"""Alembic environment: schema source of truth is it_copilot.infra.db.metadata."""
+"""Alembic environment: schema source of truth is servicedesk_agent.infra.db.metadata."""
 from alembic import context
 
-from it_copilot.infra.db import make_engine, metadata
+from servicedesk_agent.infra.db import make_engine, metadata
 
 config = context.config
 

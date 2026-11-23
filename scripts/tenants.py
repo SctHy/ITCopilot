@@ -7,7 +7,7 @@
     python scripts/tenants.py offboard acme --reason "客户退出"
     python scripts/tenants.py quotas acme '{"agent_turn": "300/60", "daily_cost_usd": 50}'
 
-Uses the same database as the API (``IT_COPILOT_DATABASE_URL`` or the local data directory).
+Uses the same database as the API (``SERVICEDESK_AGENT_DATABASE_URL`` or the local data directory).
 Every change is recorded in ``admin_audit`` under the tenant, with actor ``cli:<OS user>``.
 """
 from __future__ import annotations
@@ -21,9 +21,9 @@ import sys
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-from it_copilot.infra.db import shared_engine  # noqa: E402
-from it_copilot.infra.tenancy import TenantExists, TenantRegistry, TenantStatus  # noqa: E402
-from it_copilot.workflow.worker import database_url  # noqa: E402
+from servicedesk_agent.infra.db import shared_engine  # noqa: E402
+from servicedesk_agent.infra.tenancy import TenantExists, TenantRegistry, TenantStatus  # noqa: E402
+from servicedesk_agent.workflow.worker import database_url  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -47,7 +47,7 @@ def main(argv=None) -> int:
     quota.add_argument("quotas", help="JSON object, '{}' for the defaults")
     args = parser.parse_args(argv)
 
-    registry = TenantRegistry(shared_engine(database_url(os.getenv("IT_COPILOT_DATA_DIR", str(_ROOT / "data")))), cache_ttl_s=0)
+    registry = TenantRegistry(shared_engine(database_url(os.getenv("SERVICEDESK_AGENT_DATA_DIR", str(_ROOT / "data")))), cache_ttl_s=0)
     actor = "cli:" + getpass.getuser()
     try:
         if args.command == "list":

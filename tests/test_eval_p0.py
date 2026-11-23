@@ -5,11 +5,11 @@ import json
 import numpy as np
 import pytest
 
-from it_copilot.cmd.eval import main
-from it_copilot.eval import rag, stats
-from it_copilot.eval.ledger import DATA, ROOT, EnvMetadata, Experiment, InvariantCheck, Report
-from it_copilot.eval.workloads import fair, fault, notify
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.cmd.eval import main
+from servicedesk_agent.eval import rag, stats
+from servicedesk_agent.eval.ledger import DATA, ROOT, EnvMetadata, Experiment, InvariantCheck, Report
+from servicedesk_agent.eval.workloads import fair, fault, notify
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 def test_stats_and_report():
@@ -57,7 +57,7 @@ def test_dataset_and_rag_cli(monkeypatch, tmp_path):
         def embed_documents(self, docs):
             return [self.embed_query(t) for t in docs]
 
-    monkeypatch.setattr("it_copilot.infra.vector_store.Embedder", Fake)
+    monkeypatch.setattr("servicedesk_agent.infra.vector_store.Embedder", Fake)
     subset = dict(data, queries=rows[:4], documents=data["documents"][:6])
     path = tmp_path / "subset.json"
     path.write_text(json.dumps(subset))
@@ -88,7 +88,7 @@ def test_workflow_arms(tmp_path, job, params, protected):
 
 
 def test_workflow_cli_discards_warmup_and_fails_gate(tmp_path, monkeypatch):
-    from it_copilot.cmd import eval as cli
+    from servicedesk_agent.cmd import eval as cli
 
     calls = Counter()
 

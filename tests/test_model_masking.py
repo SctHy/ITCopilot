@@ -8,8 +8,8 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from it_copilot.agent.llm import build_model, close_model, complete_text
-from it_copilot.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope
+from servicedesk_agent.agent.llm import build_model, close_model, complete_text
+from servicedesk_agent.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope
 
 
 class Bytes(httpx2.AsyncByteStream):
@@ -213,11 +213,11 @@ def test_protocol_ids_and_schema_description():
 
 
 def test_custom_terms_and_bad_configuration(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_MASK_WORDS", '["Project Nightjar"]')
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_WORDS", '["Project Nightjar"]')
     body = {"messages": [{"role": "user", "content": "部署 Project Nightjar"}]}
     result = mask_request(body, MaskingSession())
     assert "Project Nightjar" not in json.dumps(result)
-    monkeypatch.setenv("IT_COPILOT_MASK_WORDS", '"not a list"')
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_WORDS", '"not a list"')
     with pytest.raises(ValueError, match="JSON array"):
         mask_request(body, MaskingSession())
 
@@ -230,7 +230,7 @@ def test_short_password_does_not_replace_normal_words():
 
 
 def test_classifier_state_is_masked():
-    from it_copilot.agent.intent.recognizer import IntentRecognizer
+    from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
 
     async def run():
         def upstream(request):
@@ -252,7 +252,7 @@ def test_classifier_state_is_masked():
 
 @pytest.mark.parametrize("tool", [False, True])
 def test_every_placeholder_split_and_escaped_restoration(tool):
-    from it_copilot.agent.masking.model_masking import _TextBuffer
+    from servicedesk_agent.agent.masking.model_masking import _TextBuffer
     session = MaskingSession()
     raw = 'quoted"back\\slash'
     token = session.remember(raw, "SECRET")
@@ -264,7 +264,7 @@ def test_every_placeholder_split_and_escaped_restoration(tool):
 
 
 def test_stream_plain_brace_and_incomplete_placeholder():
-    from it_copilot.agent.masking.model_masking import _ResponseStream
+    from servicedesk_agent.agent.masking.model_masking import _ResponseStream
     session = MaskingSession()
     response = httpx2.Response(200)
     stream = _ResponseStream(response, session)
@@ -284,12 +284,12 @@ def test_connection_password_does_not_swallow_hostname_or_ssh_remote():
     assert masked.startswith("postgres://app:{{PASSWORD_")
     assert masked.endswith("@db.example.com/main")
     assert session.restore(masked, tool=True) == original
-    from it_copilot.agent.masking.redaction import redact_text
+    from servicedesk_agent.agent.masking.redaction import redact_text
     assert redact_text("ssh git@github.com:org/project.git") == "ssh git@github.com:org/project.git"
 
 
 def test_restored_tool_values_are_scrubbed_when_stored():
-    from it_copilot.agent.masking.redaction import redact
+    from servicedesk_agent.agent.masking.redaction import redact
     with masking_scope("tenant:alice", "c") as session:
         session.learn("password=CustomOpaqueValue")
         assert redact({"input": {"code": "CustomOpaqueValue"}, "trace": "工具用了 CustomOpaqueValue"}) == {
@@ -306,3 +306,191 @@ def test_network_client_keeps_environment_proxy_and_closes(monkeypatch):
         await transport.aclose()
         assert transport.client.is_closed
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("field", ["input", "messages"])
+def test_masking_key_and_forward_only_expansion(monkeypatch, field):
+    from servicedesk_agent.agent.masking.local_pii import Span
+    from servicedesk_agent.agent.masking.model_masking import _masking_key
+
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASKING_KEY", "synthetic-test-key")
+    assert len(_masking_key()) == 32 and _masking_key() == _masking_key()
+    monkeypatch.delenv("SERVICEDESK_AGENT_MASKING_KEY")
+    assert _masking_key() != _masking_key()
+    session = MaskingSession("conversation")
+    value = "Sample Person"
+    declaration = "Contact " + value
+    session.findings = {declaration: [Span(8, len(declaration), "PERSON", 1)]}
+    body = {field: [{"role": "user", "content": "Project " + value}]}
+    first = mask_request(body, session)[field][0]
+    body[field].extend([{"role": "assistant", "content": declaration},
+                             {"role": "user", "content": "Ask " + value}])
+    masked = mask_request(body, session)[field]
+    assert first == masked[0] and value in first["content"]
+    assert value not in masked[1]["content"] and value not in masked[2]["content"]
+
+
+def test_anthropic_breakpoints_at_stable_boundaries():
+    from servicedesk_agent.agent.masking.model_masking import _cache_breakpoints
+    messages = [{"role": role, "content": "text"} for role in ("system", "user", "assistant", "user")]
+    _cache_breakpoints(messages)
+    assert messages[0]["content"] == messages[2]["content"] == [
+        {"type": "text", "text": "text", "cache_control": {"type": "ephemeral"}}]
+    assert messages[1]["content"] == messages[3]["content"] == "text"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_roundtrip(stream):
+    email = "alice@example.org"
+    usage = {"input_tokens": 42, "output_tokens": 7, "input_tokens_details": {"cached_tokens": 32}}
+    def upstream(request):
+        assert email not in request.content.decode()
+        token = json.loads(request.content)["instructions"]
+        assert token.startswith("{{")
+        args = json.dumps({"email": token})
+        output = [{"type": "function_call", "arguments": args},
+                  {"type": "reasoning", "summary": [{"type": "summary_text", "text": token}]},
+                  {"type": "message", "content": [{"type": "output_text", "text": token}]}]
+        response = {"output": output, "usage": usage}
+        if not stream:
+            return httpx2.Response(200, json=response)
+        events = []
+        for family, field, value in [("output_text", "text", token), ("reasoning_summary_text", "text", token),
+                                     ("function_call_arguments", "arguments", args)]:
+            events.extend({"type": f"response.{family}.delta", "delta": ch} for ch in value)
+            events.append({"type": f"response.{family}.done", field: value})
+        events.extend([{"type": "response.output_item.done", "item": output[0]},
+                       {"type": "response.content_part.done", "part": output[-1]["content"][0]},
+                       {"type": "response.completed", "response": response}])
+        wire = "".join(f"event: {e['type']}\r\ndata: {json.dumps(e)}\r\n\r\n" for e in events)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=Bytes(wire, 1))
+
+    async def run():
+        async with httpx2.AsyncClient(transport=MaskingTransport(httpx2.MockTransport(upstream))) as client:
+            with masking_scope("owner", "conv") as session:
+                res = await client.post("https://provider.test/v1/responses", json={
+                    "instructions": email, "tools": [{"type": "function", "name": "lookup", "description": email}],
+                    "input": [{"role": "user", "content": [{"type": "input_text", "text": email}]},
+                              {"type": "function_call", "arguments": json.dumps({"email": email})},
+                              {"type": "function_call_output", "output": email}]})
+                if stream:
+                    events = []
+                    for block in res.text.strip().split("\n\n"):
+                        name, data = block.splitlines()
+                        event = json.loads(data.removeprefix("data: "))
+                        assert name == "event: " + event["type"]
+                        events.append(event)
+                    for family in ("output_text", "reasoning_summary_text", "function_call_arguments"):
+                        deltas = "".join(e["delta"] for e in events if e["type"] == f"response.{family}.delta")
+                        assert deltas == (json.dumps({"email": email}) if family == "function_call_arguments" else "[REDACTED]")
+                    body = events[-1]["response"]
+                else:
+                    body = res.json()
+                call, reasoning, message = body["output"]
+                assert json.loads(call["arguments"]) == {"email": email}
+                assert reasoning["summary"][0]["text"] == message["content"][0]["text"] == "[REDACTED]"
+                assert body["usage"] == usage
+                assert session.provider_text.getvalue() == session.reverse[email]
+            with pytest.raises(MaskingError):
+                await client.post("https://provider.test/v1/responses", json={"input": [
+                    {"role": "user", "content": [{"type": "input_image", "image_url": "url"}]}]})
+    asyncio.run(run())
+
+
+def test_responses_sdk_reasoning_tools_and_cache_usage():
+    from pydantic_ai.models.openai import OpenAIResponsesModel
+
+    email = "alice@example.org"
+    usage = {"input_tokens": 42, "output_tokens": 7, "total_tokens": 49,
+             "input_tokens_details": {"cached_tokens": 32}, "output_tokens_details": {"reasoning_tokens": 1}}
+    async def run():
+        requests, invoked = [], []
+        def upstream(req):
+            body = json.loads(req.content)
+            requests.append(body)
+            assert req.url.path == "/v1/responses" and email not in req.content.decode()
+            assert body["reasoning"]["effort"] == "high" and body["store"] is False
+            assert body["prompt_cache_key"] == "session" and body["tools"]
+            token = body["input"][0]["content"]
+            if isinstance(token, list):
+                token = token[0]["text"]
+            if len(requests) == 1:
+                item = {"type": "function_call", "name": "lookup", "call_id": "call_1",
+                        "arguments": json.dumps({"email": token}), "id": "fc_1"}
+            else:
+                item = {"type": "message", "role": "assistant", "id": "msg_1", "status": "completed",
+                        "content": [{"type": "output_text", "text": token, "annotations": []}]}
+            return httpx2.Response(200, json={"id": "resp_1", "object": "response", "created_at": 1,
+                "status": "completed", "model": "gpt-6.2-sol", "output": [item], "usage": usage})
+        async with httpx2.AsyncClient(transport=MaskingTransport(httpx2.MockTransport(upstream))) as client:
+            model = OpenAIResponsesModel("gpt-6.2-sol", provider=OpenAIProvider(
+                api_key="synthetic", base_url="https://provider.test/v1", http_client=client))
+            agent = Agent(model)
+            @agent.tool_plain
+            def lookup(email: str) -> str:
+                invoked.append(email)
+                return email
+            with masking_scope("owner", "conv"):
+                result = await agent.run(email, model_settings={"openai_reasoning_effort": "high",
+                    "openai_store": False, "openai_prompt_cache_key": "session"})
+            assert invoked == [email] and result.output == "[REDACTED]"
+            assert (result.usage.input_tokens, result.usage.output_tokens, result.usage.cache_read_tokens) == (84, 14, 64)
+    asyncio.run(run())
+
+
+def test_responses_masked_prefix_across_turns_stream_and_summary(monkeypatch):
+    from pydantic_ai.direct import model_request_stream
+    from pydantic_ai.messages import ModelRequest
+    from servicedesk_agent.agent.model_router import ModelRouter
+
+    calls = []
+    email = "prefix@example.org"
+    instructions = f"Contact {email}"
+    response = {"id": "resp_1", "object": "response", "created_at": 1, "status": "completed",
+                "model": "gpt-6.2-sol", "output": [{"type": "message", "role": "assistant", "id": "msg_1",
+                "status": "completed", "content": [{"type": "output_text", "text": "OK", "annotations": []}]}]}
+
+    def upstream(req):
+        assert req.url.path == "/v1/responses" and email not in req.content.decode()
+        body = json.loads(req.content)
+        assert "instructions" not in body and body["prompt_cache_retention"] == "24h"
+        calls.append(body)
+        if body.get("stream"):
+            event = {"type": "response.created", "sequence_number": 0, "response": response}
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"},
+                                   stream=Bytes(f"event: response.created\ndata: {json.dumps(event)}\n\n"))
+        return httpx2.Response(200, json=response)
+
+    monkeypatch.setenv("OPENAI_GPT_API_KEY", "synthetic")
+    monkeypatch.setenv("OPENAI_GPT_BASE_URL", "https://provider.test/v1")
+    monkeypatch.setattr("servicedesk_agent.agent.llm.MaskingTransport",
+                        lambda **kwargs: MaskingTransport(httpx2.MockTransport(upstream), **kwargs))
+
+    async def run():
+        router = ModelRouter()
+        try:
+            choice = router.pick("agent_read", model="gpt-6.2-sol", conv_id="conv")
+            agent = Agent(choice.model, instructions=instructions, model_settings=choice.settings)
+            with masking_scope("owner", "conv") as session:
+                first = await agent.run("first")
+                history = first.all_messages()
+                await agent.run("second", message_history=history)
+                await complete_text(choice.model, "summarize", history=history, prefix=(instructions, []), max_tokens=80)
+                async with model_request_stream(choice.model, [*history, ModelRequest.user_text_prompt(
+                        "stream", instructions=instructions)], model_settings=choice.settings):
+                    pass
+                await choice.model.client.responses.create(model=choice.name, instructions=instructions,
+                    input=email, prompt_cache_retention="24h")
+                developer = {"role": "developer", "content": f"Contact {session.reverse[email]}"}
+                assert all(call["input"][0] == developer for call in calls)
+                assert calls[-1]["input"] == [developer, {"role": "user", "content": session.reverse[email]}]
+        finally:
+            await router.aclose()
+
+    asyncio.run(run())
+    first, second, summary, stream, _ = calls
+    assert stream["stream"] is True
+    assert second["input"][:len(first["input"])] == first["input"]
+    assert len(second["input"][:-1]) > len(first["input"])
+    prefix = json.dumps(second["input"][:-1]).encode()
+    assert all(json.dumps(call["input"][:-1]).encode() == prefix for call in (summary, stream))

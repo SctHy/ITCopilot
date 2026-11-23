@@ -13,10 +13,10 @@ from tests import runtime as api
 from tests.runtime import state
 from tests.conftest import auth, run_in_tenant
 from tests.test_workflow import ALICE, BOB, ERIN, Clock, access, create, run
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.worker import ExecutionWorker
-from it_copilot.workflow.store import ApprovalForbidden, ApprovalStateConflict, WorkflowStore
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.store import ApprovalForbidden, ApprovalStateConflict, WorkflowStore
 
 DAVE = dataclasses.replace(ALICE, subject="dev:dave", username="dave", employee_id="1002")
 

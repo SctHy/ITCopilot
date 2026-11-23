@@ -3,10 +3,10 @@ import json
 
 import pytest
 
-from it_copilot.agent.masking.local_pii import Span, accept_span
-from it_copilot.agent.masking.model_masking import MaskingSession, mask_request
-from it_copilot.agent.masking.pii_rules import chinese_name_spans, iban_spans
-from it_copilot.agent.masking.redaction import REDACTED, redact_text, sensitive_spans, user_secrets
+from servicedesk_agent.agent.masking.local_pii import Span, accept_span
+from servicedesk_agent.agent.masking.model_masking import MaskingSession, mask_request
+from servicedesk_agent.agent.masking.pii_rules import chinese_name_spans, iban_spans
+from servicedesk_agent.agent.masking.redaction import REDACTED, redact_text, sensitive_spans, user_secrets
 
 
 @pytest.mark.parametrize("text,value", [

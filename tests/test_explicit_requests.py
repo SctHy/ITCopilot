@@ -3,9 +3,9 @@ import asyncio
 
 import pytest
 
-from it_copilot.agent.intent.explicit import explicit_access_systems, explicit_write_requests
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.intent.taxonomy import IntentCategory
+from servicedesk_agent.agent.intent.explicit import explicit_access_systems, explicit_write_requests
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.intent.taxonomy import IntentCategory
 
 
 @pytest.mark.parametrize("message,expected", [

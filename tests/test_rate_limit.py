@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from tests import runtime as api
 from tests.runtime import state
 
-from it_copilot.infra.identity import Principal
-from it_copilot.infra.rate_limit import AGENT_TURN, DEFAULT_RULES, MemoryRateLimiter, RateRule, RedisRateLimiter, rules_from_env
+from servicedesk_agent.infra.identity import Principal
+from servicedesk_agent.infra.rate_limit import AGENT_TURN, DEFAULT_RULES, MemoryRateLimiter, RateRule, RedisRateLimiter, rules_from_env
 from tests.conftest import auth
 
 ALICE = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
@@ -65,7 +65,7 @@ def test_redis_backend_shares_one_budget_across_processes():
         results = [(await first.check(AGENT_TURN, "a")).allowed, (await second.check(AGENT_TURN, "a")).allowed]
         denied = await first.check(AGENT_TURN, "a")
         other = await second.check(AGENT_TURN, "b")
-        ttl = await redis.pttl("ratelimit:agent_turn:a")
+        ttl = await redis.pttl("servicedesk_agent:ratelimit:agent_turn:a")
         return results, denied, other, ttl
 
     results, denied, other, ttl = asyncio.run(run())

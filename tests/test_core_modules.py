@@ -4,9 +4,9 @@ import tempfile
 
 import pytest
 
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.tooling.knowledge_base import KnowledgeBase
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager, Tool
 
 
 def test_tool_manager_schema_cache_and_fallback():
@@ -56,7 +56,7 @@ def test_intent_metrics_expose_disabled_fallback():
 
 @pytest.mark.usefixtures("default_tenant")
 def test_rag_hybrid_returns_citations_and_department_scope():
-    os.environ["IT_COPILOT_SEED_DEMO_DOCS"] = "false"
+    os.environ["SERVICEDESK_AGENT_SEED_DEMO_DOCS"] = "false"
     with tempfile.TemporaryDirectory() as path:
         kb = KnowledgeBase(f"sqlite:///{path}/kb.sqlite3")
         kb.add_documents([
@@ -67,4 +67,4 @@ def test_rag_hybrid_returns_citations_and_department_scope():
         assert rows and rows[0]["title"] == "研发 VPN SOP"
         assert rows[0]["citation"].startswith("研发 VPN SOP")
         assert all(row["department"] in {"研发", "*"} for row in rows)
-    os.environ.pop("IT_COPILOT_SEED_DEMO_DOCS", None)
+    os.environ.pop("SERVICEDESK_AGENT_SEED_DEMO_DOCS", None)

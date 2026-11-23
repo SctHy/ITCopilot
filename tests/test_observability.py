@@ -7,9 +7,9 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.types import Request
-from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.tooling.tool_manager import ToolManager, Tool
 from tests.conftest import with_read_tool
 
 
@@ -45,12 +45,12 @@ def test_agent_metrics_record_status_tokens_and_tool_calls():
         orchestrator.directory = SimpleNamespace(employee=lambda eid, tenant: {"devices": [{"device_id": "DEV-1001", "kind": "laptop", "locked": False}], "tickets": []})
         labels = {"status": "success", "error_code": "none"}
         model_name = orchestrator.router.config.routes[orchestrator.agent.write_route].candidates[0]
-        before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", model=model_name, direction="input"),
-                  sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success"))
+        before = (sample("servicedesk_agent_agent_requests_total", **labels), sample("servicedesk_agent_llm_tokens_total", model=model_name, direction="input"),
+                  sample("servicedesk_agent_agent_tool_calls_total", tool="lookup_asset", error_class="success"))
         await orchestrator.agent.handle(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001", tenant="default")))
-        assert sample("it_copilot_agent_requests_total", **labels) == before[0] + 1
-        assert sample("it_copilot_llm_tokens_total", model=model_name, direction="input") == before[1] + 11
-        assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success") == before[2] + 1
+        assert sample("servicedesk_agent_agent_requests_total", **labels) == before[0] + 1
+        assert sample("servicedesk_agent_llm_tokens_total", model=model_name, direction="input") == before[1] + 11
+        assert sample("servicedesk_agent_agent_tool_calls_total", tool="lookup_asset", error_class="success") == before[2] + 1
     asyncio.run(run())
 
 
@@ -60,10 +60,10 @@ def test_agent_failure_reason_is_classified():
 
     async def run():
         orchestrator = orchestrator_with(FunctionModel(loop_forever))
-        before = sample("it_copilot_agent_failures_total", reason="round_limit")
+        before = sample("servicedesk_agent_agent_failures_total", reason="round_limit")
         response = await orchestrator.agent.handle(Request("VPN 状态"))
         assert response.error_code == "round_limit"
-        assert sample("it_copilot_agent_failures_total", reason="round_limit") == before + 1
+        assert sample("servicedesk_agent_agent_failures_total", reason="round_limit") == before + 1
     asyncio.run(run())
 
 
@@ -78,27 +78,27 @@ def test_tool_manager_metrics_label_every_outcome():
         manager.register(Tool("obs_echo", "echo", lambda p, c: p, schema, cache_ttl=60))
         manager.register(Tool("obs_slow", "slow", slow, schema, timeout_s=.001))
         manager._tools["obs_slow"].breaker.threshold = 1
-        before = {o: sample("it_copilot_tool_calls_total", tool="obs_echo", outcome=o) for o in ("success", "cached", "invalid")}
+        before = {o: sample("servicedesk_agent_tool_calls_total", tool="obs_echo", outcome=o) for o in ("success", "cached", "invalid")}
         await manager.call("obs_echo", {"q": "x"})
         await manager.call("obs_echo", {"q": "x"})
         await manager.call("obs_echo", {"bad": 1})
         for outcome in before:
-            assert sample("it_copilot_tool_calls_total", tool="obs_echo", outcome=outcome) == before[outcome] + 1
+            assert sample("servicedesk_agent_tool_calls_total", tool="obs_echo", outcome=outcome) == before[outcome] + 1
         await manager.call("obs_slow", {"q": "x"})
         await manager.call("obs_slow", {"q": "x"})
-        assert sample("it_copilot_tool_calls_total", tool="obs_slow", outcome="timeout") >= 1
-        assert sample("it_copilot_tool_calls_total", tool="obs_slow", outcome="circuit_open") >= 1
-        assert sample("it_copilot_tool_circuit_state", tool="obs_slow") == 2
+        assert sample("servicedesk_agent_tool_calls_total", tool="obs_slow", outcome="timeout") >= 1
+        assert sample("servicedesk_agent_tool_calls_total", tool="obs_slow", outcome="circuit_open") >= 1
+        assert sample("servicedesk_agent_tool_circuit_state", tool="obs_slow") == 2
     asyncio.run(run())
 
 
 def test_intent_metrics_count_source_and_clarification(monkeypatch):
-    from it_copilot.agent.intent.recognizer import IntentRecognizer
+    from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "false")
-    before = (sample("it_copilot_intent_recognitions_total", source="fallback_disabled", intent_group="access"), sample("it_copilot_intent_clarifications_total", intent_group="access"))
+    before = (sample("servicedesk_agent_intent_recognitions_total", source="fallback_disabled", intent_group="access"), sample("servicedesk_agent_intent_clarifications_total", intent_group="access"))
     asyncio.run(IntentRecognizer("sk-local").recognize("帮我重置密码"))
-    assert sample("it_copilot_intent_recognitions_total", source="fallback_disabled", intent_group="access") == before[0] + 1
-    assert sample("it_copilot_intent_clarifications_total", intent_group="access") == before[1] + 1
+    assert sample("servicedesk_agent_intent_recognitions_total", source="fallback_disabled", intent_group="access") == before[0] + 1
+    assert sample("servicedesk_agent_intent_clarifications_total", intent_group="access") == before[1] + 1
 
 
 def test_metrics_endpoint_exposes_new_series():
@@ -106,7 +106,7 @@ def test_metrics_endpoint_exposes_new_series():
 
     import tests.runtime
     text = TestClient(tests.runtime.app).get("/metrics").text
-    for name in ("it_copilot_agent_requests_total", "it_copilot_tool_calls_total", "it_copilot_intent_recognitions_total"):
+    for name in ("servicedesk_agent_agent_requests_total", "servicedesk_agent_tool_calls_total", "servicedesk_agent_intent_recognitions_total"):
         assert name in text
 
 
@@ -115,7 +115,7 @@ def test_metrics_endpoint_exposes_new_series():
 def test_tracing_nests_agent_spans_under_chat_without_content():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    from it_copilot.infra.monitor import telemetry
+    from servicedesk_agent.infra.monitor import telemetry
 
     async def respond(messages, info):
         if not any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
@@ -134,8 +134,8 @@ def test_tracing_nests_agent_spans_under_chat_without_content():
     finally:
         telemetry.shutdown_tracing(provider)
     spans = exporter.get_finished_spans()
-    root = next(s for s in spans if s.name == "it_copilot.chat")
-    assert root.attributes["it_copilot.request_id"] == "trace-1"
+    root = next(s for s in spans if s.name == "servicedesk_agent.chat")
+    assert root.attributes["servicedesk_agent.request_id"] == "trace-1"
     children = [s for s in spans if s is not root]
     assert children and all(s.context.trace_id == root.context.trace_id for s in children)
     assert any("diagnose" in s.name for s in children)

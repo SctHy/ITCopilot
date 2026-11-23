@@ -1,6 +1,6 @@
 """Durable approval workflow: CAS decisions, SoD, quorum, outbox worker, reconciliation, expiry, saga.
 
-Runs on SQLite by default. Set IT_COPILOT_TEST_DATABASE_URL=postgresql+psycopg://... to run the
+Runs on SQLite by default. Set SERVICEDESK_AGENT_TEST_DATABASE_URL=postgresql+psycopg://... to run the
 same tests on PostgreSQL (each test gets its own schema).
 """
 import asyncio
@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.base import AmbiguousError
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.infra.identity import Principal
-from it_copilot.workflow.policy import PolicyViolation
-from it_copilot.workflow.store import ApprovalConflict, ApprovalForbidden, WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.base import AmbiguousError
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.infra.identity import Principal
+from servicedesk_agent.workflow.policy import PolicyViolation
+from servicedesk_agent.workflow.store import ApprovalConflict, ApprovalForbidden, WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 
 ALICE = Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
 BOB = Principal("dev:bob", "bob", "engineering", frozenset({"employee", "approver"}), "2001")
@@ -223,10 +223,10 @@ def test_worker_crash_after_effect_is_recovered_without_repeating(db_url):
     store.decide("a", "approved", BOB, pending["payload_hash"])
     script = """
 import asyncio, os, sys
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 store = WorkflowStore(sys.argv[1], clock=lambda: float(sys.argv[2]))
 adapter = LocalDirectoryAdapter(store.engine)
 original = adapter.apply

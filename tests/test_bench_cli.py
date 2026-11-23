@@ -15,7 +15,7 @@ import pytest
 )
 def test_acceptance_command(args, metric, expected):
     run = subprocess.run(
-        [sys.executable, "-m", "it_copilot.cmd.bench", *args, "--json"],
+        [sys.executable, "-m", "servicedesk_agent.cmd.bench", *args, "--json"],
         capture_output=True,
         text=True,
         timeout=75,

@@ -1,10 +1,10 @@
-from it_copilot.agent.memory.recall import budget_texts
+from servicedesk_agent.agent.memory.recall import budget_texts
 import asyncio
 
-from it_copilot.agent.conversation_state import merge_state
-from it_copilot.agent.intent.entities import extract_entities
-from it_copilot.agent.intent.recognizer import IntentRecognizer
-from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
+from servicedesk_agent.agent.conversation_state import merge_state
+from servicedesk_agent.agent.intent.entities import extract_entities
+from servicedesk_agent.agent.intent.recognizer import IntentRecognizer
+from servicedesk_agent.agent.intent.taxonomy import IntentCategory, UrgencyLevel
 from tests.support.evaluator import load_intent_cases
 
 
@@ -47,7 +47,7 @@ def test_slot_given_in_earlier_turn_is_not_asked_again():
 
 
 def test_agent_receives_accumulated_entities_current_turn_wins():
-    from it_copilot.agent.conversation_state import known_entities
+    from servicedesk_agent.agent.conversation_state import known_entities
     state = {"entities": {"employee_id": ["E1001"], "system": ["Jira"]}}
     assert known_entities(state, {"system": ["GitLab"], "device_id": []}) == {"employee_id": ["E1001"], "system": ["GitLab"]}
 
@@ -65,7 +65,7 @@ def test_hard_intent_suite_labels_are_valid():
 
 
 def test_intent_evaluator_credits_acceptable_intents():
-    from it_copilot.agent.intent.recognizer import IntentResult
+    from servicedesk_agent.agent.intent.recognizer import IntentResult
     from tests.support.evaluator import IntentEvaluator, IntentTestCase
 
     class Fixed:

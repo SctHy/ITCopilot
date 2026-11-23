@@ -14,8 +14,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.types import Request
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.types import Request
 from tests.support.fake_model import scripted_model
 from tests.conftest import with_read_tool
 
@@ -76,7 +76,7 @@ def test_without_stream_flag_no_answer_events_and_non_streaming_model_is_enough(
 
 @pytest.mark.parametrize("during", ["model", "tool"])
 def test_cancellation_propagates_without_a_completed_reply_or_tool_event(during):
-    from it_copilot.agent.tooling.tool_spec import make_tool
+    from servicedesk_agent.agent.tooling.tool_spec import make_tool
 
     async def run():
         started, blocked = asyncio.Event(), asyncio.Event()
@@ -130,10 +130,10 @@ def test_cache_read_tokens_are_reported_and_counted():
 
     agent = make_agent(reply, streaming=False)
     labels = {"model": agent.router.config.routes[agent.write_route].candidates[0], "direction": "cache_read"}
-    before = REGISTRY.get_sample_value("it_copilot_llm_tokens_total", labels) or 0
+    before = REGISTRY.get_sample_value("servicedesk_agent_llm_tokens_total", labels) or 0
     response = asyncio.run(agent.handle(Request("你好")))
-    assert response.token_usage == {"requests": 1, "input_tokens": 1000, "output_tokens": 20, "cache_read_tokens": 800}
-    after = REGISTRY.get_sample_value("it_copilot_llm_tokens_total", labels)
+    assert response.token_usage == {"last_context_tokens": 1020, "requests": 1, "input_tokens": 1000, "output_tokens": 20, "cache_read_tokens": 800, "cache_hit_rate": 0.8}
+    after = REGISTRY.get_sample_value("servicedesk_agent_llm_tokens_total", labels)
     assert after == before + 800
 
 
@@ -152,7 +152,7 @@ def _claiming_model(calls, *, correct_with_tool):
 
 
 def _alice():
-    from it_copilot.infra.identity import Principal
+    from servicedesk_agent.infra.identity import Principal
     return Principal("dev:alice", "alice", "engineering", frozenset({"employee"}), "1001")
 
 
@@ -162,6 +162,9 @@ def test_unbacked_write_claim_gets_one_correction_that_can_call_the_tool():
     response = asyncio.run(agent.handle(Request("VPN-691，帮我建单", conversation_state={}, principal=_alice())))
     assert [t["tool_name"] for t in response.tool_traces] == ["create_ticket"] and response.tool_traces[0]["success"]
     assert response.content == "工单已提交待审批。" and len(calls) == 3
+    assert [p.part_kind for m in response.new_messages for p in m.parts] == [
+        "user-prompt", "text", "user-prompt", "tool-call", "tool-return", "text",
+    ]
 
 
 def test_unbacked_write_claim_is_corrected_in_words_when_no_tool_is_called():
@@ -300,9 +303,11 @@ def test_forged_execution_note_is_stripped_and_honest_failure_gets_no_extra_note
     assert response.content == "密码重置：没有提交成功，请回复确认后我再提交。"
 
 
-def test_readonly_turn_does_not_offer_write_tools():
+def test_readonly_turn_retains_write_tool_schema():
     async def reply(messages, info):
-        assert not {"request_access", "reset_password", "create_ticket"} & {t.name for t in info.function_tools}
+        names = [tool.name for tool in info.function_tools]
+        assert names == sorted(names)
+        assert {"request_access", "reset_password", "create_ticket"} <= set(names)
         return ModelResponse(parts=[TextPart("请查看已有诊断结果。")])
     asyncio.run(make_agent(reply, streaming=False).handle(
         Request("内存诊断跑完没报错", allowed_writes=frozenset())))

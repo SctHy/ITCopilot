@@ -5,13 +5,13 @@ import fakeredis.aioredis
 import pytest
 from sqlalchemy import select
 
-from it_copilot.agent.intent.recognizer import IntentResult
-from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
-from it_copilot.api.schemas import ChatResponse
-from it_copilot.infra.db import admin_audit, read
-from it_copilot.agent.masking.redaction import redact_text
-from it_copilot.agent.memory.admission import admit_turn
-from it_copilot.agent.memory.conversation_memory import MemoryManager
+from servicedesk_agent.agent.intent.recognizer import IntentResult
+from servicedesk_agent.agent.intent.taxonomy import IntentCategory, UrgencyLevel
+from servicedesk_agent.api.schemas import ChatResponse
+from servicedesk_agent.infra.db import admin_audit, read
+from servicedesk_agent.agent.masking.redaction import redact_text
+from servicedesk_agent.agent.memory.admission import admit_turn
+from servicedesk_agent.agent.memory.conversation_memory import MemoryManager
 
 
 def memory(url):
@@ -97,7 +97,7 @@ def test_personal_memory_api_uses_subject_scope_and_audits():
 
     async def run():
         async with application(model=scripted_model(answer)) as (client, state):
-            from it_copilot.infra.identity import principal_from_token
+            from servicedesk_agent.infra.identity import principal_from_token
             alice = principal_from_token(auth()["Authorization"].split()[1])
             bob = principal_from_token(auth("bob")["Authorization"].split()[1])
             await state.memory.store_episodic_turn(alice.scope_key, "c", "a", "VPN故障", "检查账号", {})
@@ -121,8 +121,8 @@ def test_working_ablation_keeps_only_platform_version_state(db_url):
         manager.context_mode = "working"
         await manager.commit_turn("u", "c", "pinned", "VPN", {
             "request_id": "pinned", "response": "请检查", "status": "success"},
-            state={"agent_spec": "it_copilot", "agent_version": "1.1.0", "entities": {"system": ["VPN"]}})
+            state={"agent_spec": "servicedesk_agent", "agent_version": "1.1.0", "entities": {"system": ["VPN"]}})
         context = await manager.get_context("u", "c", "VPN")
-        assert context.state == {"agent_spec": "it_copilot", "agent_version": "1.1.0"}
+        assert context.state == {"agent_spec": "servicedesk_agent", "agent_version": "1.1.0"}
         await manager.close()
     asyncio.run(run())

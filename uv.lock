@@ -588,7 +588,7 @@ wheels = [
 ]
 
 [[package]]
-name = "it-copilot"
+name = "servicedesk-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

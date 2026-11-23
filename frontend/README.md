@@ -1,4 +1,4 @@
-# IT-Copilot 前端
+# ServiceDesk Agent 前端
 
 基于 React、TypeScript、TanStack Router 和 TanStack Query 构建，默认采用深锌灰暗色主题。侧边栏提供私人对话历史、审批中心和知识库管理，连接设置支持本地演示身份切换和 OIDC 登录。
 

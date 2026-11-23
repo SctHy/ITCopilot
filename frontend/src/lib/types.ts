@@ -1,9 +1,10 @@
-// Shapes the UI reads from the IT-Copilot API. Only fields the frontend uses are listed;
+// Shapes the UI reads from the ServiceDesk Agent API. Only fields the frontend uses are listed;
 // the server remains the source of truth and may send more.
 
 export type Role = 'employee' | 'approver' | 'it_admin' | 'auditor'
 
 export interface Settings {
+  model?: string
   backend: string
   endpoints: Record<string, string>
   conversationId: string

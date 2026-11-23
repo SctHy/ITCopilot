@@ -5,17 +5,17 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from sqlalchemy import select
 
 from tests import runtime as api
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
 from tests.runtime import state
-from it_copilot.infra import conversation_history as history
-from it_copilot.infra.db import admin_audit, conversation_messages, conversations
-from it_copilot.infra.events import InMemoryEventBus
-from it_copilot.infra.retention import DAY, RetentionPolicy, RetentionSweeper
-from it_copilot.infra.tenant_context import tenant_scope
+from servicedesk_agent.infra import conversation_history as history
+from servicedesk_agent.infra.db import admin_audit, conversation_messages, conversations
+from servicedesk_agent.infra.events import InMemoryEventBus
+from servicedesk_agent.infra.retention import DAY, RetentionPolicy, RetentionSweeper
+from servicedesk_agent.infra.tenant_context import tenant_scope
 from tests.support.fake_model import scripted_model
 from tests.conftest import auth, with_read_tool
 from tests.test_workflow import ALICE, BOB
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 @pytest.fixture
@@ -97,8 +97,8 @@ def test_owner_renames_and_deletes_with_an_audit_entry(http, store):
 
 
 def test_other_channels_are_not_recorded(store):
-    from it_copilot.api.routes.chat import _record_history
-    from it_copilot.api.schemas import ChatResponse
+    from servicedesk_agent.api.routes.chat import _record_history
+    from servicedesk_agent.api.schemas import ChatResponse
     import asyncio
     state_workflow = state.workflow
     state.workflow = store

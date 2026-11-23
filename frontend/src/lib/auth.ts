@@ -2,8 +2,8 @@ import { LOGIN, machine } from './stateMachine.ts'
 // 登录与令牌：dev 模式向后端申请演示身份令牌；oidc 模式走 Keycloak 授权码 + PKCE（公开客户端，不存 client secret）。
 // 访问令牌只放 sessionStorage：关闭标签页即失效，不跨标签共享。身份展示用的 claims 仅供 UI，授权以后端校验为准。
 
-const TOKEN_KEY = 'it-copilot.access-token'
-const PKCE_KEY = 'it-copilot.pkce'
+const TOKEN_KEY = 'servicedesk-agent.access-token'
+const PKCE_KEY = 'servicedesk-agent.pkce'
 
 type TokenStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 

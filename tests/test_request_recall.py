@@ -5,7 +5,7 @@ import dataclasses
 
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, UserPromptPart
 
-from it_copilot.agent.request_recall import RequestRecall
+from servicedesk_agent.agent.request_recall import RequestRecall
 from tests.support.application import application, auth
 from tests.support.fake_model import scripted_model
 from tests.test_workflow import ALICE, BOB, ERIN, access, create, env, run  # noqa: F401 (env is a fixture)

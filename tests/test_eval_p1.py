@@ -5,12 +5,12 @@ from collections import Counter
 import json
 import re
 
-from it_copilot.agent.masking.local_pii import Span
-from it_copilot.eval.p1 import DATASETS, FILES, NAMES
-from it_copilot.eval.p1_context import LABELS as CONTEXT, dialog, prefix
-from it_copilot.eval.p1_guard import guardrails
-from it_copilot.eval.p1_mask import masking
-from it_copilot.eval.p1_router import LABELS as ROUTES, router_round
+from servicedesk_agent.agent.masking.local_pii import Span
+from servicedesk_agent.eval.p1 import DATASETS, FILES, NAMES
+from servicedesk_agent.eval.p1_context import LABELS as CONTEXT, dialog, prefix
+from servicedesk_agent.eval.p1_guard import guardrails
+from servicedesk_agent.eval.p1_mask import masking
+from servicedesk_agent.eval.p1_router import LABELS as ROUTES, router_round
 
 
 def cases(i):
@@ -95,7 +95,8 @@ def test_long_dialog_and_cost_accounting(tmp_path):
         assert not any(errors.values())
         assert 0 < metrics["prefix_hit_rate"] < 1
         observed[label] = metrics
-    assert observed[CONTEXT[-1]]["summary_input_tokens"] > 0
+    assert observed[CONTEXT[-1]]["summary_input_tokens"] == 0
+    assert observed[CONTEXT[-1]]["prefix_hit_rate"] > observed[CONTEXT[-2]]["prefix_hit_rate"]
     assert observed[CONTEXT[-2]]["input_tokens"] < observed[CONTEXT[0]]["input_tokens"]
     assert observed[CONTEXT[-2]]["anchor_retention"] < 1
 

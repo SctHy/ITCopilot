@@ -6,14 +6,14 @@ import time
 import httpx2
 import pytest
 
-from it_copilot.agent.masking import local_pii
-from it_copilot.agent.masking.local_pii import Span
-from it_copilot.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope, prepare_request
+from servicedesk_agent.agent.masking import local_pii
+from servicedesk_agent.agent.masking.local_pii import Span
+from servicedesk_agent.agent.masking.model_masking import MaskingError, MaskingSession, MaskingTransport, mask_request, masking_scope, prepare_request
 
 
 @pytest.mark.parametrize("name", ["王小明", "张伟"])
 def test_short_chinese_model_spans_are_applied_and_scrubbed(name):
-    from it_copilot.agent.masking.redaction import redact_text
+    from servicedesk_agent.agent.masking.redaction import redact_text
     with masking_scope("tenant:alice", "c") as session:
         session.findings = {"我叫" + name: (Span(2, 2 + len(name), "PERSON", .99),)}
         body = mask_request({"messages": [{"role": "user", "content": "我叫" + name}]}, session)
@@ -23,7 +23,7 @@ def test_short_chinese_model_spans_are_applied_and_scrubbed(name):
 
 @pytest.mark.parametrize("mode", ["on", "auto", "off"])
 def test_model_failure_policy_before_network(monkeypatch, mode):
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", mode)
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", mode)
     monkeypatch.setattr(local_pii, "installed", lambda: True)
     def fail():
         raise ValueError("private user content must not appear in errors")
@@ -47,7 +47,7 @@ def test_model_failure_policy_before_network(monkeypatch, mode):
 
 @pytest.mark.parametrize("mode", ["on", "auto"])
 def test_missing_model_starts_download_without_sending_text(monkeypatch, mode):
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", mode)
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", mode)
     monkeypatch.setattr(local_pii, "installed", lambda: False)
     downloads = []
     monkeypatch.setattr(local_pii, "_start_download", lambda: downloads.append(True))
@@ -71,8 +71,8 @@ def test_threshold_and_excluded_categories(monkeypatch):
     class Fake:
         def detect(self, text, **kwargs):
             return (Span(0, 3, "PERSON", .79), Span(3, 6, "PERSON", .81))
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", "on")
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL_THRESHOLD", "0.8")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", "on")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL_THRESHOLD", "0.8")
     monkeypatch.setattr(local_pii, "installed", lambda: True)
     monkeypatch.setattr(local_pii, "detector", lambda: Fake())
     assert asyncio.run(local_pii.find_texts(["abcdef"])) == {"abcdef": (Span(3, 6, "PERSON", .81),)}
@@ -84,8 +84,8 @@ def test_explicit_model_timeout_does_not_mutate_session(monkeypatch):
         def detect(self, text, **kwargs):
             time.sleep(.03)
             return (Span(0, 3, "PERSON", .99),)
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", "on")
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL_TIMEOUT_S", "0.005")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", "on")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL_TIMEOUT_S", "0.005")
     monkeypatch.setattr(local_pii, "installed", lambda: True)
     monkeypatch.setattr(local_pii, "detector", lambda: Slow())
     session = MaskingSession()
@@ -99,7 +99,7 @@ def test_explicit_model_timeout_does_not_mutate_session(monkeypatch):
 
 @pytest.mark.skipif(not local_pii.installed(), reason="requires verified local AstrLink weights; never downloads in tests")
 def test_real_guard_four_previous_blind_spots_wire_and_restore(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", "on")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", "on")
     async def run():
         values = [("我叫王小明", "王小明"), ("送到北京市测试路12号", "北京市测试路12号"),
                   ("my password is sunflower", "sunflower"), ("联系电话 +44 20 7946 0958", "+44 20 7946 0958")]
@@ -156,8 +156,8 @@ def test_cached_request_bypasses_saturated_executor_and_applies_current_threshol
     guard = cached_guard(text, (Span(0, 6, "PERSON", .79), Span(7, 13, "PERSON", .91)))
     monkeypatch.setattr(local_pii, "_detector", guard)
     monkeypatch.setattr(local_pii, "installed", lambda: True)
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", "on")
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL_THRESHOLD", "0.8")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", "on")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL_THRESHOLD", "0.8")
     async def run():
         loop = asyncio.get_running_loop()
         pool = ThreadPoolExecutor(max_workers=1)
@@ -196,8 +196,8 @@ def test_all_cached_request_still_obeys_deadline(monkeypatch):
     model = cached_guard(text)
     monkeypatch.setattr(local_pii, "_detector", model)
     monkeypatch.setattr(local_pii, "installed", lambda: True)
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL", "on")
-    monkeypatch.setenv("IT_COPILOT_MASK_MODEL_TIMEOUT_S", "0.001")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL", "on")
+    monkeypatch.setenv("SERVICEDESK_AGENT_MASK_MODEL_TIMEOUT_S", "0.001")
     cached = model.cached
     def slow_cache(value):
         time.sleep(.01)

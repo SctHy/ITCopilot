@@ -20,6 +20,8 @@ beforeEach(() => {
   fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const path = new URL(String(input), 'http://localhost').pathname
     const token = new Headers(init?.headers).get('Authorization')?.replace('Bearer ', '') || 'alice'
+    if (path === '/models') return json({ models: ['gpt-6.2-sol', 'deepseek-flash'].map(id => ({ id, name: id, configured: true })),
+      defaults: { agent_read: { model: 'gpt-6.2-sol' }, agent_write: { model: 'gpt-6.2-sol' } } })
     if (path === '/health') return json({ status: 'ok' })
     if (path === '/auth/config') return json({ mode: 'dev', users: [person('alice'), person('bob')] })
     if (path === '/auth/dev-token') return json({ access_token: JSON.parse(String(init?.body)).username })
@@ -37,13 +39,26 @@ async function openApp(path: string) {
 }
 
 describe('upstream component integration', () => {
+  it('sends the selected chat model', async () => {
+    await openApp('/chat')
+    const select = await screen.findByRole('combobox', { name: '对话模型' })
+    expect(within(select).getByRole('option', { selected: true }).textContent).toContain('gpt-6.2-sol')
+    await userEvent.selectOptions(select, 'deepseek-flash')
+    await userEvent.type(screen.getByRole('textbox', { name: '员工 IT 问题' }), '查询 VPN')
+    await userEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/chat/stream'))
+      expect(JSON.parse(String(call?.[1]?.body)).model).toBe('deepseek-flash')
+    })
+  })
+
   it('starts in dark mode and restores an explicit light preference on remount', async () => {
-    localStorage.removeItem('it-copilot.theme')
+    localStorage.removeItem('servicedesk-agent.theme')
     await openApp('/chat')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: '切换到浅色模式' }))
     expect(document.documentElement.classList.contains('dark')).toBe(false)
-    expect(localStorage.getItem('it-copilot.theme')).toBe('light')
+    expect(localStorage.getItem('servicedesk-agent.theme')).toBe('light')
     cleanup()
     await openApp('/chat')
     expect(screen.getByRole('button', { name: '切换到深色模式' })).toBeTruthy()
@@ -188,7 +203,7 @@ describe('upstream component integration', () => {
     await userEvent.click(screen.getAllByRole('button', { name: /^新对话$/ })[0]!)
     await act(async () => { finishHistory(json({ messages: [{ request_id: 'old', role: 'user', content: '不应恢复的旧消息', meta: {} }] })) })
     expect(screen.queryAllByText('不应恢复的旧消息')).toHaveLength(0)
-    expect(JSON.parse(localStorage.getItem('it-copilot.frontend.settings')!).conversationId).toBe('')
+    expect(JSON.parse(localStorage.getItem('servicedesk-agent.frontend.settings')!).conversationId).toBe('')
   })
 
   it('renders an unknown URL as a missing page', async () => {

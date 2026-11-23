@@ -4,13 +4,13 @@ from datetime import datetime
 
 from pydantic_ai.messages import ModelRequest, ModelResponse
 
-from it_copilot.agent.base_agent import BaseAgent
-from it_copilot.agent.prompting import history_messages, turn_prompt
-from it_copilot.agent.tools import slim_hit
-from it_copilot.agent.types import Request
-from it_copilot.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
-from it_copilot.agent.tooling.executor import ToolExecutor
-from it_copilot.agent.tooling.tool_spec import make_tool
+from servicedesk_agent.agent.base_agent import BaseAgent
+from servicedesk_agent.agent.prompting import history_messages, turn_prompt
+from servicedesk_agent.agent.tools import slim_hit
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
+from servicedesk_agent.agent.tooling.executor import ToolExecutor
+from servicedesk_agent.agent.tooling.tool_spec import make_tool
 
 
 def _ctx(*turns):
@@ -80,7 +80,7 @@ def test_self_governed_tool_skips_executor_timeout_retry_and_breaker():
 def test_self_governed_tool_still_has_an_overall_time_limit():
     import pytest
 
-    from it_copilot.agent.tooling.executor import ToolTimeout
+    from servicedesk_agent.agent.tooling.executor import ToolTimeout
 
     async def slow(req, args):
         await asyncio.sleep(1)
@@ -111,7 +111,7 @@ def test_english_message_gets_an_explicit_reply_language_hint():
 
 def test_prefetched_knowledge_is_compact_text_with_citations():
     """预取结果在本轮消息里（不命中缓存）：紧凑文本，citation 原样保留，标题不重复。"""
-    from it_copilot.agent.prompting import knowledge_text
+    from servicedesk_agent.agent.prompting import knowledge_text
     hits = [{"title": "常见错误码速查", "content": "- 401 认证失败\n- 403 权限不足", "updated_at": "2026-11-12", "citation": "常见错误码速查 · 3c963d59:0"}]
     text = knowledge_text(hits)
     assert text == "【1】citation: 常见错误码速查 · 3c963d59:0（更新 2026-11-12）\n- 401 认证失败\n- 403 权限不足"

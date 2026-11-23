@@ -4,11 +4,11 @@ import uuid
 
 import pytest
 
-os.environ.setdefault("IT_COPILOT_BUILD_SHA", "test-build")
-os.environ.setdefault("IT_COPILOT_AUTH_MODE", "dev")
-os.environ.setdefault("IT_COPILOT_ENV", "development")
+os.environ.setdefault("SERVICEDESK_AGENT_BUILD_SHA", "test-build")
+os.environ.setdefault("SERVICEDESK_AGENT_AUTH_MODE", "dev")
+os.environ.setdefault("SERVICEDESK_AGENT_ENV", "development")
 # 普通离线单测不下载/启动本地模型；真实本地模型测试显式开启。
-os.environ.setdefault("IT_COPILOT_MASK_MODEL", "off")
+os.environ.setdefault("SERVICEDESK_AGENT_MASK_MODEL", "off")
 
 
 def pytest_addoption(parser):
@@ -29,18 +29,18 @@ def release_agent_spec(request):
 
 
 def auth(username: str = "alice", **overrides) -> dict:
-    from it_copilot.infra.identity import issue_dev_token
+    from servicedesk_agent.infra.identity import issue_dev_token
 
     return {"Authorization": "Bearer " + issue_dev_token(username, overrides=overrides or None)}
 
 
 @pytest.fixture
 def db_url(tmp_path):
-    """SQLite by default; with IT_COPILOT_TEST_DATABASE_URL each test gets its own PostgreSQL schema.
+    """SQLite by default; with SERVICEDESK_AGENT_TEST_DATABASE_URL each test gets its own PostgreSQL schema.
 
     ``public`` stays on the search path: the pgvector type and ``<=>`` operator live there.
     """
-    base = os.getenv("IT_COPILOT_TEST_DATABASE_URL")
+    base = os.getenv("SERVICEDESK_AGENT_TEST_DATABASE_URL")
     if not base:
         yield f"sqlite:///{tmp_path / 'app.sqlite3'}"
         return
@@ -58,7 +58,7 @@ def db_url(tmp_path):
 
 def with_read_tool(orchestrator):
     """给编排器加一个测试专用的只读工具 diagnose：总是成功，不依赖台账或外部服务。"""
-    from it_copilot.agent.tooling.tool_spec import make_tool
+    from servicedesk_agent.agent.tooling.tool_spec import make_tool
 
     tool = make_tool("diagnose", "测试用只读诊断。", {"code": {"type": "string"}},
                      lambda req, args: {"code": args.get("code", ""), "meaning": "测试诊断结果"}, required=["code"])
@@ -71,7 +71,7 @@ def run_in_tenant(coro, tenant: str = "default"):
     sandbox directory directly (an out-of-band change in the target system) say whose it is."""
     import asyncio
 
-    from it_copilot.infra.tenant_context import tenant_scope
+    from servicedesk_agent.infra.tenant_context import tenant_scope
 
     async def scoped():
         with tenant_scope(tenant):
@@ -82,7 +82,7 @@ def run_in_tenant(coro, tenant: str = "default"):
 @pytest.fixture
 def default_tenant():
     """Run a unit test inside the ``default`` tenant's scope, as a request from that tenant would."""
-    from it_copilot.infra.tenant_context import tenant_scope
+    from servicedesk_agent.infra.tenant_context import tenant_scope
 
     with tenant_scope("default"):
         yield "default"

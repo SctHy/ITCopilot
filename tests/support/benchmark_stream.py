@@ -26,7 +26,7 @@ import httpx2  # noqa: E402
 import uvicorn  # noqa: E402
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
 
-from it_copilot.api.app import create_app  # noqa: E402
+from servicedesk_agent.api.app import create_app  # noqa: E402
 from tests.support.application import application, auth  # noqa: E402
 from tests.support.fake_model import scripted_model  # noqa: E402
 from tests.support.reporting import percentile  # noqa: E402

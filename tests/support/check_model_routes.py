@@ -10,7 +10,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-from it_copilot.agent.model_router import DEFAULT_CONFIG, RoutingConfig
+from servicedesk_agent.agent.model_router import DEFAULT_CONFIG, RoutingConfig
 
 from tests.support.attribution import wilson
 

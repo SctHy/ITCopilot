@@ -16,8 +16,8 @@ concurrency:
 
 env:
   PYDANTIC_AI_NO_BANNER: "1"
-  IT_COPILOT_BUILD_SHA: ${{ github.sha }}
-  IT_COPILOT_SEED_DEMO_DOCS: "false"
+  SERVICEDESK_AGENT_BUILD_SHA: ${{ github.sha }}
+  SERVICEDESK_AGENT_SEED_DEMO_DOCS: "false"
 
 jobs:
   backend:
@@ -49,14 +49,14 @@ jobs:
       postgres:
         image: pgvector/pgvector:0.8.3-pg18
         env:
-          POSTGRES_USER: itc
-          POSTGRES_PASSWORD: itc-pass
-          POSTGRES_DB: it_copilot
+          POSTGRES_USER: servicedesk_agent
+          POSTGRES_PASSWORD: servicedesk-agent-pass
+          POSTGRES_DB: servicedesk_agent
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U itc -d it_copilot" --health-interval 5s --health-timeout 3s --health-retries 20
+          --health-cmd "pg_isready -U servicedesk_agent -d servicedesk_agent" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
-      IT_COPILOT_TEST_DATABASE_URL: postgresql+psycopg://itc:itc-pass@127.0.0.1:5432/it_copilot
+      SERVICEDESK_AGENT_TEST_DATABASE_URL: postgresql+psycopg://servicedesk_agent:servicedesk-agent-pass@127.0.0.1:5432/servicedesk_agent
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
@@ -72,8 +72,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y redis-server
           python -m pytest -q tests/test_backup.py
         env:
-          IT_COPILOT_BACKUP_TEST_ADMIN_URL: postgresql+psycopg://itc:itc-pass@127.0.0.1:5432/postgres
-          IT_COPILOT_BACKUP_TEST_CONTAINER: ${{ job.services.postgres.id }}
+          SERVICEDESK_AGENT_BACKUP_TEST_ADMIN_URL: postgresql+psycopg://servicedesk_agent:servicedesk-agent-pass@127.0.0.1:5432/postgres
+          SERVICEDESK_AGENT_BACKUP_TEST_CONTAINER: ${{ job.services.postgres.id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -86,9 +86,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      IT_COPILOT_TEST_OIDC_ISSUER: http://127.0.0.1:8180/realms/it-copilot
-      IT_COPILOT_TEST_GITEA_URL: http://127.0.0.1:3001
-      IT_COPILOT_TEST_GITEA_PASSWORD: ci-svc-pass-123
+      SERVICEDESK_AGENT_TEST_OIDC_ISSUER: http://127.0.0.1:8180/realms/servicedesk-agent
+      SERVICEDESK_AGENT_TEST_GITEA_URL: http://127.0.0.1:3001
+      SERVICEDESK_AGENT_TEST_GITEA_PASSWORD: ci-svc-pass-123
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
@@ -105,10 +105,10 @@ jobs:
           docker run -d --name gitea -p 3001:3000 -e GITEA__security__INSTALL_LOCK=true -e GITEA__database__DB_TYPE=sqlite3 \
             -e GITEA__service__DISABLE_REGISTRATION=true gitea/gitea:1.27
           for i in $(seq 1 90); do curl -sf http://127.0.0.1:3001/api/v1/version && break; sleep 2; done
-          docker exec -u git gitea gitea admin user create --admin --username itc-svc --password "$IT_COPILOT_TEST_GITEA_PASSWORD" \
+          docker exec -u git gitea gitea admin user create --admin --username servicedesk-agent-svc --password "$SERVICEDESK_AGENT_TEST_GITEA_PASSWORD" \
             --email svc@example.com --must-change-password=false
-          IT_COPILOT_GITEA_URL=$IT_COPILOT_TEST_GITEA_URL IT_COPILOT_GITEA_PASSWORD=$IT_COPILOT_TEST_GITEA_PASSWORD python scripts/bootstrap_gitea.py
-          for i in $(seq 1 90); do curl -sf $IT_COPILOT_TEST_OIDC_ISSUER/.well-known/openid-configuration >/dev/null && break; sleep 2; done
+          SERVICEDESK_AGENT_GITEA_URL=$SERVICEDESK_AGENT_TEST_GITEA_URL SERVICEDESK_AGENT_GITEA_PASSWORD=$SERVICEDESK_AGENT_TEST_GITEA_PASSWORD python scripts/bootstrap_gitea.py
+          for i in $(seq 1 90); do curl -sf $SERVICEDESK_AGENT_TEST_OIDC_ISSUER/.well-known/openid-configuration >/dev/null && break; sleep 2; done
       - run: python scripts/dev.py check --profile integration
       - if: failure()
         run: docker logs kc | tail -50; docker logs gitea | tail -50

@@ -3,7 +3,7 @@ import { storedToken } from '../lib/auth.ts'
 import { DEFAULT_BACKENDS } from './http.ts'
 import type { Settings } from '../lib/types.ts'
 
-const SETTINGS_KEY = 'it-copilot.frontend.settings'
+const SETTINGS_KEY = 'servicedesk-agent.frontend.settings'
 
 function readSettings(): Partial<Settings> {
   try {

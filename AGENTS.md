@@ -1,10 +1,10 @@
-# IT-Copilot 开发约定
+# ServiceDesk Agent 开发约定
 
 ## 模块划分
 
 | 路径 | 职责 |
 |---|---|
-| `src/it_copilot/cmd` | 分别启动 API、Worker 和性能/故障验收工具 |
+| `src/servicedesk_agent/cmd` | 分别启动 API、Worker 和性能/故障验收工具 |
 | `api` / `agent` | `api` 负责身份认证、参数校验和接口路由；`agent` 负责知识库检索、模型交互和变更起草，发往模型的数据统一经过 `agent/masking` 脱敏 |
 | `workflow` | 审批流转、状态机、任务领取、外部系统执行与定时核对 |
 | `infra` | 数据库、身份认证、租户隔离、Redis 事件流、Prometheus 指标与链路追踪 |
@@ -35,4 +35,4 @@ docker compose --profile oidc config -q
 
 API 和 Worker 的健康检查与监控指标通过 `/livez`、`/readyz`、`/metrics` 对外暴露，告警规则交给外部监控系统（如 Prometheus / Alertmanager）配置。
 
-改动 PostgreSQL 任务领取逻辑时，配置 `IT_COPILOT_TEST_DATABASE_URL` 并运行 `scripts/dev.py check --profile postgres`。改动 OIDC 认证或外部适配器时，参照 CI 配置运行 `integration` 测试。提交说明写清楚实际跑过的命令、数据库类型以及跳过项，详见[性能与故障测试报告](docs/benchmarks.md)。
+改动 PostgreSQL 任务领取逻辑时，配置 `SERVICEDESK_AGENT_TEST_DATABASE_URL` 并运行 `scripts/dev.py check --profile postgres`。改动 OIDC 认证或外部适配器时，参照 CI 配置运行 `integration` 测试。提交说明写清楚实际跑过的命令、数据库类型以及跳过项，详见[性能与故障测试报告](docs/benchmarks.md)。

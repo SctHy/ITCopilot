@@ -5,11 +5,11 @@ from enum import StrEnum
 import pytest
 
 from tests.runtime import state
-from it_copilot.api.routes import chat as chat_routes
-from it_copilot.infra.events import InMemoryEventBus
-from it_copilot.infra.states import IllegalTransition, Machine
-from it_copilot.workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, ApprovalStatus, Execution, GrantStatus
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.api.routes import chat as chat_routes
+from servicedesk_agent.infra.events import InMemoryEventBus
+from servicedesk_agent.infra.states import IllegalTransition, Machine
+from servicedesk_agent.workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, ApprovalStatus, Execution, GrantStatus
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 class Light(StrEnum):
@@ -61,8 +61,8 @@ def test_store_cas_refuses_an_undeclared_transition(tmp_path):
 
 
 def test_stream_without_terminal_event_is_reported_abandoned(monkeypatch):
-    monkeypatch.setenv("IT_COPILOT_SSE_HEARTBEAT_S", "0.01")
-    monkeypatch.setenv("IT_COPILOT_SSE_IDLE_TIMEOUT_S", "0.05")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SSE_HEARTBEAT_S", "0.01")
+    monkeypatch.setenv("SERVICEDESK_AGENT_SSE_IDLE_TIMEOUT_S", "0.05")
     bus = InMemoryEventBus()
     monkeypatch.setattr(state, "events", bus)
 

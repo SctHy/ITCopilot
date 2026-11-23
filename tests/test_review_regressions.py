@@ -4,15 +4,15 @@ import json
 import fakeredis.aioredis
 import pytest
 
-from it_copilot.infra.env import env_float
-from it_copilot.infra.events import InMemoryEventBus, RedisEventBus, MAX_PAYLOAD_CHARS, STREAM_TTL_S
-from it_copilot.infra.vector_store import VectorStore
+from servicedesk_agent.infra.env import env_float
+from servicedesk_agent.infra.events import InMemoryEventBus, RedisEventBus, MAX_PAYLOAD_CHARS, STREAM_TTL_S
+from servicedesk_agent.infra.vector_store import VectorStore
 from tests.test_workflow import ALICE, BOB, access
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.gitea import GiteaAdapter
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.gitea import GiteaAdapter
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 import httpx2
 
 
@@ -57,7 +57,7 @@ async def test_long_completed_response_is_replayable_and_redacted(redis):
     try:
         await bus.claim("chat:long", "alice")
         if client:
-            await client.expire("events:owner:chat:long", 1)
+            await client.expire("servicedesk_agent:events:owner:chat:long", 1)
         payload = {"request_id": "long", "response": "长回答" * MAX_PAYLOAD_CHARS,
                    "approval_id": "a", "secret": "must-not-leak"}
         await bus.publish("chat:long", "completed", payload)
@@ -70,7 +70,7 @@ async def test_long_completed_response_is_replayable_and_redacted(redis):
         await bus.publish("chat:tools", "tool_finished", payload)
         assert (await bus.read("chat:tools", None, 0))[0][2]["truncated"]
         if client:
-            assert await client.ttl("events:owner:chat:long") > STREAM_TTL_S - 5
+            assert await client.ttl("servicedesk_agent:events:owner:chat:long") > STREAM_TTL_S - 5
     finally:
         if client:
             await client.aclose()

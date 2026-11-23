@@ -3,11 +3,11 @@ import json
 
 import pytest
 
-from it_copilot.cmd import eval as cli
-from it_copilot.eval import p1
-from it_copilot.eval.diff import compare_ledgers
-from it_copilot.eval.ledger import Experiment, InvariantCheck, Report, EnvMetadata
-from it_copilot.eval.stats import arm, compare
+from servicedesk_agent.cmd import eval as cli
+from servicedesk_agent.eval import p1
+from servicedesk_agent.eval.diff import compare_ledgers
+from servicedesk_agent.eval.ledger import Experiment, InvariantCheck, Report, EnvMetadata
+from servicedesk_agent.eval.stats import arm, compare
 
 
 @pytest.fixture

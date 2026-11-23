@@ -1,4 +1,4 @@
-from it_copilot.agent.embedding import Embedder
+from servicedesk_agent.agent.embedding import Embedder
 
 
 def _captured(model_name, monkeypatch):

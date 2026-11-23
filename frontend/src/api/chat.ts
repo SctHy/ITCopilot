@@ -38,7 +38,7 @@ export interface ChatResponse {
 const chatAttempts = new Map<string, string>()
 
 function attemptKeyFor(type: string, settings: Settings, message: string) {
-  const key = JSON.stringify([type, backendMeta(type, settings).baseUrl, settings.accessToken, settings.conversationId, message])
+  const key = JSON.stringify([type, backendMeta(type, settings).baseUrl, settings.accessToken, settings.conversationId, message, settings.model])
   if (!chatAttempts.has(key)) {
     if (chatAttempts.size > 100) chatAttempts.clear()
     chatAttempts.set(key, crypto.randomUUID())
@@ -47,7 +47,7 @@ function attemptKeyFor(type: string, settings: Settings, message: string) {
 }
 
 function buildChatPayload(settings: Settings, message: string, attemptKey: string) {
-  return { message, conv_id: settings.conversationId || undefined, client_request_id: chatAttempts.get(attemptKey) }
+  return { message, model: settings.model, conv_id: settings.conversationId || undefined, client_request_id: chatAttempts.get(attemptKey) }
 }
 
 export async function requestChat(type: string, settings: Settings, message: string): Promise<ChatResponse> {

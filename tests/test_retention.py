@@ -6,11 +6,11 @@ from sqlalchemy import func, insert, select
 
 from tests import runtime as api
 from tests.runtime import state
-from it_copilot.infra.db import audit, vector_documents
-from it_copilot.infra.retention import DAY, RetentionPolicy, RetentionSweeper
+from servicedesk_agent.infra.db import audit, vector_documents
+from servicedesk_agent.infra.retention import DAY, RetentionPolicy, RetentionSweeper
 from tests.conftest import auth
 from tests.test_workflow import ALICE, Clock, access
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.store import WorkflowStore
 
 NOW = 1_800_000_000.0
 

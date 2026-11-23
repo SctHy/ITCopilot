@@ -15,11 +15,11 @@ from tests.support.fake_model import scripted_model
 from tests.conftest import auth
 from tests.test_policy_revalidation import changed, without_gitlab_readonly
 from tests.test_workflow import ALICE, BOB, Clock, access, run
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.policy import load_policy
-from it_copilot.workflow.store import ApprovalConflict, ApprovalForbidden, ApprovalStateConflict, WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.policy import load_policy
+from servicedesk_agent.workflow.store import ApprovalConflict, ApprovalForbidden, ApprovalStateConflict, WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 
 GRACE = dataclasses.replace(ALICE, subject="dev:grace", username="grace", employee_id="9002", roles=frozenset({"auditor"}))
 TICKET = {"tool_name": "create_ticket", "arguments": {"employee_id": "1001", "title": "VPN 断线", "description": "已重装客户端"}}
@@ -250,9 +250,9 @@ def test_chat_reads_card_confirmation_before_followup():
 
 def test_persisted_submission_does_not_excuse_new_or_failed_writes():
     from types import SimpleNamespace
-    from it_copilot.agent.prompting import claim_problems
-    from it_copilot.agent.types import Request
-    from it_copilot.agent.intent.taxonomy import IntentCategory
+    from servicedesk_agent.agent.prompting import claim_problems
+    from servicedesk_agent.agent.types import Request
+    from servicedesk_agent.agent.intent.taxonomy import IntentCategory
 
     item = {"status": "pending", "confirmed_at": 123, "actions": ["request_access"]}
     req = Request("好了吗", intent=IntentCategory.PERMISSION_REQUEST,
@@ -268,7 +268,7 @@ def test_persisted_submission_does_not_excuse_new_or_failed_writes():
 
 @pytest.mark.parametrize("message", ["对，就这样提交吧", "确认，提交", "确认锁定"])
 def test_natural_confirmation_is_not_a_new_application(message):
-    from it_copilot.api.routes.chat import _confirmation_verb
+    from servicedesk_agent.api.routes.chat import _confirmation_verb
     assert _confirmation_verb(message) == "confirm"
 
 
@@ -288,8 +288,8 @@ def test_action_specific_confirmation_leaves_other_drafts_untouched():
 
 def test_card_withdrawal_overrides_old_typed_confirmation_history():
     from types import SimpleNamespace
-    from it_copilot.agent.prompting import claim_problems
-    from it_copilot.agent.types import Request
+    from servicedesk_agent.agent.prompting import claim_problems
+    from servicedesk_agent.agent.types import Request
 
     req = Request("我撤回了，现在怎么样", allowed_writes=frozenset(),
         history=[{"role": "assistant", "content": "已生成待审批 a"}],

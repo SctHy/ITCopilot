@@ -42,4 +42,4 @@
 
 冻结数据集 `evaluation/datasets/masking_zh_eval_v1.json` 有 1,000 条正常中文工单和 216 条带字符区间标注的合成正样本。正常样本按系统、故障描述和技术备注组合生成，含版本号、端口、工单号、日期和状态码。本次离线 quick 实测中，规则、本地 INT8、混合三组均误改 0/1,000 篇、0 个字符。三组精确实体 F1 分别为 0.800、0.726、1.000。混合组 216/216 条正样本的工具参数均正确还原。结果仅适用于该组合语料，不能外推生产误报率。
 
-运行 `python -m it_copilot.cmd.eval p1 --only masking_ablation_fpr` 可复核，账本包含语料 SHA-256、逐臂冷文本延迟和按文档配对抽样的质量差异区间。
+运行 `python -m servicedesk_agent.cmd.eval p1 --only masking_ablation_fpr` 可复核，账本包含语料 SHA-256、逐臂冷文本延迟和按文档配对抽样的质量差异区间。

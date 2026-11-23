@@ -1,11 +1,11 @@
-"""One catalog of write actions (it_copilot.workflow.actions); every other list is derived from it."""
+"""One catalog of write actions (servicedesk_agent.workflow.actions); every other list is derived from it."""
 import pytest
 
-from it_copilot.agent.intent.taxonomy import WRITE_ACTIONS as INTENT_LABELS
-from it_copilot.agent.tools import agent_tools
-from it_copilot.workflow.actions import WRITE_ACTIONS, WRITE_TOOLS
-from it_copilot.workflow.approval import UNSAFE_TOOLS, approval_summary
-from it_copilot.workflow.policy import REQUIRED_ARGS, load_policy
+from servicedesk_agent.agent.intent.taxonomy import WRITE_ACTIONS as INTENT_LABELS
+from servicedesk_agent.agent.tools import agent_tools
+from servicedesk_agent.workflow.actions import WRITE_ACTIONS, WRITE_TOOLS
+from servicedesk_agent.workflow.approval import UNSAFE_TOOLS, approval_summary
+from servicedesk_agent.workflow.policy import REQUIRED_ARGS, load_policy
 
 
 def test_every_layer_sees_the_same_write_actions():
@@ -19,7 +19,7 @@ def test_every_layer_sees_the_same_write_actions():
 
 
 def test_a_write_tool_missing_from_the_catalog_refuses_to_start(monkeypatch):
-    import it_copilot.agent.tools as tools_module
+    import servicedesk_agent.agent.tools as tools_module
     monkeypatch.setattr(tools_module, "WRITE_TOOLS", WRITE_TOOLS - {"lock_device"})
     with pytest.raises(RuntimeError, match="lock_device"):
         tools_module.agent_tools()

@@ -29,27 +29,27 @@
 
 ```sh
 uv sync --locked
-.venv/bin/python -m it_copilot.cmd.bench concurrency
-.venv/bin/python -m it_copilot.cmd.bench fault
-.venv/bin/python -m it_copilot.cmd.bench sse
+.venv/bin/python -m servicedesk_agent.cmd.bench concurrency
+.venv/bin/python -m servicedesk_agent.cmd.bench fault
+.venv/bin/python -m servicedesk_agent.cmd.bench sse
 make bench BENCH_ARGS=--json
 make bench-concurrency BENCH_ARGS='--workers 2 --resources 3 --actions 12 --json'
 make bench-sse BENCH_ARGS='--clients 4 --events-per-stream 8 --in-memory --json'
 ```
 
-使用 Docker 中的真实 PostgreSQL 与 Redis 复现（使用独立 Compose 项目名 `itc-bench`，并发与故障命令会自动创建并清理随机 schema，不会污染业务表）：
+使用 Docker 中的真实 PostgreSQL 与 Redis 复现（使用独立 Compose 项目名 `servicedesk-agent-bench`，并发与故障命令会自动创建并清理随机 schema，不会污染业务表）：
 
 ```sh
 # 先按 README 准备好 .env
-docker compose -p itc-bench build api
-docker compose -p itc-bench up -d --wait postgres redis
-docker compose -p itc-bench run --rm --no-deps api sh -c \
-  'python -m it_copilot.cmd.bench concurrency --database-url "$IT_COPILOT_DATABASE_URL" --json'
-docker compose -p itc-bench run --rm --no-deps api sh -c \
-  'python -m it_copilot.cmd.bench fault --database-url "$IT_COPILOT_DATABASE_URL" --json'
-docker compose -p itc-bench run --rm --no-deps api sh -c \
-  'python -m it_copilot.cmd.bench sse --redis-url "$REDIS_URL" --json'
-docker compose -p itc-bench down
+docker compose -p servicedesk-agent-bench build api
+docker compose -p servicedesk-agent-bench up -d --wait postgres redis
+docker compose -p servicedesk-agent-bench run --rm --no-deps api sh -c \
+  'python -m servicedesk_agent.cmd.bench concurrency --database-url "$SERVICEDESK_AGENT_DATABASE_URL" --json'
+docker compose -p servicedesk-agent-bench run --rm --no-deps api sh -c \
+  'python -m servicedesk_agent.cmd.bench fault --database-url "$SERVICEDESK_AGENT_DATABASE_URL" --json'
+docker compose -p servicedesk-agent-bench run --rm --no-deps api sh -c \
+  'python -m servicedesk_agent.cmd.bench sse --redis-url "$REDIS_URL" --json'
+docker compose -p servicedesk-agent-bench down
 ```
 
 ## 成体系消融评估（8 大实验，full 5 轮）
@@ -94,7 +94,7 @@ candidate="evaluation/candidate-$(date +%s).json"
 `make eval-report` 从正式基线重新生成 Markdown 与 HTML。对候选账本可运行：
 
 ```sh
-.venv/bin/python -m it_copilot.cmd.eval report --in "$candidate" --baseline evaluation/baseline.json --md candidate.md --html candidate.html
+.venv/bin/python -m servicedesk_agent.cmd.eval report --in "$candidate" --baseline evaluation/baseline.json --md candidate.md --html candidate.html
 ```
 
 回归门禁按同名实验、臂和指标比较中位数，默认容忍相对退化 15%。零基线风险指标出现正值、不变式失败或缺少指标都会触发失败。`--allow-missing` 可用于只跑部分实验的候选账本。小样本下，延迟对宿主机负载敏感；报告同时列出各指标的 bootstrap 区间。

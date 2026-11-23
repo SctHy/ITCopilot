@@ -5,7 +5,7 @@ import json
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from it_copilot.agent.model_router import ModelRouter
+from servicedesk_agent.agent.model_router import ModelRouter
 from tests.support.route_qualification import PROBES, probe_passed, qualify
 from tests.support.check_model_routes import check
 
@@ -13,7 +13,7 @@ from tests.support.check_model_routes import check
 def test_summary_qualification_records_actual_calls_and_failures():
     async def reply(messages, info):
         return ModelResponse(parts=[TextPart("泛泛而谈，没有要求保留的业务标识")])
-    router = ModelRouter(models={"deepseek-flash": FunctionModel(reply)})
+    router = ModelRouter(models=dict.fromkeys(["deepseek-flash", "gpt-6.2-sol"], FunctionModel(reply)))
     report = asyncio.run(qualify(router, "summary", "deepseek-flash", 3))
     assert report["trials"] == 12 and report["passed"] == 0 and report["route_calls"] == 12
     assert report["cost_per_success_usd"] is None
@@ -30,7 +30,7 @@ def test_rewrite_and_ranking_oracles_reject_missing_evidence():
 
 def test_route_gate_rejects_missing_reports_and_unexercised_roles(tmp_path):
     errors = check(reports=tmp_path)
-    assert len(errors) == 6 and all("missing report" in error for error in errors)
+    assert len(errors) == 8 and all("missing report" in error for error in errors)
     path = tmp_path / "agent_read__deepseek-flash.json"
     path.write_text(json.dumps({"route": "agent_read", "model": "deepseek-flash", "status": "complete",
         "repeats": 3, "trials": 10, "passed": 10, "kind": "real_model", "route_calls": 0}))

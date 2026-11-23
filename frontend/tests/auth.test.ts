@@ -22,17 +22,17 @@ test('parses unicode claims and keeps only roles the API understands', () => {
 
 test('expired or nearly expired tokens are not reused', () => {
   const now = Math.floor(Date.now() / 1000)
-  assert.equal(storedToken(memoryStorage({ 'it-copilot.access-token': jwt({ exp: now + 10 }) })), '')
+  assert.equal(storedToken(memoryStorage({ 'servicedesk-agent.access-token': jwt({ exp: now + 10 }) })), '')
   const fresh = jwt({ exp: now + 3600 })
-  assert.equal(storedToken(memoryStorage({ 'it-copilot.access-token': fresh })), fresh)
+  assert.equal(storedToken(memoryStorage({ 'servicedesk-agent.access-token': fresh })), fresh)
 })
 
 test('PKCE challenge is the S256 hash of the verifier and lands in the authorize URL', async () => {
   const { verifier, challenge } = await pkcePair()
   const expected = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))).toString('base64url')
   assert.equal(challenge, expected)
-  const url = new URL(authorizeUrl({ issuer: 'http://kc/realms/it-copilot/', clientId: 'web', redirectUri: 'http://app/', challenge, state: 's1' }))
-  assert.equal(url.pathname, '/realms/it-copilot/protocol/openid-connect/auth')
+  const url = new URL(authorizeUrl({ issuer: 'http://kc/realms/servicedesk-agent/', clientId: 'web', redirectUri: 'http://app/', challenge, state: 's1' }))
+  assert.equal(url.pathname, '/realms/servicedesk-agent/protocol/openid-connect/auth')
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256')
   assert.equal(url.searchParams.get('code_challenge'), challenge)
 })
@@ -76,27 +76,27 @@ test('OIDC returns to the shared task while exchanging the original redirect URI
 
 test('OIDC rejects a mismatched state without exchanging or storing a token', async () => {
   const env = oidcEnvironment('http://app/tasks?code=c&state=wrong')
-  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 'expected', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
+  sessionStorage.setItem('servicedesk-agent.pkce', JSON.stringify({ state: 'expected', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('must not exchange') })
   await assert.rejects(completeOidcLogin(), /登录状态校验失败/)
   assert.equal(fetch.mock.calls.length, 0)
-  assert.equal(sessionStorage.getItem('it-copilot.access-token'), null)
+  assert.equal(sessionStorage.getItem('servicedesk-agent.access-token'), null)
   assert.equal(env.location.search, '')
 })
 
 test('OIDC reports authorization denial and removes callback parameters', async () => {
   const env = oidcEnvironment('http://app/tasks?error=access_denied&error_description=Denied&state=s')
-  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
+  sessionStorage.setItem('servicedesk-agent.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web' }))
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('must not exchange') })
   await assert.rejects(completeOidcLogin(), /拒绝登录：Denied/)
   assert.equal(fetch.mock.calls.length, 0)
   assert.equal(env.location.search, '')
-  assert.equal(sessionStorage.getItem('it-copilot.pkce'), null)
+  assert.equal(sessionStorage.getItem('servicedesk-agent.pkce'), null)
 })
 
 test('OIDC does not follow an external saved return destination', async () => {
   const env = oidcEnvironment('http://app/tasks?code=c&state=s')
-  sessionStorage.setItem('it-copilot.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web', returnTo: 'https://elsewhere.example/private' }))
+  sessionStorage.setItem('servicedesk-agent.pkce', JSON.stringify({ state: 's', verifier: 'v', issuer: 'http://kc', clientId: 'web', returnTo: 'https://elsewhere.example/private' }))
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ access_token: 'token-1' })))
   assert.equal(await completeOidcLogin(), 'token-1')
   assert.equal(env.location.href, 'http://app/tasks')

@@ -7,12 +7,12 @@ from sqlalchemy import insert
 
 from tests import runtime as api
 from tests.runtime import state
-from it_copilot.infra import identity
-from it_copilot.infra.db import login_identities
-from it_copilot.infra.identity import principal_from_token
-from it_copilot.infra.session_revocation import SessionRevocations
+from servicedesk_agent.infra import identity
+from servicedesk_agent.infra.db import login_identities
+from servicedesk_agent.infra.identity import principal_from_token
+from servicedesk_agent.infra.session_revocation import SessionRevocations
 from tests.conftest import auth
-from it_copilot.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.store import WorkflowStore
 
 
 def token_at(monkeypatch, username, at, **overrides):

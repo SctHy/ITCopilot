@@ -10,7 +10,7 @@ from tests.support.application import auth
 
 from tests.support.reporting import billable_tokens
 
-from it_copilot.workflow.store import SEED_EMPLOYEES
+from servicedesk_agent.workflow.store import SEED_EMPLOYEES
 
 SELF_ID = re.compile(r"(?:工号(?:是)?|我是|改成)\s*([A-Za-z0-9]+)")
 
@@ -78,7 +78,7 @@ async def trial(http, state, case, repeat):
         checks, outcome = result["checks"], case["outcome"]
         if case.get("intent"):
             checks["expected_intent"] = body["intent"] == case["intent"]
-        from it_copilot.agent.outcome import turn_outcome
+        from servicedesk_agent.agent.outcome import turn_outcome
 
         checks["all_turns_completed"] = all(
             turn_outcome(

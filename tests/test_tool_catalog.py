@@ -8,11 +8,11 @@ import json
 import pytest
 from jsonschema import validators
 
-from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.prompting import AGENT_RULES
-from it_copilot.agent.tools import build_shared_rag_tools
-from it_copilot.agent.types import Request
-from it_copilot.agent.tooling.tool_manager import ToolResult
+from servicedesk_agent.agent.agent_orchestrator import AgentOrchestrator
+from servicedesk_agent.agent.prompting import AGENT_RULES
+from servicedesk_agent.agent.tools import build_shared_rag_tools
+from servicedesk_agent.agent.types import Request
+from servicedesk_agent.agent.tooling.tool_manager import ToolResult
 
 
 @pytest.fixture(scope="module")

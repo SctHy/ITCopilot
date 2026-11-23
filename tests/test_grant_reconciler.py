@@ -5,12 +5,12 @@ import pytest
 
 from tests.conftest import run_in_tenant
 from tests.test_workflow import ALICE, BOB, Clock, access
-from it_copilot.workflow.adapters import AdapterRegistry
-from it_copilot.workflow.adapters.base import AmbiguousError, TransientError
-from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
-from it_copilot.workflow.reconciler import GrantReconciler
-from it_copilot.workflow.store import WorkflowStore
-from it_copilot.workflow.worker import ExecutionWorker
+from servicedesk_agent.workflow.adapters import AdapterRegistry
+from servicedesk_agent.workflow.adapters.base import AmbiguousError, TransientError
+from servicedesk_agent.workflow.adapters.local import LocalDirectoryAdapter
+from servicedesk_agent.workflow.reconciler import GrantReconciler
+from servicedesk_agent.workflow.store import WorkflowStore
+from servicedesk_agent.workflow.worker import ExecutionWorker
 
 
 def environment(url):
@@ -88,7 +88,7 @@ def test_worker_runs_reconciliation_at_interval_not_each_poll(db_url):
 
 @pytest.mark.parametrize("value", ["invalid", "nan", "inf", "0", "-1", ""])
 def test_invalid_reconcile_interval_refuses_startup(db_url, monkeypatch, value):
-    monkeypatch.setenv("IT_COPILOT_RECONCILE_INTERVAL_S", value)
+    monkeypatch.setenv("SERVICEDESK_AGENT_RECONCILE_INTERVAL_S", value)
     store = WorkflowStore(db_url)
     with pytest.raises(ValueError):
         ExecutionWorker(store, AdapterRegistry(LocalDirectoryAdapter(store.engine)))
