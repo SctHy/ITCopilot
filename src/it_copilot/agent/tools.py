@@ -1,7 +1,7 @@
 """IT-Copilot Agent 工具：本地只读查询、只生成待审批请求的写工具，以及共享知识检索。
 
 BaseAgent 把每个 spec 包成 PydanticAI Tool；PydanticAI 驱动模型/工具循环，BaseAgent 负责
-JSON Schema 校验、写操作守卫与 trace 记录。
+参数校验、写操作安全检查与调用记录。
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ def _strings(*names: str) -> Dict[str, Any]:
     return {name: {"type": "string"} for name in names}
 
 
-# ── 只读工具：读取本人的沙箱台账（it_copilot.workflow.store.WorkflowStore.employee） ──────
+# ── 只读工具：查询当前登录员工自己的记录（it_copilot.workflow.store.WorkflowStore.employee） ──────
 
 def _own_record(req, directory):
-    """当前登录员工的台账；只按已验证身份查询，模型传入的工号不参与。"""
+    """查询当前登录员工自己的记录；只以已验证的身份为准，忽略模型传入的工号。"""
     principal = getattr(req, "principal", None)
     employee_id = getattr(principal, "employee_id", None)
     if directory is None:
@@ -137,7 +137,7 @@ def build_shared_rag_tools(tool_manager) -> ToolSet:
 # ── Agent 工具集 ──────────────────────────────────────────────────────────────
 
 def agent_tools(directory=lambda: None) -> ToolSet:
-    """directory：返回台账读模型（WorkflowStore）的函数；运行时装配完成后才有值。"""
+    """directory：返回员工记录查询对象（WorkflowStore）的函数，在服务启动装配完成后赋值。"""
     access_schema = {**_strings("employee_id", "reason"),
         "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
         "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "readonly 表示只读。候选角色是否适用于该系统由工具实时策略校验，SOP 举例不是完整角色列表；不得把管理员等其他角色换成这里的角色"},
@@ -157,6 +157,6 @@ def agent_tools(directory=lambda: None) -> ToolSet:
     )
     writes = {name for name, spec in tools.items() if not spec.retry_safe}
     if writes != WRITE_TOOLS:
-        # 写工具清单只有 it_copilot.workflow.actions 一份；两边不一致时宁可启动失败，也不让某个写工具漏掉审批或意图守卫。
+        # 写工具列表只以 it_copilot.workflow.actions 为准；不一致时直接启动失败，避免写工具绕过审批检查。
         raise RuntimeError(f"写工具与 it_copilot.workflow.actions 不一致：{sorted(writes ^ WRITE_TOOLS)}")
     return tools

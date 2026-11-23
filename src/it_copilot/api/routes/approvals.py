@@ -47,25 +47,25 @@ async def decide_approval(state: Container, approval_id: str, payload: ApprovalD
 
 @router.post("/approvals/{approval_id}/confirm")
 async def confirm(state: Container, approval_id: str, payload: ApprovalConfirmation, principal: Principal = Depends(current_principal)):
-    """申请人确认 Agent 起草的申请，之后才进入审批人队列（ADR 0020）。"""
+    """申请人确认 Agent 起草的申请，确认后才会进入审批列表。"""
     return await confirm_approval(state, approval_id, payload.payload_hash, principal)
 
 
 @router.post("/approvals/{approval_id}/withdraw")
 async def withdraw(state: Container, approval_id: str, payload: ApprovalWithdrawal = ApprovalWithdrawal(), principal: Principal = Depends(current_principal)):
-    """申请人撤回仍待审批的申请或取消未确认的草稿；已有审批结果、已过期或被替代的申请不能撤回。"""
+    """申请人撤回待审批的申请或取消未确认的草稿；已有审批结果、已过期或被替代的申请不可撤回。"""
     return await withdraw_approval(state, approval_id, payload.reason, principal)
 
 
 @router.post("/approvals/{approval_id}/release")
 async def release(state: Container, approval_id: str, principal: Principal = Depends(current_principal)):
-    """提前归还该申请开通、仍在有效期内的限时权限（申请人、权限持有人或 IT 管理员）。"""
+    """提前归还该申请开通的限时权限（本人、权限持有人或 IT 管理员可操作）。"""
     return await release_grants(state, approval_id, principal)
 
 
 @router.post("/approvals/{approval_id}/reconcile")
 async def reconcile_approval(state: Container, approval_id: str, payload: ReviewReason, principal: Principal = Depends(require_admin)):
-    """人工对账：把 manual_review/unknown 的动作重新交给 worker，先回查目标系统再决定是否重做。"""
+    """人工重试：把需复核或结果未知的任务重新交给 Worker，先查外部真实状态再决定是否重试。"""
     await _readable_approval(state, approval_id, principal)
     try:
         body = await require_workflow(state).actions.requeue(approval_id, principal, payload.reason)
@@ -79,7 +79,7 @@ async def reconcile_approval(state: Container, approval_id: str, payload: Review
 
 @router.post("/approvals/{approval_id}/resolve")
 async def resolve_approval(state: Container, approval_id: str, payload: ManualResolution, principal: Principal = Depends(require_admin)):
-    """人工结案：目标系统已人工处理时结束需复核的动作，释放该资源上排队的后续申请。"""
+    """人工结案：外部系统已手工处理完毕时关闭需复核任务，让同一资源上排队的后续申请继续执行。"""
     await _readable_approval(state, approval_id, principal)
     return await resolve_manual(state, approval_id, payload.note, principal)
 
@@ -101,15 +101,15 @@ async def resolve_action(state: Container, approval_id: str, action_id: str, pay
 
 @router.get("/policy")
 async def policy_info(state: Container, principal: Principal = Depends(current_principal)):
-    """当前生效的访问策略版本；改文件后无需重启即生效。"""
+    """查询当前生效的访问策略版本；修改策略文件后无需重启服务即可生效。"""
     policy = await asyncio.to_thread(lambda: require_workflow(state).policy)
     return {"version": policy.version, "approval_ttl_hours": policy.approval_ttl_hours}
 
 
 @router.post("/policy/revalidate")
 async def policy_revalidate(state: Container, principal: Principal = Depends(require_admin)):
-    """立即按当前策略复核在途审批与未到期授权（worker 发现版本变化时也会自动执行）。
-    IT 管理员复核本租户；平台管理员复核所有租户。"""
+    """立即按最新策略重新校验处理中的审批和未到期授权（Worker 检测到版本变化时也会自动执行）。
+    IT 管理员校验本租户；平台管理员校验所有租户。"""
     store = require_workflow(state)
     scope = None if is_platform_admin(principal) else principal.tenant
     async with admin_change(state, principal, "policy_revalidated", store.policy.version, {"scope": scope or "*"}) as change:
@@ -129,7 +129,7 @@ async def approval_audit(state: Container, approval_id: str, principal: Principa
 
 @router.get("/business/employees/{employee_id}")
 async def business_employee(state: Container, employee_id: str, principal: Principal = Depends(current_principal)):
-    """沙箱目录中的员工状态与限时授权台账：本人、审批人、管理员、审计员可查。"""
+    """查询沙箱目录中的员工状态和有效权限记录：本人、审批人、管理员、审计员可查。"""
     if employee_id != principal.employee_id and not principal.has_any(ROLE_APPROVER, ROLE_IT_ADMIN, ROLE_AUDITOR):
         raise forbid("只能查看本人账号状态")
     store = require_workflow(state)

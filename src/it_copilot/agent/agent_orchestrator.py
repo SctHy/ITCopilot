@@ -21,7 +21,7 @@ class AgentOrchestrator:
         self.tool_executor = ToolExecutor(timeout_s=env_float("IT_COPILOT_TOOL_TIMEOUT_S", 10))
         self._shared_tools = build_shared_rag_tools(rag_tool_manager) if rag_tool_manager else {}
         self.knowledge_version = knowledge_version or (lambda tenant: 0.0)
-        self.directory = directory   # 台账读模型（WorkflowStore），由 API 装配时注入
+        self.directory = directory   # 员工与权限记录查询服务（WorkflowStore），由 API 启动时注入
         self._local_tools = agent_tools(lambda: self.directory)
         self.agent = BaseAgent(None, model, skill_manager, router=self.router)
         self.agent.executor = self.tool_executor

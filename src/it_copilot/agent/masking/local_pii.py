@@ -1,7 +1,6 @@
-"""AstrLink Guard v0.1.3 本地推理；模型/阈值/窗口/BIO 合并对齐 Magpie。
+"""AstrLink Guard v0.1.3 本地脱敏推理（纯 CPU 运行）。
 
-只下载固定模型文件，不上传待检测文本。缓存仅保存摘要键和位置，不落盘。
-ONNX Runtime CPU 后端复用项目依赖；不使用 Magpie 的 Go/CoreML 自定义后端。
+只下载固定版本的模型文件，绝不把待检测文本发往外网；缓存只保存文本哈希和位置，不写磁盘。
 """
 from __future__ import annotations
 

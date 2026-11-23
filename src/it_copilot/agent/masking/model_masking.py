@@ -1,7 +1,7 @@
-"""模型出站边界：回合内映射、工具参数还原、用户可见文本不还原。
+"""发给模型前的数据脱敏：单轮内存映射、仅还原工具参数、用户回复不还原原敏感值。
 
-借鉴 Magpie 的双向替换设计，独立实现，仅支持当前使用的 Chat Completions 文本协议。
-映射不落盘；未进入身份/会话作用域的后台调用使用一次性映射。
+借鉴 Magpie 的双向替换思路独立实现，仅处理当前使用的 Chat Completions 文本请求。
+映射表只放在内存中不写磁盘；未绑定会话的后台调用使用一次性临时映射。
 """
 from __future__ import annotations
 
@@ -367,7 +367,7 @@ class MaskingTransport(httpx2.AsyncBaseTransport):
         metrics.MODEL_MASK_REQUESTS.labels(outcome="sent").inc()
         for kind, count in session.counts.items():
             metrics.MODEL_MASK_VALUES.labels(kind=kind).inc(count - before.get(kind, 0))
-        # 响应只恢复本次出站时已知的值；后台任务不受父回合作用域结束清理影响。
+        # 响应只还原本次发送时已记录的值；后台任务不受父请求结束清理影响。
         reply_session = MaskingSession(session.scope)
         reply_session.values = dict(session.values)
         response = (await self.wrapped.handle_async_request(outbound) if self.wrapped is not None

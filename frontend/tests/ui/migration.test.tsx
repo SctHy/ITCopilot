@@ -55,11 +55,11 @@ describe('upstream component integration', () => {
     ] }
     const submit = vi.fn()
     const { rerender } = render(<ApprovalCard approval={approval} onAction={submit} />)
-    expect(screen.queryByRole('button', {name: '采纳外部实态'})).toBeNull()
+    expect(screen.queryByRole('button', {name: '同步外部状态'})).toBeNull()
     rerender(<ApprovalCard approval={approval} identity={{username: 'ops', department: 'IT', roles: ['it_admin']}} onAction={submit} />)
     const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('  ').mockReturnValueOnce('已核对工单')
     try {
-      const button = screen.getByRole('button', {name: '采纳外部实态'})
+      const button = screen.getByRole('button', {name: '同步外部状态'})
       await userEvent.click(button)
       expect(submit).not.toHaveBeenCalled()
       await userEvent.click(button)

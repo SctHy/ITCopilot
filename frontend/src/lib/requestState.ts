@@ -1,4 +1,4 @@
-// 对后端、设置和请求代次做快照，过滤切换或重复请求后的旧结果。
+// 对后端地址、配置和请求序号做快照，过滤切换账号或重复请求后迟到的旧响应。
 import { requestPhase, type RequestPhase } from './stateMachine.ts'
 import type { Settings } from './types.ts'
 

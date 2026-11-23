@@ -1,7 +1,7 @@
-"""IT-Copilot Prometheus 指标：在事件发生处埋点，统一注册在默认 REGISTRY，由 API 的 /metrics 暴露。
+"""IT-Copilot Prometheus 监控指标：统一注册在默认 REGISTRY，由 /metrics 接口对外提供。
 
-命名约定：it_copilot_<对象>_<度量>_<单位>；标签只用低基数取值（Agent 类型、工具名、状态枚举），
-不放 user_id / request_id 等高基数字段。
+命名格式：it_copilot_<模块>_<指标>_<单位>。
+所有标签只使用固定枚举值（如工具名、状态），禁止放 user_id / request_id 等无限增长的字段。
 """
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -39,27 +39,27 @@ AUTH_FAILURES = Counter("it_copilot_auth_failures_total", "鉴权/授权拒绝",
 RETENTION_DELETED = Counter("it_copilot_retention_deleted_total", "按保留期删除的行", ["kind"])
 RATE_LIMITED = Counter("it_copilot_rate_limited_total", "限流拒绝的请求（bucket 为 agent_turn 按身份、agent_turn:tenant 按租户）", ["bucket", "channel"])
 
-# ── 受控执行（outbox worker） ─────────────────────────────────────────────────
-WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "执行器动作状态迁移", ["kind", "outcome"])
-GRANT_DRIFT = Counter("it_copilot_grant_drift_total", "巡检发现的授权资源漂移", ["system"])
-RECONCILE_SKIPPED = Counter("it_copilot_reconcile_skipped_total", "适配器暂时不可用而跳过的授权巡检")
-WORKFLOW_OLDEST_AGE = Gauge("it_copilot_workflow_oldest_age_seconds", "最久未处理的工作流动作年龄", ["state"])
-CONFIG_RELOADS = Counter("it_copilot_config_reloads_total", "运行中配置热加载：applied 生效，rejected 校验失败、沿用上一份配置", ["config", "outcome"])
-POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后对在途审批与授权的处置", ["outcome"])
+# ── 后台任务执行（Worker） ───────────────────────────────────────────────────
+WORKFLOW_ACTIONS = Counter("it_copilot_workflow_actions_total", "后台任务状态变化次数", ["kind", "outcome"])
+GRANT_DRIFT = Counter("it_copilot_grant_drift_total", "定时核对发现外部权限不一致的次数", ["system"])
+RECONCILE_SKIPPED = Counter("it_copilot_reconcile_skipped_total", "外部系统暂时不可用而跳过的定时核对次数")
+WORKFLOW_OLDEST_AGE = Gauge("it_copilot_workflow_oldest_age_seconds", "等待最久的未处理任务耗时（秒）", ["state"])
+CONFIG_RELOADS = Counter("it_copilot_config_reloads_total", "配置热加载结果：applied 生效，rejected 校验失败沿用旧配置", ["config", "outcome"])
+POLICY_REVALIDATIONS = Counter("it_copilot_policy_revalidations_total", "策略变更后重新校验处理中审批与授权的结果", ["outcome"])
 
-# user_id, tenant, approval_id, action_id, conv_id and request_id belong in logs only.
-WORKFLOW_WAKEUPS = Counter("it_copilot_workflow_wakeups_total", "Worker wait completions", ["source"])
-WORKFLOW_RELEASES = Counter("it_copilot_workflow_leases_released_total", "Actively released leases", ["reason"])
-MANUAL_RESOLUTIONS = Counter("it_copilot_workflow_manual_resolutions_total", "Committed operator decisions", ["resolution"])
-DISPATCH_LATENCY = Histogram("it_copilot_workflow_dispatch_latency_seconds", "Seconds from eligibility to claim", buckets=TOOL_LATENCY_BUCKETS)
+# user_id、tenant、approval_id、action_id、conv_id 和 request_id 只记录在日志中，不放进指标标签。
+WORKFLOW_WAKEUPS = Counter("it_copilot_workflow_wakeups_total", "Worker 被唤醒的次数（按通知或轮询分类）", ["source"])
+WORKFLOW_RELEASES = Counter("it_copilot_workflow_leases_released_total", "主动归还任务租约的次数", ["reason"])
+MANUAL_RESOLUTIONS = Counter("it_copilot_workflow_manual_resolutions_total", "管理员人工处理异常任务的次数", ["resolution"])
+DISPATCH_LATENCY = Histogram("it_copilot_workflow_dispatch_latency_seconds", "任务从可执行到被领取的调度耗时（秒）", buckets=TOOL_LATENCY_BUCKETS)
 
 # ── 实时事件流 ────────────────────────────────────────────────────────────────
-STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 首个执行事件（非 started）距请求开始的延迟", buckets=TOOL_LATENCY_BUCKETS)
+STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 收到首个进度事件的延迟（秒）", buckets=TOOL_LATENCY_BUCKETS)
 
 
-# 模型出站脱敏：不记录原值、占位符、租户或会话标识。
-MODEL_MASK_REQUESTS = Counter("it_copilot_model_mask_requests_total", "出站脱敏结果", ["outcome"])
-MODEL_MASK_VALUES = Counter("it_copilot_model_mask_values_total", "出站替换次数", ["kind"])
-MODEL_MASK_LATENCY = Histogram("it_copilot_model_mask_seconds", "出站脱敏耗时", buckets=(.0001, .0005, .001, .005, .01, .05, .1, .5, 1))
+# 数据脱敏统计：只统计次数和耗时，不记录原值、占位符、租户或会话 ID。
+MODEL_MASK_REQUESTS = Counter("it_copilot_model_mask_requests_total", "发给模型前的脱敏处理结果", ["outcome"])
+MODEL_MASK_VALUES = Counter("it_copilot_model_mask_values_total", "敏感信息替换次数", ["kind"])
+MODEL_MASK_LATENCY = Histogram("it_copilot_model_mask_seconds", "脱敏处理耗时（秒）", buckets=(.0001, .0005, .001, .005, .01, .05, .1, .5, 1))
 LOCAL_PII_REQUESTS = Counter("it_copilot_local_pii_requests_total", "本地脱敏模型检测结果", ["outcome"])
-LOCAL_PII_LATENCY = Histogram("it_copilot_local_pii_seconds", "本地脱敏模型检测/排队耗时", buckets=(.001, .005, .01, .05, .1, .5, 1, 5, 10))
+LOCAL_PII_LATENCY = Histogram("it_copilot_local_pii_seconds", "本地脱敏模型检测耗时（秒）", buckets=(.001, .005, .01, .05, .1, .5, 1, 5, 10))

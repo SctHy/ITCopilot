@@ -9,7 +9,7 @@ export function requestApproval(type: string, settings: Settings, id: string, de
   return requestFor<Approval>(type, settings, path(id), decision ? jsonBody({ decision, payload_hash: hash }) : {})
 }
 
-// 人工对账（IT 管理员）：结果未知或需复核的动作重新交给执行器，先回查目标系统再决定是否重做。
+// 人工重试（IT 管理员）：把结果未知或需复核的任务重新交给 Worker，先查外部真实状态再决定是否重试。
 export const reconcileApproval = (type: string, settings: Settings, id: string, reason: string) =>
   requestFor<Approval>(type, settings, path(id, '/reconcile'), jsonBody({ reason }))
 
@@ -30,7 +30,7 @@ export const confirmApproval = (type: string, settings: Settings, id: string, ha
 export const withdrawApproval = (type: string, settings: Settings, id: string, reason = '') =>
   requestFor<Approval>(type, settings, path(id, '/withdraw'), jsonBody({ reason }))
 
-// 提前归还该申请开通的限时权限：到期回收立即执行，仍做漂移检查。
+// 提前归还该申请开通的限时权限：立刻触发到期回收，并校验外部状态是否一致。
 export const releaseApproval = (type: string, settings: Settings, id: string) =>
   requestFor<Approval>(type, settings, path(id, '/release'), { method: 'POST' })
 

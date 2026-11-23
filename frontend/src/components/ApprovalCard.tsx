@@ -16,7 +16,7 @@ const decisionLabels: Record<string, string> = { approved: '批准', rejected: '
 const executionLabels: Record<string, string> = { not_executed: '尚未执行', queued: '排队中', executing: '执行中', succeeded: '执行成功', failed: '执行失败（请查看回收状态）', manual_review: '需人工复核' }
 const executionTones: Record<string, Tone> = { queued: 'accent', executing: 'accent', succeeded: 'success', failed: 'danger', manual_review: 'warning' }
 const lifecycleLabels: Record<string, string> = { compensating: '正在补偿回收', active_until_revocation: '权限生效中，已安排回收', revoking: '正在回收权限', manual_review: '业务流程需人工复核', expiry_due: '已到期，等待过期扫描' }
-const actionStatus: Record<string, string> = { queued: '排队中', executing: '执行中', unknown: '结果未知，待回查', succeeded: '成功', failed: '失败', cancelled: '已取消', manual_review: '需人工复核' }
+const actionStatus: Record<string, string> = { queued: '排队中', executing: '执行中', unknown: '结果未知，待核实', succeeded: '成功', failed: '失败', cancelled: '已取消', manual_review: '需人工复核' }
 const stepTones: Record<string, Tone> = { succeeded: 'success', failed: 'danger', unknown: 'warning', manual_review: 'warning', queued: 'accent', executing: 'accent' }
 
 function formatTime(iso?: string | null) {
@@ -63,7 +63,7 @@ function ApprovalBody({ approval, identity, busy, allowClarification, onAction }
     <>
       <p className="text-[13px] leading-relaxed text-muted-foreground">{meta.join(' · ')}</p>
       {approval.payload_hash && <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>冻结参数</span><code className="rounded-full border bg-secondary px-2 py-1 break-all">{approval.payload_hash}</code></div>}
-      {!!approval.conflicts?.length && <p className="text-[13px] text-warning-foreground">同一资源还有 {approval.conflicts.length} 个在途申请</p>}
+      {!!approval.conflicts?.length && <p className="text-[13px] text-warning-foreground">同一资源还有 {approval.conflicts.length} 个处理中的申请</p>}
       {(approval.action_requests || []).map((action, index) => (
         <div key={index} className="rounded-lg border bg-secondary px-3 py-2.5">
           <p className="mb-1.5 text-[13px] font-medium">{actionLabels[action.tool_name] || action.tool_name}</p>
@@ -85,7 +85,7 @@ function ApprovalBody({ approval, identity, busy, allowClarification, onAction }
               {step.adapter !== 'local' && step.adapter && <span className="text-muted-foreground">· {step.adapter}</span>}
               {step.preexisting && <span className="text-muted-foreground">· 已有同等权限，未变更</span>}
               {step.covered_by && <span className="text-muted-foreground">· 由其他有效授权覆盖，已独立安排回收</span>}
-              {step.reconciled && <span className="text-muted-foreground">· 经回查确认</span>}
+              {step.reconciled && <span className="text-muted-foreground">· 已核实外部状态</span>}
               {step.error && <span className="text-destructive-foreground">· {step.error}</span>}
             </li>
           ))}
@@ -117,8 +117,8 @@ function ApprovalActions({ approval, identity, busy, allowClarification, onActio
   const audit = permissions.canReconcile ? approval.audit?.filter(entry => entry.detail?.reason) : undefined
   const confirmThen = (action: ApprovalDecision, message: string) => { if (window.confirm(message)) onAction(action) }
   const choices = [
-    ['retry', '重新入队', '执行器将先回查，再决定是否重试。'],
-    ['accept_external', '采纳外部实态', '只读核实目标系统并更新台账。'],
+    ['retry', '重新入队', '后台将先查询外部状态，再决定是否重试。'],
+    ['accept_external', '同步外部状态', '只读核实外部系统并更新本地记录。'],
     ['mark_resolved', '线下结案', '确认已在线下处理完毕。'],
   ] as const
   return (

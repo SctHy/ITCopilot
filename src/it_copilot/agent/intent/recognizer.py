@@ -54,7 +54,7 @@ class IntentEntitiesOutput(BaseModel):
 
 
 class IntentClassification(BaseModel):
-    """classify_it_request 的结构化输出契约。"""
+    """classify_it_request 的结构化返回格式。"""
     model_config = ConfigDict(extra="ignore")
     intent: IntentCategory
     confidence: Optional[float] = Field(None, ge=0, le=1, description="必填，禁止为 0、null 或省略；greeting/chitchat/out_of_scope 建议 0.80-0.95")

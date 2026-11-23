@@ -1,5 +1,5 @@
 """
-RAG 知识库：文档切片写入应用数据库的向量表（core/vector_store.py），BM25 + 向量两路召回后用 RRF 融合。
+RAG 知识库：文档分段写入数据库向量表（infra/vector_store.py），结合 BM25 关键词搜索和向量搜索并用 RRF 合并排序。
 
 功能：
   1. 文档导入：将文本切片后写入向量表（本地中文 embedding 自动生成向量）
@@ -28,7 +28,7 @@ from it_copilot.infra.tenant_context import SYSTEM, TenantContextMissing, curren
 from it_copilot.infra.vector_store import VectorStore
 from it_copilot.infra.states import Protocol
 
-# knowledge_search 工具的参数契约：应用注册与评测脚本共用。
+# knowledge_search 工具的参数定义：API 注册和测试共用。
 KNOWLEDGE_SEARCH_SCHEMA = {
     "type": "object",
     "properties": {
@@ -264,7 +264,7 @@ class KnowledgeLibrary:
             entry = merged.setdefault(doc_id, {"doc": document, "meta": metadata, "vector_score": vector_score, "bm25_score": bm25_score, "rrf": 0.})
             entry["rrf"] += 1 / (rrf_k + rank)
 
-        # 部门隔离在 SQL 里做（召回前过滤，其他部门的文档不会占满候选窗口），下面合并时再按 allowed 校验一次（纵深防御）。
+        # 部门权限过滤直接在 SQL 查询时完成（避免其他部门文档占满候选结果），合并时再做二次校验。
         results = {}
         if mode != "bm25":
             where = {"department": {"$in": ["*", department]}} if department else None

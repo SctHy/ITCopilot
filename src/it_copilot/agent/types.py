@@ -82,7 +82,7 @@ class AgentCallResult:
 
 
 class AgentCallError(RuntimeError):
-    """reason 为低基数失败分类，进入 it_copilot_agent_failures_total 指标。"""
+    """reason 为固定枚举类型的失败原因，用于统计 it_copilot_agent_failures_total 指标。"""
     def __init__(self, message, tools_used, tool_traces, reason="exception", token_usage=None):
         super().__init__(message)
         self.tools_used = list(tools_used)

@@ -318,7 +318,7 @@ class BaseAgent:
         return run.result
 
     async def _invoke_tool(self, deps: AgentRunDeps, spec, args: Dict[str, Any], tool_id: Optional[str]):
-        """单次工具调用：Schema 校验、写操作守卫，经 ToolExecutor（超时/熔断/只读重试）执行并记录 trace；失败以错误结果回传模型。"""
+        """单次工具调用：做参数校验和写操作安全检查，经 ToolExecutor（超时/熔断/只读重试）执行并记录轨迹；失败时把错误返回给模型。"""
         req = deps.req
         started = time.monotonic()
         success, error, outcome = True, "", "success"
@@ -352,7 +352,7 @@ class BaseAgent:
 
     @staticmethod
     async def _guard_unsafe_tool(req: Request, name: str, args: Dict[str, Any]) -> None:
-        """校验写意图与槽位，在首次 await 前占用本轮调用名额，再执行入口守卫。"""
+        """校验写操作意图和必填参数，先占用本轮调用名额，再执行写权限检查。"""
         if req.allowed_writes is not None and name in WRITE_ACTIONS and name not in req.allowed_writes:
             # 意图识别判断用户这一轮没有要求这项操作：挡住主动提交，而不是从工具列表里拿掉（保持前缀缓存）。
             raise WriteGuardBlocked("用户这一轮没有要求办理这项操作；需要的话先向用户确认")

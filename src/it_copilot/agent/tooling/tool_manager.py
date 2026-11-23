@@ -134,7 +134,7 @@ class ToolManager:
     内置工具调用框架。
 
     核心优化链路（针对检索类工具）：
-      用户查询 → 查询改写（多角度子查询）→ 并行召回 → 结果重排 → 返回 Top-K
+      用户问题 → 问题改写（多角度子查询）→ 并行搜索 → 结果重排 → 返回最相关的 Top-K
     """
 
     @property
@@ -417,7 +417,7 @@ class ToolManager:
             order = result.output
             if not order or any(not 0 <= i < len(items) for i in order):
                 raise ValueError("重排索引必须是非空、有效的整数列表")
-            # 去重后补齐模型遗漏的索引，避免召回结果无故消失。
+            # 去重后补齐模型遗漏的序号，避免搜索结果无故丢失。
             order = list(dict.fromkeys(order))
             order.extend(i for i in range(len(items)) if i not in order)
             return [items[i] for i in order[:top_k]], True
@@ -453,7 +453,7 @@ class ToolManager:
         self._cache[self._cache_key(name, params, context)] = (copy.deepcopy(data), time.monotonic() + ttl)
 
     def invalidate_cache(self, name: str) -> None:
-        """失效工具缓存；版本号阻止更新前的在途请求重新写入旧结果。"""
+        """清空工具缓存；通过版本号防止更新前正在执行的旧请求把过期结果写回缓存。"""
         self._cache_versions[name] = self._cache_versions.get(name, 0) + 1
         for key in list(self._cache):
             if key.startswith(f"{name}:"):
