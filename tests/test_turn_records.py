@@ -44,7 +44,7 @@ def test_chat_settles_body_free_record_with_complete_versions(store, monkeypatch
     orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator.agent._llm = orchestrator._intent_recognizer.llm = model
     for name, value in {"orchestrator": orchestrator, "workflow": store, "memory": None, "kb": None,
-                        "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
+                        "request_recall": None, "events": InMemoryEventBus()}.items():
         monkeypatch.setattr(state, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
     http = TestClient(api.app, headers=auth("alice"))

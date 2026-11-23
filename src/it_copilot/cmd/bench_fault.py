@@ -11,7 +11,7 @@ from threading import Event, Thread
 import time
 from urllib.request import Request, urlopen
 
-from .bench import MemoryTarget, approve, desired
+from .bench import MemoryTarget, approve, desired, database
 from it_copilot.workflow.adapters import AdapterRegistry
 from it_copilot.workflow.store import WorkflowStore
 from it_copilot.workflow.worker import ExecutionWorker
@@ -113,42 +113,44 @@ def process(db, address, gate):
 async def fault(args, root: Path):
     results = {}
     for scene in ("before", "after", "control"):
-        db = f"sqlite:///{root / scene}.db"
-        store = WorkflowStore(db)
-        try:
-            approve(store, "grant", 0)
-            with endpoint(scene) as (address, reached, release, log, levels):
-                start = time.monotonic()
-                with process(db, address, scene) as proc:
+        scene_root = root / scene
+        scene_root.mkdir()
+        with database(scene_root, args.database_url) as db:
+            store = WorkflowStore(db)
+            try:
+                approve(store, "grant", 0)
+                with endpoint(scene) as (address, reached, release, log, levels):
+                    start = time.monotonic()
+                    with process(db, address, scene) as proc:
+                        if scene != "control":
+                            assert reached.wait(20), "worker missed injection barrier"
+                            proc.kill()
+                            assert proc.wait(timeout=5) == -9
+                        else:
+                            assert proc.wait(timeout=20) == 0
+                    injected = time.monotonic()
+                    cut = len(log)
+                    release.set()
                     if scene != "control":
-                        assert reached.wait(20), "worker missed injection barrier"
-                        proc.kill()
-                        assert proc.wait(timeout=5) == -9
-                    else:
-                        assert proc.wait(timeout=20) == 0
-                injected = time.monotonic()
-                cut = len(log)
-                release.set()
-                if scene != "control":
-                    time.sleep(1.05)
-                    with process(db, address, "recover") as proc:
-                        assert proc.wait(timeout=20) == 0
-                    assert log[cut] == "/observe", log
-                row = store.get("grant")["results"][0]
-                assert row["status"] == "succeeded" and levels == ["readonly"], (row, levels)
-                hit = bool(row.get("reconciled") or (row.get("result") or {}).get("reconciled"))
-                assert hit == (scene == "after"), row
-                results[scene] = dict(
-                    injection_ms=round((injected - start) * 1000, 2),
-                    recovery_ms=round((time.monotonic() - injected) * 1000, 2)
-                    if scene != "control"
-                    else None,
-                    recovery_observe_hits=int(hit),
-                    duplicate_writes=len(levels) - 1,
-                )
-        finally:
-            await store.aclose()
-    return dict(database="sqlite", rounds=len(results), scenes=results, convergence_pct=100)
+                        time.sleep(1.05)
+                        with process(db, address, "recover") as proc:
+                            assert proc.wait(timeout=20) == 0
+                        assert log[cut] == "/observe", log
+                    row = store.get("grant")["results"][0]
+                    assert row["status"] == "succeeded" and levels == ["readonly"], (row, levels)
+                    hit = bool(row.get("reconciled") or (row.get("result") or {}).get("reconciled"))
+                    assert hit == (scene == "after"), row
+                    results[scene] = dict(
+                        injection_ms=round((injected - start) * 1000, 2),
+                        recovery_ms=round((time.monotonic() - injected) * 1000, 2)
+                        if scene != "control"
+                        else None,
+                        recovery_observe_hits=int(hit),
+                        duplicate_writes=len(levels) - 1,
+                    )
+            finally:
+                await store.aclose()
+    return dict(database="postgresql" if args.database_url else "sqlite", rounds=len(results), scenes=results, convergence_pct=100)
 
 
 if __name__ == "__main__":

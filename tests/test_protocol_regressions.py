@@ -272,9 +272,7 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
     monkeypatch.setenv("IT_COPILOT_DATABASE_URL", db_url)
     from types import SimpleNamespace
     import it_copilot.agent.agent_orchestrator
-    import tests.runtime
     import it_copilot.api.app
-    from tests.runtime import state
     import it_copilot.agent.memory.conversation_memory
     import it_copilot.infra.monitor.telemetry
     import it_copilot.agent.tooling.knowledge_base
@@ -282,15 +280,8 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
     closed = []
 
     class Orchestrator:
-        registry = None
         def __init__(self, **kwargs):
             pass
-
-        def start(self):
-            pass
-
-        async def aclose(self):
-            closed.append("orchestrator")
 
     class Memory:
         def __init__(self, **kwargs):
@@ -302,8 +293,8 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
         async def close(self):
             closed.append("memory")
 
-    for key in ("lifecycle", "mcp_client", "tracing", "skills", "tool_manager", "kb", "orchestrator", "memory"):
-        monkeypatch.setattr(state, key, None)
+    app = it_copilot.api.app.create_app()
+    state = app.state.container
     monkeypatch.setenv("IT_COPILOT_REQUIRE_REDIS", "true")
     monkeypatch.setattr(it_copilot.agent.agent_orchestrator, "AgentOrchestrator", Orchestrator)
     monkeypatch.setattr(it_copilot.agent.memory.conversation_memory, "MemoryManager", Memory)
@@ -311,7 +302,7 @@ async def test_partial_startup_closes_acquired_resources(monkeypatch, db_url):
     monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "setup_tracing", lambda: None)
     monkeypatch.setattr(it_copilot.infra.monitor.telemetry, "shutdown_tracing", lambda x: closed.append("tracing"))
     with pytest.raises(RuntimeError, match="Redis"):
-        async with it_copilot.api.app.lifespan(tests.runtime.app):
+        async with it_copilot.api.app.lifespan(app):
             pytest.fail("unreachable")
-    assert closed == ["memory", "orchestrator", "tracing"]
+    assert closed == ["memory", "tracing"]
     assert state.lifecycle.state == "closed"

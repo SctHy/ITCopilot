@@ -3,9 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
 from tests.conftest import run_in_tenant
-from tests.test_workflow import ALICE, BOB, Clock, access, create
+from tests.test_workflow import ALICE, BOB, Clock, access
 from it_copilot.workflow.adapters import AdapterRegistry
 from it_copilot.workflow.adapters.base import AmbiguousError, TransientError
 from it_copilot.workflow.adapters.local import LocalDirectoryAdapter
@@ -93,21 +92,3 @@ def test_invalid_reconcile_interval_refuses_startup(db_url, monkeypatch, value):
     store = WorkflowStore(db_url)
     with pytest.raises(ValueError):
         ExecutionWorker(store, AdapterRegistry(LocalDirectoryAdapter(store.engine)))
-
-
-def test_workflow_ages_warn_escalate_and_clear(db_url):
-    clock, store, _, _, _ = environment(db_url)
-    body = create(store)
-    store.decide("a", "approved", BOB, body["payload_hash"])
-    monitor = PerformanceMonitor(None, None, workflow=store)
-    clock.t += 601
-    assert monitor._workflow_conditions()["oldest_queued_due_action_age_s"].severity == "warning"
-    claimed = store.claim("worker", 60, 1)[0]
-    store.retry_later(claimed, "unknown", "timeout", 0)
-    clock.t += 3601
-    assert monitor._workflow_conditions()["oldest_unknown_action_age_s"].severity == "warning"
-    clock.t += 86400
-    assert monitor._workflow_conditions()["oldest_unknown_action_age_s"].severity == "critical"
-    claimed = store.claim("worker", 60, 1)[0]
-    store.fail(claimed, "target rejected")
-    assert monitor._workflow_conditions() == {}

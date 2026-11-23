@@ -144,7 +144,7 @@ async def _run_turn(state: AppContainer, payload: ChatRequest, principal: Princi
     if mem_ctx and mem_ctx.summary:
         intent_history.insert(0, {"role": "user", "content": "[较早会话摘要，仅用于解析指代，不代表本轮授权]\n" + mem_ctx.summary})
     with stages("intent"):
-        # 知识库预取与意图识别并行：本地检索几十毫秒，用不用由意图识别（Jev）判断，省掉 Agent 专门检索的那一轮。
+        # 知识库预取与意图识别并行：本地检索几十毫秒，用不用由意图识别判断，省掉 Agent 专门检索的那一轮。
         intent_result, prefetched = await asyncio.gather(
             state.orchestrator.recognize_intent(payload.message, history=intent_history, previous_intent_group=conv_state.get("intent_group")),
             _prefetch_knowledge(state, payload.message, principal.department),
@@ -158,7 +158,6 @@ async def _run_turn(state: AppContainer, payload: ChatRequest, principal: Princi
         history=history, entities=intent_result.entities, intent=intent_result.intent, intent_group=intent_result.intent_group,
         urgency=intent_result.urgency, intent_confidence=intent_result.confidence, department=principal.department, request_id=rid,
         principal=principal, emit=emit, allowed_writes=intent_result.requested_actions, intent_source=intent_result.recognition_source,
-        # needs_knowledge 为 None（Jev 不可用、没有判断）时也附上：多几百个输入 token，远比 Agent 自己再检索一轮便宜。
         knowledge=[slim_hit(x) for x in prefetched.data] if intent_result.needs_knowledge is not False and prefetched and prefetched.success else [],
     )
     req.context += f"\n[当前登录员工]\n工号 {principal.employee_id or '未绑定'}；部门 {principal.department}"
@@ -216,7 +215,6 @@ def _build_trace(result, intent_result, mem_ctx, approval, approval_id, principa
         "memory": {
             "working_hit": bool(mem_ctx and mem_ctx.recent_messages),
             "episodic_hits": len(mem_ctx.relevant_history) if mem_ctx else 0,
-            "profile_hit": bool(mem_ctx and mem_ctx.user_profile),
         },
         "intent": {"source": intent_result.recognition_source, "confidence": intent_result.confidence},
         "approval": {"required": bool(approval), "approval_id": approval_id},
@@ -310,7 +308,7 @@ async def _complete_turn_scoped(state: AppContainer, payload, principal: Princip
             if state.memory:
                 req.conversation_state = await state.memory.get_state(principal.scope_key, conv_id)
             result = OrchestratorResult(rid, answered.response, None,
-                latency_ms=answered.latency_ms, observability=state.orchestrator.agent_for(req)._observability(req))
+                latency_ms=answered.latency_ms, observability=state.orchestrator.agent._observability(req))
             await _record_turn(state, req, result, principal, channel, approval_id=answered.approval_id)
             await _record_history(state, principal, conv_id, rid, channel, payload.message, answered)
             return answered
@@ -382,8 +380,6 @@ async def _complete_turn_scoped(state: AppContainer, payload, principal: Princip
                                                    episodic.answer, episodic.metadata))
     metrics.CHAT_REQUESTS.labels(status=response.status, intent_group=response.intent_group).inc()
     metrics.CHAT_LATENCY.labels(status=response.status).observe(time.monotonic() - request_started)
-    if state.monitor:
-        state.monitor.record_chat(response.status, time.monotonic() - request_started)
     return response
 
 

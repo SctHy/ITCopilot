@@ -1,4 +1,4 @@
-"""请求串行化与有界后台画像更新。"""
+"""请求串行化与跨进程租约续期。"""
 import asyncio
 import logging
 from contextlib import asynccontextmanager

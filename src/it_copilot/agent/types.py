@@ -9,10 +9,6 @@ from typing import Any, Dict, List, Optional
 from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
 
 
-@dataclass(frozen=True)
-class AgentProfile:
-    temperature: float = .2
-    max_tokens: int = 3000
 
 
 @dataclass
@@ -47,7 +43,6 @@ class Request:
     stage_ms: Dict[str, float] = field(default_factory=dict)
     started_at: float = 0.0
     knowledge: List[Dict[str, Any]] = field(default_factory=list)  # knowledge hits prefetched alongside intent
-    checkpoints: Any = field(default=None, repr=False)  # scoped async checkpoint port; never passed to tools
     conversation_approvals: List[Dict[str, Any]] = field(default_factory=list)  # fresh persisted states, scoped to caller and conversation
     related_approvals: List[Dict[str, Any]] = field(default_factory=list)  # own withdrawable/releasable items (agents/request_recall.py)
 

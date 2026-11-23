@@ -1,12 +1,5 @@
 """Explicit, imperative write requests in a message ("帮我申请 GitLab 只读权限", "请发起密码重置申请").
 
-The Agent may only file a write the user asked for this turn (``requested_actions``). Jev scores each
-action for the whole message, so in a message with two asks ("VPN-691 怎么办；另外帮我申请权限") the
-second ask's score is diluted below its threshold and a clearly stated request is refused. This
-detector adds requests the user spelled out; it never removes one, and it does not loosen anything
-downstream: tools still validate against the access policy, drafts still wait for the requester's
-confirmation, and approvals still need approvers.
-
 Questions ("怎么申请权限？"), refusals ("不用解锁") and deferrals ("等我确认再提交") are not requests.
 """
 from __future__ import annotations
@@ -14,7 +7,7 @@ from __future__ import annotations
 import re
 from typing import FrozenSet, Iterator
 
-from it_copilot.agent.intent.taxonomy import JEV_SYSTEMS
+ACCESS_SYSTEMS = ("GitLab", "Jira", "VPN")
 
 SENTENCE = re.compile(r"[^。；;！!？?\n]+[。；;！!？?]?")
 # Asking how, asking whether, or saying not now. "别" is "don't", but not inside 分别/区别/特别/类别/告别/识别.
@@ -61,7 +54,7 @@ def explicit_access_systems(message: str) -> list[str]:
     systems = set()
     for sentence in _request_sentences(message):
         for request in PATTERNS["request_access"].finditer(sentence):
-            for system in JEV_SYSTEMS:
+            for system in ACCESS_SYSTEMS:
                 if system != "none" and re.search(
                     rf"(?<![A-Za-z0-9_-]){re.escape(system)}(?![A-Za-z0-9_-])", request.group(), re.I
                 ):

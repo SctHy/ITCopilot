@@ -33,7 +33,7 @@ POSTGRES_TESTS = (
     "isolation_and_history",
     "tenancy", "tenant_scope", "tenant_isolation", "tenant_quotas", "overlapping_grants",
     "turn_records", "grant_reconciler", "policy_change_atomicity",
-    "memory_governance", "model_router", "agent_registry",
+    "memory_governance", "model_router",
 )
 PROFILES = ("docs", "backend", "frontend", "local", "postgres", "integration")
 TEST_ENV = (

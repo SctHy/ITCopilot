@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from tests import runtime as api
 from tests.runtime import state
 from tests.conftest import auth
-from it_copilot.agent.tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import ToolManager
 
 
 class FakeKnowledgeBase:
@@ -45,7 +45,7 @@ def client(monkeypatch, db_url):
     monkeypatch.setattr(state, "workflow", WorkflowStore(db_url))
     kb = FakeKnowledgeBase()
     monkeypatch.setattr(state, "kb", kb)
-    monkeypatch.setattr(state, "tool_manager", MCPToolManager("sk-local"))
+    monkeypatch.setattr(state, "tool_manager", ToolManager("sk-local"))
     return TestClient(api.app, headers=auth("erin")), kb
 
 

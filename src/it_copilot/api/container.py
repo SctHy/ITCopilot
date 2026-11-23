@@ -9,12 +9,9 @@ from it_copilot.infra.events import InMemoryEventBus
 if TYPE_CHECKING:
     from it_copilot.agent.agent_orchestrator import AgentOrchestrator
     from it_copilot.agent.memory.conversation_memory import MemoryManager
-    from it_copilot.agent.registry import AgentRegistry
     from it_copilot.agent.request_recall import RequestRecall
     from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-    from it_copilot.agent.tooling.mcp_client import StandardMCPClient
-    from it_copilot.agent.tooling.tool_manager import MCPToolManager
-    from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
+    from it_copilot.agent.tooling.tool_manager import ToolManager
     from it_copilot.infra.retention import RetentionSweeper
     from it_copilot.infra.session_revocation import SessionRevocations
     from it_copilot.agent.skill_loader import SkillManager
@@ -32,12 +29,9 @@ if TYPE_CHECKING:
 class AppContainer:
     draining: bool = False
     shutdown_deadline: float | None = None
-    agent_registry: AgentRegistry | None = None
     kb: KnowledgeBase | None = None
     lifecycle: Flow | None = None
-    mcp_client: StandardMCPClient | None = None
     memory: MemoryManager | None = None
-    monitor: PerformanceMonitor | None = None
     orchestrator: AgentOrchestrator | None = None
     rate_limiter: MemoryRateLimiter | RedisRateLimiter | None = None
     registry: AdapterRegistry | None = None
@@ -46,7 +40,7 @@ class AppContainer:
     sessions: SessionRevocations | None = None
     skills: SkillManager | None = None
     tenants: TenantRegistry | None = None
-    tool_manager: MCPToolManager | None = None
+    tool_manager: ToolManager | None = None
     tracing: TracerProvider | None = None
     worker: ExecutionWorker | None = None
     workflow: WorkflowStore | None = None

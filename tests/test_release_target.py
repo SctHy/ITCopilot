@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from it_copilot.agent.registry import default_spec
+from it_copilot.agent.spec import default_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 CASE = "tests/test_online_regressions.py::test_pending_approval_answer_on_selected_agent"

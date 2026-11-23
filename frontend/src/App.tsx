@@ -1,5 +1,5 @@
 // App shell: navigation, connection + identity, and the state shared across pages
-// (chat session, monitor data, toasts). Each page owns everything else it shows.
+// (chat session and toasts). Each page owns everything else it shows.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sidebar, SidebarInset, SidebarProvider, SidebarMenu, SidebarMenuItem, SidebarMenuButton, useSidebar } from '@/components/ui/sidebar'
@@ -10,13 +10,13 @@ import { createServerQueryClient } from './lib/queryClient'
 import { viewPaths, viewForPath, type ViewId } from './lib/navigation'
 import { Toaster, toast } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { BookOpenIcon, ChartColumnIcon, ExternalLinkIcon, FileTextIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PencilIcon, SearchIcon, ShieldCheckIcon, SlidersHorizontalIcon, SquarePenIcon, SunIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { BookOpenIcon, ExternalLinkIcon, FileTextIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PencilIcon, SearchIcon, ShieldCheckIcon, SlidersHorizontalIcon, SquarePenIcon, SunIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useStore } from './hooks/useStore.ts'
 import { backendMeta } from './api/http.ts'
 import { createInitialSettings, saveSettings } from './api/settings.ts'
 import { requestChatStream, requestToolTrace } from './api/chat.ts'
 import { deleteConversation, getConversation, listConversations, renameConversation, type ConversationSummary } from './api/conversations.ts'
-import { requestAuthConfig, requestDevToken, requestHealth, requestMe, requestMonitor } from './api/system.ts'
+import { requestAuthConfig, requestDevToken, requestHealth, requestMe } from './api/system.ts'
 import { completeOidcLogin, oidcLogout, startOidcLogin, storeToken } from './lib/auth.ts'
 import { createAuthSession } from './lib/authSession.ts'
 import { createChatSession } from './lib/chatSession.ts'
@@ -24,21 +24,18 @@ import { createRequestState, loadCurrent } from './lib/requestState.ts'
 import { applyApprovalAction } from './lib/approvalDecision.ts'
 import { formatRoles } from './lib/format.ts'
 import { reactive } from './lib/store.ts'
-import type { Identity, MonitorData, Settings } from './lib/types.ts'
+import type { Identity, Settings } from './lib/types.ts'
 import { Hint } from './components/ui.tsx'
 import { ConnectionDialog, type ConnectionDraft, type HealthState } from './components/ConnectionDialog.tsx'
 import { ApprovalsView } from './views/ApprovalsView.tsx'
 import { ChatView } from './views/ChatView.tsx'
 import { KnowledgeView } from './views/KnowledgeView.tsx'
-import { OperationsView } from './views/OperationsView.tsx'
 
 const views: { id: ViewId; label: string; icon: ReactNode; hint: string }[] = [
   { id: 'chat', label: '对话', icon: <MessageSquareIcon />, hint: '私人 IT 服务对话' },
   { id: 'knowledge', label: '知识库', icon: <BookOpenIcon />, hint: '检索与管理 IT 知识' },
   { id: 'approvals', label: '审批', icon: <ShieldCheckIcon />, hint: '确认、审批与回收' },
-  { id: 'evaluation', label: '运行状态', icon: <ChartColumnIcon />, hint: 'SLO、告警与组件健康度' }
 ]
-const emptyMonitor = (): MonitorData => ({ agent: {}, tools: {}, monitor: null, mcp: { servers: [] } })
 const THEME_KEY = 'it-copilot.theme'
 
 function showToast(message: string) { toast(message) }
@@ -58,15 +55,14 @@ function createRuntime() {
   const settings = reactive<Settings>(createInitialSettings())
   const requestState = createRequestState(settings)
   const persist = () => saveSettings(settings)
-  const monitor = { load: () => Promise.resolve() }
   const history = { load: () => Promise.resolve() }
   const chat = createChatSession(settings, requestState,
     { stream: requestChatStream, trace: requestToolTrace, loadApproval: card => applyApprovalAction(card, settings) },
-    { persist, onReply: () => Promise.all([monitor.load(), history.load()]) })
+    { persist, onReply: () => history.load() })
   const auth = createAuthSession(settings, requestState,
     { config: requestAuthConfig, me: requestMe, devToken: requestDevToken, completeOidcLogin, startOidcLogin, oidcLogout, storeToken },
     { toast: showToast, onIdentityChange: () => chat.clear() })
-  return { settings, requestState, persist, chat, auth, monitor, history }
+  return { settings, requestState, persist, chat, auth, history }
 }
 
 export function App() {
@@ -116,12 +112,6 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   useEffect(() => () => { queryClient.clear() }, [queryClient])
   const snapshot = useMemo(() => ({ ...runtime.settings, endpoints: { ...runtime.settings.endpoints } }), [viewKey])
   const authenticated = !!identity && !!snapshot.accessToken
-  const monitorQuery = useQuery({ queryKey: ['monitor'], enabled: authenticated,
-    queryFn: async ({ signal }) => ({ ...await requestMonitor(snapshot.backend, snapshot, signal), loaded: true }) as MonitorData,
-    refetchInterval: 15_000 }, queryClient)
-  const monitorData = monitorQuery.isError ? emptyMonitor() : monitorQuery.data || emptyMonitor()
-  const loadMonitor = useCallback(async () => { if (authenticated) await monitorQuery.refetch() }, [authenticated, monitorQuery.refetch])
-  runtime.monitor.load = loadMonitor
   useEffect(() => {
     const timer = setTimeout(() => setHistoryQuery(searchText.trim()), 300)
     return () => clearTimeout(timer)
@@ -178,9 +168,8 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
     error => setHealth({ ok: false, label: '不可用', detail: error.message })), [requestState])
 
   const refreshConsole = useCallback(async () => {
-    // /monitor 需要登录；未登录时只检查公开接口，避免无意义的 401。
-    await Promise.allSettled([checkHealth(), runtime.settings.accessToken ? loadMonitor() : null])
-  }, [checkHealth, loadMonitor, runtime.settings])
+    await checkHealth()
+  }, [checkHealth])
 
   useEffect(() => { void checkHealth() }, [checkHealth])
   useEffect(() => { persist() }, [settings.conversationId, persist])
@@ -294,16 +283,14 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
 
   let page: ReactNode
   if (activeView === 'chat') {
-    page = <ChatView key={viewKey} session={chat} settings={settings} identity={identity} backendLabel={currentBackend.label} monitorData={monitorData}
-      onRefreshMonitor={loadMonitor} onToast={showToast}
+    page = <ChatView key={viewKey} session={chat} settings={settings} identity={identity} backendLabel={currentBackend.label}
+      onToast={showToast}
       panelOpen={panelOpen} panelDrawer={panelDrawer} onPanelDrawerChange={setPanelDrawer} />
   } else if (activeView === 'knowledge') {
     page = <KnowledgeView key={viewKey} requestState={requestState} identity={identity} onToast={showToast} onStatus={detail => setHealth(current => ({ ...current, detail }))} />
-  } else if (activeView === 'approvals') {
+  } else {
     page = <ApprovalsView key={viewKey} settings={settings} identity={identity}
       onApproval={(target, decision, note) => applyApprovalAction(target, settings, decision, note)} />
-  } else {
-    page = <OperationsView key={viewKey} settings={settings} identity={identity} monitorData={monitorData} onRefresh={loadMonitor} />
   }
   if (pathname !== '/' && !Object.values(viewPaths).some(path => path === pathname.replace(/\/$/, ''))) page = <Outlet />
   const fullBleed = activeView === 'chat'

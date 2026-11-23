@@ -6,7 +6,7 @@ import pytest
 
 from it_copilot.agent.intent.recognizer import IntentRecognizer
 from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
 
 
 def test_tool_manager_schema_cache_and_fallback():
@@ -15,7 +15,7 @@ def test_tool_manager_schema_cache_and_fallback():
         async def handler(params, context):
             calls.append(params["q"])
             return {"answer": params["q"]}
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager.register(Tool("lookup", "lookup", handler, {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}, cache_ttl=60))
         invalid = await manager.call("lookup", {})
         assert not invalid.success and "Schema" in invalid.error
@@ -29,11 +29,11 @@ def test_tool_manager_timeout_uses_fallback():
     async def run():
         async def slow(params, context):
             await asyncio.sleep(.05)
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager.register(Tool("slow", "slow", slow, {"type": "object"}, timeout_s=.001, fallback=lambda p, c, e: {"fallback": True}))
         result = await manager.call("slow", {})
         assert not result.success and result.data["fallback"] is True
-        assert manager._tools["slow"].stats.failed == 1
+        assert manager._tools["slow"].breaker.fail_count == 1
     asyncio.run(run())
 
 

@@ -1,7 +1,5 @@
 """写入边界、跨主体隔离和近重复更新走真实向量表。"""
 import asyncio
-import json
-from datetime import datetime, timedelta, timezone
 
 import fakeredis.aioredis
 import pytest
@@ -10,12 +8,10 @@ from sqlalchemy import select
 from it_copilot.agent.intent.recognizer import IntentResult
 from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
 from it_copilot.api.schemas import ChatResponse
-from it_copilot.infra.db import admin_audit, read, vector_documents
+from it_copilot.infra.db import admin_audit, read
 from it_copilot.agent.masking.redaction import redact_text
 from it_copilot.agent.memory.admission import admit_turn
-from it_copilot.agent.memory.conversation_memory import MemoryManager, profile_text
-from scripts.redact_existing_memory import redact_existing_memory
-from it_copilot.infra.vector_store import VectorStore
+from it_copilot.agent.memory.conversation_memory import MemoryManager
 
 
 def memory(url):
@@ -89,31 +85,6 @@ def test_working_memory_trace_and_receipt_do_not_store_secret(db_url):
             assert "Abc!2026" not in str(value) and "13812345678" not in str(value) and "123456" not in str(value)
         await manager.close()
     asyncio.run(run())
-
-
-def test_field_age_is_preserved_and_old_profile_is_excluded():
-    old_at = (datetime.now(timezone.utc) - timedelta(days=181)).timestamp()
-    old = MemoryManager._normalize_profile({"background": "旧部门", "work": "GitLab"}, source_request_id="old", updated_at=old_at)
-    new = MemoryManager._normalize_profile({"background": "新部门", "work": "GitLab"}, source_request_id="new")
-    merged = MemoryManager._merge_profile(old, new)
-    assert "新部门" in profile_text(merged) and "旧部门" not in str(merged)
-    assert "GitLab" not in profile_text(merged)
-    assert merged["field_meta"]["work"]["source_request_id"] == "old"
-
-
-def test_existing_memory_script_redacts_and_reembeds(db_url):
-    store = VectorStore(db_url)
-    collection = store.collection("episodic")
-    collection.upsert(["old"], ["密码是 Abc!2026"], [{"user_id": "u", "ts": "2026-01-01", "full_text": "手机13812345678"}])
-    with read(store.engine) as db:
-        before = db.execute(select(vector_documents)).one()
-    assert redact_existing_memory(store)["episodic"] == 1
-    with read(store.engine) as db:
-        after = db.execute(select(vector_documents)).one()
-    assert "Abc!2026" not in after.document and "13812345678" not in json.dumps(after.meta)
-    assert (before.embedding != after.embedding).any()
-    assert redact_existing_memory(store)["episodic"] == 0
-    store.dispose()
 
 
 def test_personal_memory_api_uses_subject_scope_and_audits():

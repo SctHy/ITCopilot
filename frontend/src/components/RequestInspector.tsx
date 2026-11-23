@@ -1,10 +1,8 @@
 import type { ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { BookOpenIcon, MessageSquareIcon, RefreshCwIcon, RouteIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { BookOpenIcon, MessageSquareIcon, RouteIcon, SearchIcon } from 'lucide-react'
 import { formatJson, formatPercent } from '../lib/format.ts'
-import type { MonitorData } from '../lib/types.ts'
-import { Collapse, Hint, Mono } from './ui.tsx'
+import { Collapse, Mono } from './ui.tsx'
 
 function Step({ icon, title, text, done, active }: { icon: ReactNode; title: string; text: string; done: boolean; active: boolean }) {
   return (
@@ -31,12 +29,10 @@ function Metric({ label, value, tone = '' }: { label: string; value: ReactNode; 
   )
 }
 
-export function RequestInspector({ lastResponse, lastTrace, busy, monitorData, onRefresh }: {
-  lastResponse: Record<string, any> | null; lastTrace: Record<string, any> | null; busy: boolean; monitorData: MonitorData; onRefresh: () => void
+export function RequestInspector({ lastResponse, lastTrace, busy }: {
+  lastResponse: Record<string, any> | null; lastTrace: Record<string, any> | null; busy: boolean
 }) {
   const done = !!lastResponse && !busy
-  const alerts = monitorData.monitor?.alerts || []
-  const total = Number(monitorData.agent?.total || 0)
   const calls: any[] = lastTrace?.trace?.toolCalls || []
   return (
     <div className="flex flex-col gap-6">
@@ -72,23 +68,6 @@ export function RequestInspector({ lastResponse, lastTrace, busy, monitorData, o
                 ))}
                 {!calls.length && <p className="text-[13px] text-muted-foreground">{lastTrace.trace.toolsUsed?.length ? lastTrace.trace.toolsUsed.join(' · ') : '本次没有记录到工具输入。'}</p>}
               </Collapse>
-        )}
-      </section>
-      <section className="border-t border-border pt-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[13px] font-medium">运行状态</h3>
-          <Hint label={<>刷新运行状态</>}><Button type="button" size="icon" variant="ghost" aria-label="刷新运行状态" onClick={onRefresh}><RefreshCwIcon className="size-3.5" /></Button></Hint>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Metric label="请求" value={monitorData.loaded ? total : '—'} />
-          <Metric label="告警" value={monitorData.loaded ? alerts.length : '—'} tone={alerts.length ? 'text-destructive-foreground' : ''} />
-        </div>
-        {alerts.length ? (
-          <p className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 p-2.5 text-[13px] text-destructive-foreground">
-            <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />{alerts[0]!.message}
-          </p>
-        ) : (
-          <p className="mt-3 text-[13px] text-muted-foreground">{monitorData.loaded ? '当前没有活跃告警' : '连接服务后查看运行状态'}</p>
         )}
       </section>
     </div>

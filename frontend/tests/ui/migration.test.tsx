@@ -24,7 +24,6 @@ beforeEach(() => {
     if (path === '/auth/config') return json({ mode: 'dev', users: [person('alice'), person('bob')] })
     if (path === '/auth/dev-token') return json({ access_token: JSON.parse(String(init?.body)).username })
     if (path === '/auth/me') return json(person(token))
-    if (path === '/monitor') return json({ agent: {}, tools: {}, monitor: null, mcp: { servers: [] } })
     if (path === '/conversations') return json({ items: [summary(token)], has_more: false })
     if (path === '/approvals') return json({ items: [] })
     return json({ detail: `Unexpected endpoint ${path}` }, 404)

@@ -1,17 +1,4 @@
-"""
-亮点：MCP 工具调用框架
-
-核心问题：工具调用出错（检索不全、召回不好）怎么优化？
-
-本模块的答案：
-  1. 查询改写（Query Rewriting）—— 用 LLM 把用户原始问题扩写成多个角度的子查询，
-     再合并去重，解决"召回不全"问题。
-  2. 结果重排（Reranking）—— 对召回结果用 LLM 打分，按相关性重新排序，
-     解决"召回不好/排序差"问题。
-  3. 熔断器（Circuit Breaker）—— 连续失败超阈值时自动断开，防止雪崩。
-  4. 结果缓存（TTL Cache）—— 相同参数直接返回缓存，减少重复调用。
-  5. 降级策略（Fallback）—— 工具不可用时返回有意义的降级结果。
-"""
+"""Govern built-in tool calls and optionally rewrite or rerank knowledge searches."""
 import asyncio
 import copy
 import hashlib
@@ -27,10 +14,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 
-from it_copilot.infra.env import env_float
 from it_copilot.infra.states import Machine
 from it_copilot.infra.tenant_context import current_tenant
-from it_copilot.agent.jev import JevClient
 from it_copilot.agent.model_router import ModelRouter
 from it_copilot.infra.monitor import metrics
 
@@ -49,7 +34,6 @@ _REWRITE_AGENT = Agent(output_type=ToolOutput(List[str], name="return_sub_querie
 _RERANK_AGENT = Agent(output_type=ToolOutput(List[int], name="return_ranking", description="返回按相关性降序排列的结果索引"), retries=0, name="result_reranker")
 
 
-# ── 数据结构 ──────────────────────────────────────────────────────────────────
 
 class CircuitState(StrEnum):
     CLOSED    = "closed"     # 正常
@@ -76,25 +60,8 @@ class ToolResult:
     outcome:        str = "success"  # success/cached/invalid/unknown/circuit_open/timeout/error，进入指标标签
 
 
-@dataclass
-class ToolStats:
-    """工具运行时统计，供 Monitor 读取。"""
-    total:              int = 0
-    success:            int = 0
-    failed:             int = 0
-    total_latency_ms:   float = 0.0
-    consecutive_fails:  int = 0
-
-    @property
-    def success_rate(self) -> float:
-        return self.success / self.total if self.total else 1.0
-
-    @property
-    def avg_latency_ms(self) -> float:
-        return self.total_latency_ms / self.total if self.total else 0.0
 
 
-# ── 熔断器 ────────────────────────────────────────────────────────────────────
 
 class CircuitBreaker:
     """
@@ -146,7 +113,6 @@ class CircuitBreaker:
             self.record_failure(generation)
 
 
-# ── 工具定义 ──────────────────────────────────────────────────────────────────
 
 @dataclass
 class Tool:
@@ -159,15 +125,13 @@ class Tool:
     fallback:    Optional[Callable] = None    # sync/async (params, context, error) -> Any
 
     # 运行时状态（不参与构造）
-    stats:   ToolStats    = field(default_factory=ToolStats, init=False)
     breaker: CircuitBreaker = field(default_factory=CircuitBreaker, init=False)
 
 
-# ── MCP 工具管理器 ────────────────────────────────────────────────────────────
 
-class MCPToolManager:
+class ToolManager:
     """
-    MCP 工具调用框架。
+    内置工具调用框架。
 
     核心优化链路（针对检索类工具）：
       用户查询 → 查询改写（多角度子查询）→ 并行召回 → 结果重排 → 返回 Top-K
@@ -181,27 +145,18 @@ class MCPToolManager:
     def _llm(self, model):
         self.router.replace_models(model)
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", jev: Optional[JevClient] = None, router=None):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = "", router=None):
         self.router = ModelRouter(api_key=api_key, base_url=base_url, model=model) if router is None else router
-        # IT_COPILOT_RERANK_BACKEND：llm / jev（需 TYPESAFE_API_KEY，失败时退回 LLM 重排）。
-        backend = os.getenv("IT_COPILOT_RERANK_BACKEND", "llm").lower()
-        self._jev = jev or (JevClient.from_env(timeout_s=env_float("IT_COPILOT_RERANK_JEV_TIMEOUT_S", 3)) if backend == "jev" else None)
         self._tools: Dict[str, Tool] = {}
         self._cache_versions: Dict[str, int] = {}
         self._cache: Dict[str, tuple] = {}   # key → (result, expire_at)
 
-    # ── 注册 / 注销 ───────────────────────────────────────────────────────────
 
     def register(self, tool: Tool) -> None:
         self.invalidate_cache(tool.name)
         self._tools[tool.name] = tool
         logger.info(f"注册工具: {tool.name}")
 
-    def unregister(self, name: str) -> None:
-        self._tools.pop(name, None)
-        self.invalidate_cache(name)
-
-    # ── 核心调用 ──────────────────────────────────────────────────────────────
 
     async def call(
         self,
@@ -241,8 +196,6 @@ class MCPToolManager:
             cached = self._get_cache(name, params, context)
             metrics.CACHE_LOOKUPS.labels(cache=f"tool:{name}", result="hit" if cached is not None else "miss").inc()
             if cached is not None:
-                tool.stats.total += 1
-                tool.stats.success += 1
                 return ToolResult(success=True, data=cached, tool_name=name, cached=True, outcome="cached")
 
         # 熔断检查
@@ -252,13 +205,9 @@ class MCPToolManager:
 
         generation = tool.breaker.generation
         t0 = time.monotonic()
-        tool.stats.total += 1
         try:
             data = await asyncio.wait_for(self._run_handler(tool, params, context), timeout=tool.timeout_s)
             latency = (time.monotonic() - t0) * 1000
-            tool.stats.success += 1
-            tool.stats.consecutive_fails = 0
-            tool.stats.total_latency_ms += latency
             tool.breaker.record_success(generation)
 
             if use_cache and tool.cache_ttl > 0 and cache_version == self._cache_versions.get(name, 0):
@@ -270,15 +219,11 @@ class MCPToolManager:
             tool.breaker.abandon_probe(generation)
             raise
         except TimeoutError:
-            tool.stats.failed += 1
-            tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
             logger.error(f"工具超时: {name} ({tool.timeout_s}s)")
             return await self._fallback_result(tool, params, context, "执行超时", "timeout")
 
         except Exception as ex:
-            tool.stats.failed += 1
-            tool.stats.consecutive_fails += 1
             tool.breaker.record_failure(generation)
             logger.error(f"工具异常: {name} — {ex}")
             from it_copilot.agent.tooling.executor import error_class
@@ -329,7 +274,6 @@ class MCPToolManager:
             return await result
         return result
 
-    # ── 查询改写（解决召回不全）────────────────────────────────────────────────
 
     async def rewrite_query(self, query: str, n: int = 3) -> List[str]:
         """
@@ -378,8 +322,7 @@ class MCPToolManager:
         """
         Agent 检索入口：默认一次 hybrid 检索。两个增强可分别开启：
 
-        - IT_COPILOT_RAG_RERANK=true：先召回 RERANK_CANDIDATES 个候选，再用 LLM / Jev 重排取前 top_k。
-          WixQA（6,221 篇）上 ExpertWritten Recall@5 0.57 → 0.77（LLM，+1.1 s）/ 0.68（Jev，+0.3 s）。
+        - IT_COPILOT_RAG_RERANK=true：先召回 RERANK_CANDIDATES 个候选，再用 LLM 重排取前 top_k。
         - IT_COPILOT_RAG_REWRITE=true：LLM 把查询改写成多个子查询并行召回、去重合并；多一次模型调用，
           大语料上的单独收益未测。
 
@@ -444,7 +387,6 @@ class MCPToolManager:
         data, reranked = await self._rerank_with_status(query, merged, top_k)
         return ToolResult(success=True, data=data, tool_name=tool_name, reranked=reranked)
 
-    # ── 结果重排（解决召回不好）──────────────────────────────────────────────
 
     async def _rerank_with_status(self, query: str, items: List[Any], top_k: int) -> Tuple[List[Any], bool]:
         """
@@ -455,12 +397,6 @@ class MCPToolManager:
         """
         if len(items) <= top_k:
             return items, False
-        if self._jev:
-            try:
-                return await self._rerank_jev(query, items, top_k), True
-            except Exception as ex:
-                logger.warning("Jev 重排失败，改用 LLM 重排: %s", type(ex).__name__)
-
         # 将结果序列化为文本供 LLM 评分
         items_text = "\n".join(f"{i}. {self._rerank_text(item)}" for i, item in enumerate(items))
         prompt = f"""根据用户查询，对以下检索结果按相关性打分（0-10），返回 JSON 数组。
@@ -493,16 +429,6 @@ class MCPToolManager:
     def _rerank_text(item: Any) -> str:
         return json.dumps(item, ensure_ascii=False)[: int(os.getenv("IT_COPILOT_RERANK_CHARS", "200"))]
 
-    async def _rerank_jev(self, query: str, items: List[Any], top_k: int) -> List[Any]:
-        """每个候选一道 noul 题（是否有助于回答），同一请求内并行判断，按概率降序；同分保持召回顺序。"""
-        questions = {f"c{i}": {"type": "noul", "instructions": f"这段知识库内容能直接帮助回答用户的问题。内容：{self._rerank_text(item)}"}
-                     for i, item in enumerate(items)}
-        answers = (await self._jev.ask(f"用户问题：{query}", questions)).answers
-        scores = [float(answers[f"c{i}"]["noul"]) for i in range(len(items))]
-        order = sorted(range(len(items)), key=lambda i: -scores[i])
-        return [items[i] for i in order[:top_k]]
-
-    # ── 缓存 ──────────────────────────────────────────────────────────────────
 
     def _cache_key(self, name: str, params: Dict, context: Optional[Dict] = None) -> str:
         # The tenant scope is part of the key: tenant-aware handlers (knowledge_search) read it from the
@@ -533,7 +459,6 @@ class MCPToolManager:
             if key.startswith(f"{name}:"):
                 del self._cache[key]
 
-    # ── 参数校验 ──────────────────────────────────────────────────────────────
 
     _TYPE_MAP = {"string": str, "number": (int, float), "integer": int, "boolean": bool, "array": list, "object": dict}
 
@@ -555,31 +480,3 @@ class MCPToolManager:
         if not isinstance(value, str):
             value = str(value)
         return value.encode("utf-8", errors="ignore").decode("utf-8")
-
-    # ── 统计 ──────────────────────────────────────────────────────────────────
-
-    def monitor_snapshot(self) -> Dict[str, Any]:
-        """/monitor 使用的原始计数与熔断状态。"""
-        return {
-            name: {
-                "total": t.stats.total,
-                "success": t.stats.success,
-                "failed": t.stats.failed,
-                "success_rate": t.stats.success_rate,
-                "avg_latency_ms": t.stats.avg_latency_ms,
-                "circuit_state": t.breaker.state.value,
-            }
-            for name, t in self._tools.items()
-        }
-
-    def get_stats(self) -> Dict[str, Any]:
-        return {
-            name: {
-                "total": t.stats.total,
-                "success_rate": round(t.stats.success_rate, 3),
-                "avg_latency_ms": round(t.stats.avg_latency_ms, 1),
-                "consecutive_fails": t.stats.consecutive_fails,
-                "circuit_state": t.breaker.state.value,
-            }
-            for name, t in self._tools.items()
-        }

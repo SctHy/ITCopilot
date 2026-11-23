@@ -1,25 +1,11 @@
-"""
-亮点：多轮对话记忆管理
-
-三级记忆架构，模拟人类记忆机制：
-  1. 工作记忆（Redis）—— 当前会话的最近 N 条消息，毫秒级读写
-  2. 情景记忆（向量表）—— 跨会话的历史对话，按语义相似度检索
-  3. 用户画像（向量表）—— 从对话中提炼的长期偏好和实体
-
-关键设计：
-  - 上下文构建时三级记忆融合，按重要性 + 时效性排序
-  - 工作记忆超过阈值时自动压缩（LLM 摘要），防止 context 爆炸
-  - Embedding 由本地中文模型生成（core/embedding.py），LLM 用于摘要和画像提炼
-"""
+"""Redis working memory, summaries and episodic recall."""
 import asyncio
 import hashlib
 import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
@@ -27,6 +13,8 @@ from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, Unexpec
 from redis.exceptions import WatchError
 
 from it_copilot.infra.concurrency import KeyedLocks, redis_lease
+from it_copilot.agent.memory.context import MemoryContext, Message, MsgRole, messages_from_raw, safe_text, trace_snapshot
+from it_copilot.agent.memory.recall import rank_memory_rows
 from it_copilot.agent.memory.states import COMPRESSION
 from it_copilot.agent.llm import close_model, complete_text
 from it_copilot.agent.model_router import ModelRouter
@@ -36,127 +24,12 @@ from it_copilot.agent.masking.redaction import redact, redact_text
 logger = logging.getLogger(__name__)
 
 
-PROFILE_SCHEMA_VERSION = 5
-PROFILE_MAX_AGE_DAYS = 180
-PROFILE_FIELD_MAX_CHARS = 80
-
-
-
-class MsgRole(Enum):
-    USER      = "user"
-    ASSISTANT = "assistant"
-    SYSTEM    = "system"
-
-
-@dataclass
-class Message:
-    role:       MsgRole
-    content:    str
-    timestamp:  datetime = field(default_factory=datetime.now)
-    metadata:   Dict[str, Any] = field(default_factory=dict)
-
-
-PROFILE_LABELS = (("background", "背景"), ("work", "工作内容"), ("environment", "设备与环境"), ("communication", "沟通偏好"))
-
-
-def profile_text(profile: Optional[Dict[str, Any]]) -> str:
-    """画像进提示词的样子：每个字段一行，整份通常一两百字。"""
-    if not profile:
-        return ""
-    now = datetime.now(timezone.utc).timestamp()
-    return "\n".join(f"{label}：{profile[key]}" for key, label in PROFILE_LABELS
-                     if key in profile and now - profile["field_meta"][key]["updated_at"]
-                     <= PROFILE_MAX_AGE_DAYS * 86400)
-
-
-def trace_snapshot(trace: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """The turn body ``commit_turn`` copies into the trace; empty when the trace expired or predates the copy."""
-    if trace is None or "turn" not in trace:
-        return {"trace": trace, "turns": [], "response": "", "missing_slots": []}
-    turn = trace["turn"]
-    return {"trace": trace, "turns": [turn["user"]], "response": turn["assistant"], "missing_slots": turn["missing_slots"]}
-
-
-@dataclass
-class MemoryContext:
-    """传给 Agent 的完整上下文。"""
-    recent_messages:  List[Message]   # 工作记忆：最近对话
-    relevant_history: List[str]       # 情景记忆：语义相关的历史片段
-    user_profile:     Dict[str, Any]  # 用户画像：偏好、常用实体
-    summary:          str             # 当前会话摘要（压缩后）
-    state: Dict[str, Any] = field(default_factory=dict)
-
-    @staticmethod
-    def _clean(text: str) -> str:
-        """移除 Unicode 代理字符，防止编码错误。"""
-        return text.encode("utf-8", errors="ignore").decode("utf-8")
-
-    def history_turns(self, limit: int = 20, assistant_chars: int = 600) -> List[Dict[str, str]]:
-        """工作记忆里的全部对话，供 Agent 作多轮消息历史。
-
-        工作记忆本身有界：攒到 COMPRESS_AT 条就把较早的部分压成摘要、只留最近 5 条，所以这里不再另截一刀；
-        否则“最近 N 条之外、尚未压缩”的消息既不在历史里也不在摘要里（情景记忆也不检索当前会话）。
-
-        助手回答按固定长度截断：既压住上下文（单条回答可达上千 token），截断结果又是确定的，
-        相邻两轮请求的历史前缀保持一致，模型服务的前缀缓存才能命中。
-        """
-        turns = []
-        messages = self.recent_messages
-        if len(messages) > limit:
-            # 只在压缩失败（摘要超时/出错会推迟压缩）时走到这里。按 10 条一块截断而不是逐轮滑动：
-            # 逐轮滑动让历史的第一条每轮都变，前缀缓存只能命中系统提示和工具定义（实测命中率 0.7→0.3）。
-            step = 10
-            drop = -(-(len(messages) - limit) // step) * step  # 超出部分向上取整到整块
-            messages = messages[drop:]
-        for m in messages:
-            if m.role not in (MsgRole.USER, MsgRole.ASSISTANT):
-                continue
-            content = self._clean(m.content)
-            if m.role == MsgRole.ASSISTANT and len(content) > assistant_chars:
-                content = content[:assistant_chars] + "…（已截断）"
-            if m.role == MsgRole.ASSISTANT and (m.metadata.get("tools") or m.metadata.get("approval_id")):
-                note = "本轮工具：" + ("、".join(m.metadata.get("tools") or []) or "无")
-                if m.metadata.get("approval_id") and m.metadata.get("awaiting_confirmation"):
-                    # 草稿还没进入审批：不能写成“已生成待审批”，否则后续回合会被当作已经提交过。
-                    note += f"；已生成申请草稿 {m.metadata['approval_id']}（待用户确认，尚未提交审批）"
-                elif m.metadata.get("approval_id"):
-                    note += f"；已生成待审批 {m.metadata['approval_id']}"
-                content += f"\n[{note}]"
-            turns.append({"role": m.role.value, "content": content})
-        return turns
-
-    def to_prompt_text(self, include_recent: bool = True) -> str:
-        """将记忆上下文格式化为 LLM 可用的文本；最近对话改走多轮消息时传 include_recent=False。"""
-        parts = []
-        if self.summary:
-            parts.append(f"[会话摘要]\n{self._clean(self.summary)}")
-        if self.relevant_history:
-            parts.append("[历史对话摘要，可能已过时；权限、工单、设备状态以本轮工具查询为准]\n" + "\n".join(f"- {self._clean(h)}" for h in self.relevant_history[:3]))
-        profile = profile_text(self.user_profile)
-        if profile:
-            parts.append(f"[用户画像]\n{self._clean(profile)}")
-        if include_recent and self.recent_messages:
-            parts.append("[最近对话]")
-            for m in self.recent_messages[-8:]:
-                parts.append(f"{m.role.value}: {self._clean(m.content)}")
-        return "\n\n".join(parts)
-
-
 class MemoryManager:
-    """
-    三级记忆管理器。
-
-    工作记忆存 Redis（TTL 24h），情景记忆和用户画像存应用数据库的向量表（持久化）。
-    """
-
     WORKING_MAX   = 20    # 工作记忆最大条数，超过则触发压缩
     COMPRESS_AT   = 15    # 达到此条数时压缩，保留摘要 + 最近 5 条
     HISTORY_TOP_K = 5     # 情景记忆检索返回条数
     MEMORY_MAX_TOKENS = 1200
-    MEMORY_HALF_LIFE_DAYS = 30.0
-    MEMORY_MAX_DISTANCE = 0.6
     SUMMARY_MAX_CHARS = 800
-    PROFILE_DOC_PREFIX = "user_profile:"
 
     def __init__(
         self,
@@ -175,12 +48,9 @@ class MemoryManager:
         if self.context_mode not in {"working", "state", "full"}:
             raise ValueError("unknown memory mode")
 
-        # 情景记忆与用户画像存在应用数据库的向量表（PostgreSQL + pgvector / 本地 SQLite）
         store = VectorStore(database_url)
         self.engine = store.engine
         self._episodic = store.collection("episodic")
-        # 用户画像：存储提炼出的偏好和实体
-        self._profile  = store.collection("user_profile")
 
     @property
     def _llm(self):
@@ -193,12 +63,10 @@ class MemoryManager:
     @asynccontextmanager
     async def conversation(self, user_id: str, conv_id: str):
         # 哈希避免 user_id/conv_id 中的分隔符引起锁键碰撞。
-        digest = hashlib.sha256(json.dumps([self._safe_text(user_id), self._safe_text(conv_id)]).encode()).hexdigest()
+        digest = self._conversation_id(user_id, conv_id)
         async with self._request_locks.hold(digest):
             async with redis_lease(self._redis, f"lock:conversation:{digest}"):
                 yield
-
-    # ── 写入 ──────────────────────────────────────────────────────────────────
 
     def receipt_key(self, user_id, conv_id, request_id):
         return "turn_receipt:" + self._conversation_id(user_id, conv_id) + ":" + hashlib.sha256(request_id.encode()).hexdigest()
@@ -210,7 +78,7 @@ class MemoryManager:
     async def commit_turn(self, user_id, conv_id, request_id, message, response, trace=None, *, state=None):
         """原子保存一整轮及响应回执；由 conversation 锁保护。"""
         def raw(role, content, **extra):
-            return json.dumps({"role": role, "content": redact_text(self._safe_text(content)),
+            return json.dumps({"role": role, "content": redact_text(safe_text(content)),
                 "ts": datetime.now().isoformat(), "metadata": {"request_id": request_id, **extra}})
         key = self._wm_key(user_id, conv_id)
         async with self._redis.pipeline(transaction=True) as pipe:
@@ -262,58 +130,15 @@ class MemoryManager:
         await self._flush_archives(user_id, conv_id)
         await asyncio.wait_for(self._compress(user_id, conv_id), 30)
 
-    @staticmethod
-    def _normalize_profile(value: dict, *, source_request_id: str = "", updated_at: Optional[float] = None) -> Dict[str, Any]:
-        """模型输出在此边界脱敏、限长；字段时间用于召回时的硬过期。"""
-        at = datetime.now(timezone.utc).timestamp() if updated_at is None else updated_at
-        output = {"schema_version": PROFILE_SCHEMA_VERSION, "field_meta": {}}
-        for key, _ in PROFILE_LABELS:
-            text = redact_text(" ".join(value.get(key, "").split()))[:PROFILE_FIELD_MAX_CHARS]
-            if text:
-                output[key] = text
-                output["field_meta"][key] = {"updated_at": at, "source_request_id": source_request_id}
-        return output
-
-    @staticmethod
-    def _merge_profile(previous: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-        """新值逐字段替换；未重新确认的旧字段保留原时间，不能因提炼而延长寿命。"""
-        merged = {"schema_version": PROFILE_SCHEMA_VERSION, "field_meta": {}}
-        for key, _ in PROFILE_LABELS:
-            if key in incoming and incoming[key] != previous.get(key):
-                merged[key] = incoming[key]
-                merged["field_meta"][key] = incoming["field_meta"][key]
-            elif key in previous:
-                merged[key] = previous[key]
-                merged["field_meta"][key] = previous["field_meta"][key]
-        return merged
-
-    @staticmethod
-    def _read_profile(stored: Any) -> Dict[str, Any]:
-        """Only the current profile schema is accepted; no implicit data conversion."""
-        if stored == {}:
-            return {}
-        if not isinstance(stored, dict) or stored.get("schema_version") != PROFILE_SCHEMA_VERSION:
-            raise ValueError(f"Profile schema must be {PROFILE_SCHEMA_VERSION}")
-        return stored
-
-    # ── 读取 ──────────────────────────────────────────────────────────────────
-
     async def get_context(self, user_id: str, conv_id: str, query: str = "", intent_group: Optional[str] = None, entities: Optional[Dict[str, Any]] = None, max_history_tokens: Optional[int] = None) -> MemoryContext:
-        """
-        构建完整的记忆上下文。
-
-        query 用于从情景记忆中检索语义相关的历史片段。
-        """
-        # 1. 工作记忆（当前会话最近消息）
-        user_id = self._safe_text(user_id)
-        conv_id = self._safe_text(conv_id)
-        query = self._safe_text(query)
+        user_id = safe_text(user_id)
+        conv_id = safe_text(conv_id)
+        query = safe_text(query)
 
         if await self._redis.llen(self._wm_key(user_id, conv_id)) >= self.COMPRESS_AT:
             await self.maintain(user_id, conv_id)
         recent = await self._get_working_memory(user_id, conv_id)
 
-        # 2. 情景记忆（跨会话语义检索）
         history = await self._search_episodic(
             user_id,
             conv_id,
@@ -323,17 +148,13 @@ class MemoryManager:
             max_tokens=max_history_tokens or self.MEMORY_MAX_TOKENS,
         ) if self.context_mode == "full" else []
 
-        # 3. 用户画像
-        profile = await self._get_profile(user_id) if self.context_mode == "full" else {}
 
-        # 4. 会话摘要（如果已压缩过）
         summary = await self._redis.get(self._summary_key(user_id, conv_id)) or ""
         conversation_state = await self.get_state(user_id, conv_id)
 
         return MemoryContext(
             recent_messages=recent,
             relevant_history=history,
-            user_profile=profile,
             summary=summary,
             state=conversation_state if self.context_mode != "working" else {
                 key: conversation_state[key] for key in ("agent_spec", "agent_version") if key in conversation_state},
@@ -343,16 +164,7 @@ class MemoryManager:
         raw = await self._redis.get(self._state_key(user_id, conv_id))
         return json.loads(raw) if raw is not None else {}
 
-    # ── 压缩（防止 context 爆炸）─────────────────────────────────────────────
-
     async def _compress(self, user_id: str, conv_id: str) -> None:
-        """
-        工作记忆压缩：
-          1. 用 LLM 对旧消息生成摘要
-          2. 摘要存 Redis（覆盖旧摘要）
-          3. 旧消息存入情景记忆供跨会话检索
-          4. 工作记忆只保留最近 5 条
-        """
         flow = COMPRESSION.start()
         key = self._wm_key(user_id, conv_id)
         skey = self._summary_key(user_id, conv_id)
@@ -365,15 +177,15 @@ class MemoryManager:
             return flow.send("skip")
         flow.send("summarize")
         old_summary = old_summary or ""
-        messages = self._messages_from_raw(snapshot)
+        messages = messages_from_raw(snapshot)
         to_compress = messages[:-5]
-        text = redact_text(self._safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress)))
-        prompt = self._safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
+        text = redact_text(safe_text("\n".join(f"{m.role.value}: {m.content}" for m in to_compress)))
+        prompt = safe_text(f"用 2-3 句话总结以下对话的关键信息。错误码、事件 ID、设备号、工单号、系统和角色名等标识原样保留：\n{text}")
         try:
             routed = self.router.pick("summary")
             resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=1024, temperature=0.0,
                                        request_timeout=routed.settings["timeout"]))
-            summary = redact_text(self._safe_text(resp.text)).strip()
+            summary = redact_text(safe_text(resp.text)).strip()
             if not summary or resp.truncated:
                 logger.warning("摘要为空或被截断，保留原始会话消息")
                 return flow.send("defer")
@@ -412,35 +224,25 @@ class MemoryManager:
         logger.info("会话持续并发写入，本次压缩延期")
         return flow.send("defer")
 
-    @staticmethod
-    def _messages_from_raw(raws: List[str]) -> List[Message]:
-        msgs = []
-        for raw in reversed(raws):
-            d = json.loads(raw)
-            msgs.append(Message(role=MsgRole(d["role"]), content=d["content"],
-                                timestamp=datetime.fromisoformat(d["ts"]), metadata=d.get("metadata", {})))
-        return msgs
-
     async def _get_working_memory(self, user_id: str, conv_id: str) -> List[Message]:
         raws = await self._redis.lrange(self._wm_key(user_id, conv_id), 0, self.WORKING_MAX - 1)
-        return self._messages_from_raw(raws)
+        return messages_from_raw(raws)
 
     async def _search_episodic(self, user_id: str, conv_id: str, query: str, intent_group: Optional[str] = None, entities: Optional[Dict[str, Any]] = None, max_tokens: int = MEMORY_MAX_TOKENS) -> List[str]:
-        """跨会话语义检索情景记忆（本地 embedding）。
-
-        当前会话不在检索范围内：最近几轮已作为多轮消息传给模型，更早的部分有会话摘要，
-        再检索一遍只会把同一段问答重复塞进上下文。
-        """
-        query_text = self._safe_text(query).strip()
+        """仅检索其他会话，当前会话已有消息与摘要。"""
+        query_text = safe_text(query).strip()
         if not query_text:
             return []
-        conditions = [{"user_id": self._safe_text(user_id)}, {"conv_id": {"$ne": self._safe_text(conv_id)}}]
+        conditions = [{"user_id": safe_text(user_id)}, {"conv_id": {"$ne": safe_text(conv_id)}}]
         if intent_group:
-            conditions.append({"intent_group": self._safe_text(intent_group)})
+            conditions.append({"intent_group": safe_text(intent_group)})
         try:
-            results = await self._query_episodic(query_text, n_results=self.HISTORY_TOP_K, where={"$and": conditions})
-            docs = self._rank_memory_rows(results, max_tokens, entities)
-            return self._budget_texts(self._dedupe_texts(docs), max_tokens)[: self.HISTORY_TOP_K]
+            if not await asyncio.to_thread(self._episodic.count):
+                return []
+            results = await asyncio.to_thread(self._episodic.query, query_texts=[query_text],
+                                              n_results=self.HISTORY_TOP_K, where={"$and": conditions})
+            docs = rank_memory_rows(results, max_tokens, entities)
+            return list(dict.fromkeys(doc.strip() for doc in docs))[: self.HISTORY_TOP_K]
         except Exception as ex:
             logger.warning(f"情景记忆检索失败: {ex}")
             return []
@@ -491,8 +293,8 @@ class MemoryManager:
 
     async def _store_episodic(self, user_id: str, conv_id: str, text: str, summary: str) -> bool:
         """旧压缩 outbox 的重放也必须经过脱敏。"""
-        text = redact_text(self._safe_text(text))
-        summary = redact_text(self._safe_text(summary))
+        text = redact_text(safe_text(text))
+        summary = redact_text(safe_text(summary))
         doc_id = hashlib.sha256(json.dumps([user_id, conv_id, text, summary]).encode()).hexdigest()
         await asyncio.to_thread(self._episodic.upsert, ids=[doc_id], documents=[summary],
             metadatas=[{"user_id": user_id, "conv_id": conv_id,
@@ -501,8 +303,8 @@ class MemoryManager:
 
     async def store_episodic_turn(self, user_id: str, conv_id: str, request_id: str, message: str, response: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """同一主体的近重复问答合并，锁覆盖最近邻查询和写入。"""
-        safe_message = redact_text(self._safe_text(message))[:300]
-        safe_response = redact_text(self._safe_text(response))[:300]
+        safe_message = redact_text(safe_text(message))[:300]
+        safe_response = redact_text(safe_text(response))[:300]
         doc = f"员工问题：{safe_message}\n回答要点：{safe_response}"
         doc_id = hashlib.sha256(f"turn:{request_id}".encode()).hexdigest()
         now = datetime.now(timezone.utc).isoformat()
@@ -529,19 +331,9 @@ class MemoryManager:
                 meta["seen"] = previous["seen"] + 1
             await asyncio.to_thread(self._episodic.upsert, ids=[doc_id], documents=[doc], metadatas=[meta])
 
-    async def _get_profile(self, user_id: str) -> Dict[str, Any]:
-        doc_id = self._profile_doc_id(user_id)
-        direct = await asyncio.to_thread(self._profile.get, ids=[doc_id])
-        if direct["documents"]:
-            return self._read_profile(json.loads(direct["documents"][0]))
-        return {}
-
     async def personal_memories(self, user_id: str) -> dict:
-        profile = await self._get_profile(user_id)
         rows = await asyncio.to_thread(self._episodic.get, where={"user_id": user_id})
-        visible_profile = {key: {"summary": profile[key], "at": profile["field_meta"][key]["updated_at"]}
-                           for key, _ in PROFILE_LABELS if key in profile}
-        return {"profile": visible_profile, "episodic": [
+        return {"episodic": [
             {"id": doc_id, "summary": document, "at": meta["ts"]}
             for doc_id, document, meta in zip(rows["ids"], rows["documents"], rows["metadatas"])]}
 
@@ -575,7 +367,7 @@ class MemoryManager:
 
     @classmethod
     def _conversation_id(cls, user_id: str, conv_id: str) -> str:
-        return hashlib.sha256(json.dumps([cls._safe_text(user_id), cls._safe_text(conv_id)], ensure_ascii=True).encode()).hexdigest()
+        return hashlib.sha256(json.dumps([safe_text(user_id), safe_text(conv_id)], ensure_ascii=True).encode()).hexdigest()
 
     @classmethod
     def _wm_key(cls, user_id: str, conv_id: str) -> str:
@@ -589,132 +381,26 @@ class MemoryManager:
     def _state_key(cls, user_id: str, conv_id: str) -> str:
         return f"state_v1:{cls._conversation_id(user_id, conv_id)}"
 
-    @classmethod
-    def _profile_doc_id(cls, user_id: str) -> str:
-        return f"{cls.PROFILE_DOC_PREFIX}{user_id}"
-
-    @staticmethod
-    def _safe_text(value: Any) -> str:
-        """转成数据库可接受的普通 UTF-8 字符串。"""
-        if value is None:
-            return ""
-        if not isinstance(value, str):
-            value = str(value)
-        return value.encode("utf-8", errors="ignore").decode("utf-8")
-
-    async def _query_episodic(
-        self,
-        query_text: str,
-        n_results: int,
-        where: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        count = await asyncio.to_thread(self._episodic.count)
-        if count <= 0:
-            return {"documents": [], "metadatas": []}
-        return await asyncio.to_thread(
-            self._episodic.query,
-            query_texts=[query_text],
-            n_results=min(n_results, count),
-            where=where,
-        )
-
-    @classmethod
-    def _rank_memory_rows(cls, results: Dict[str, Any], max_tokens: int, entities: Optional[Dict[str, Any]] = None) -> List[str]:
-        docs = results.get("documents") or []
-        metas = results.get("metadatas") or []
-        distances = results.get("distances") or []
-        docs = docs[0] if docs and isinstance(docs[0], list) else docs
-        metas = metas[0] if metas and isinstance(metas[0], list) else metas
-        distances = distances[0] if distances and isinstance(distances[0], list) else distances
-        # 余弦距离门槛：jina-v2-base-zh 上同主题问答对 0.19–0.62、不同主题 ≥0.62（9 条查询的小样本校准）。
-        # 不设门槛时，老用户每轮都会带上 3 条与当前问题无关的旧对话，而且落在不命中缓存的本轮消息里。
-        max_distance = float(os.getenv("IT_COPILOT_MEMORY_MAX_DISTANCE") or cls.MEMORY_MAX_DISTANCE)
-        rows = []
-        for idx, doc in enumerate(docs):
-            if not isinstance(doc, str) or not doc.strip():
-                continue
-            distance = float(distances[idx]) if idx < len(distances) and distances[idx] is not None else None
-            if distance is not None and distance > max_distance:
-                continue
-            meta = metas[idx] if idx < len(metas) and isinstance(metas[idx], dict) else {}
-            requested_keys = {str(key) for key, value in (entities or {}).items() if value}
-            indexed_keys = {key for key in str(meta.get("entity_keys", "")).split(",") if key}
-            if requested_keys and indexed_keys and not requested_keys.intersection(indexed_keys):
-                continue
-            try:
-                importance = float(meta.get("importance", 0.5))
-            except (TypeError, ValueError):
-                importance = 0.5
-            try:
-                seen = int(meta.get("seen", 0))
-                importance *= 1 + 0.1 * min(seen, 5)
-                updated = datetime.fromisoformat(max(str(meta.get("ts", "")), str(meta.get("last_seen", ""))).replace("Z", "+00:00"))
-                if updated.tzinfo is None:
-                    updated = updated.replace(tzinfo=timezone.utc)
-                age_days = max(0.0, (datetime.now(timezone.utc) - updated).total_seconds() / 86400)
-                importance *= 0.5 ** (age_days / max(1.0, cls.MEMORY_HALF_LIFE_DAYS))
-            except (TypeError, ValueError):
-                pass
-            # 相关度为主、重要度与新近度为辅；原先只按重要度排序，相似度顺序被整个丢掉。
-            relevance = 1.0 - distance if distance is not None else 0.5
-            rows.append((relevance * (0.5 + importance), doc))
-        rows.sort(key=lambda item: item[0], reverse=True)
-        return cls._budget_texts([doc for _, doc in rows], max_tokens)
-
-    @staticmethod
-    def _budget_texts(values: List[str], max_tokens: int) -> List[str]:
-        budget = max(128, int(max_tokens))
-        used = 0
-        output = []
-        for value in values:
-            cost = max(1, len(value) // 2)
-            if output and used + cost > budget:
-                break
-            output.append(value)
-            used += cost
-        return output
-
-    @staticmethod
-    def _dedupe_texts(values: List[str]) -> List[str]:
-        seen = set()
-        deduped: List[str] = []
-        for value in values:
-            text = value.strip()
-            if not text or text in seen:
-                continue
-            seen.add(text)
-            deduped.append(text)
-        return deduped
-
     async def _merge_summary(self, old_summary: str, new_summary: str) -> str:
-        old_summary = redact_text(self._safe_text(old_summary)).strip()
-        new_summary = redact_text(self._safe_text(new_summary)).strip()
+        old_summary = redact_text(safe_text(old_summary)).strip()
+        new_summary = redact_text(safe_text(new_summary)).strip()
         if not old_summary:
             return new_summary[: self.SUMMARY_MAX_CHARS]
         if not new_summary:
             return old_summary[: self.SUMMARY_MAX_CHARS]
 
-        prompt = self._safe_text(
-            f"""你是对话摘要器。请把下面两段摘要合并为一段不超过 {self.SUMMARY_MAX_CHARS} 个中文字符的摘要。
-保留：用户偏好、关键实体、待办事项、约束条件、未解决问题。
-只输出摘要正文，不要编号，不要解释。
-
-旧摘要:
-{old_summary}
-
-新增摘要:
-{new_summary}
-"""
-        )
+        prompt = (f"请将两段对话摘要合并为不超过 {self.SUMMARY_MAX_CHARS} 个中文字符的正文。"
+                  "保留用户偏好、关键实体、待办、约束和未解决问题。"
+                  f"\n旧摘要：\n{old_summary}\n新增摘要：\n{new_summary}")
         try:
             routed = self.router.pick("summary")
             resp = await self.router.run(routed, complete_text(routed.model, prompt, max_tokens=256, temperature=0.0,
                                        request_timeout=routed.settings["timeout"]))
-            merged = redact_text(self._safe_text(resp.text)).strip()
+            merged = redact_text(safe_text(resp.text)).strip()
             if merged:
                 return merged[: self.SUMMARY_MAX_CHARS]
         except (TimeoutError, ModelConnectionError, ModelHTTPError, UnexpectedModelBehavior) as ex:
             logger.warning(f"合并摘要失败，回退为截断拼接: {ex}")
 
-        merged = self._safe_text(f"{old_summary}\n{new_summary}").strip()
+        merged = safe_text(f"{old_summary}\n{new_summary}").strip()
         return merged[-self.SUMMARY_MAX_CHARS :]

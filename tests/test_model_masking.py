@@ -229,21 +229,24 @@ def test_short_password_does_not_replace_normal_words():
     assert session.mask(source).endswith("; a normal app")
 
 
-def test_jev_state_is_masked():
-    from it_copilot.agent.jev import JevClient
+def test_classifier_state_is_masked():
+    from it_copilot.agent.intent.recognizer import IntentRecognizer
+
     async def run():
-        client = JevClient("synthetic")
-        await client._client.aclose()
         def upstream(request):
             body = json.loads(request.content)
             assert "alice@example.com" not in request.content.decode()
-            assert "{{EMAIL_" in body["state"]
-            return httpx2.Response(200, json={"answers": {}, "model": "jev", "usage": {}})
-        client._client = httpx2.AsyncClient(transport=httpx2.MockTransport(upstream))
-        try:
-            await client.ask("联系 alice@example.com", {})
-        finally:
-            await client.aclose()
+            assert "{{EMAIL_" in body["messages"][0]["content"]
+            call = {"id": "classify", "type": "function", "function": {
+                "name": "classify_it_request", "arguments": json.dumps({"intent": "other", "confidence": 0.9})}}
+            return httpx2.Response(200, json=completion({"role": "assistant", "tool_calls": [call]}))
+
+        async with httpx2.AsyncClient(transport=MaskingTransport(httpx2.MockTransport(upstream))) as client:
+            recognizer = IntentRecognizer("synthetic")
+            provider = OpenAIProvider(base_url="https://model.test/v1", api_key="synthetic", http_client=client)
+            recognizer.llm = OpenAIChatModel("test", provider=provider)
+            result = await recognizer.recognize("联系 alice@example.com")
+            assert result.recognition_source == "llm_tool_use"
     asyncio.run(run())
 
 

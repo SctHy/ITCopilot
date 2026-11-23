@@ -21,7 +21,6 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from it_copilot.agent.agent_stats import AgentStats
 from it_copilot.agent.states import SlotState, slot_state
 from it_copilot.agent.intent.taxonomy import WRITE_ACTIONS
 from it_copilot.agent.prompting import (
@@ -38,13 +37,12 @@ from it_copilot.agent.prompting import (
 from it_copilot.agent.types import (
     AgentCallError,
     AgentCallResult,
-    AgentProfile,
     AgentResponse,
     AgentRunDeps,
     ModelUnavailableError,
     Request,
 )
-from it_copilot.agent.deadline_model import DeadlineModel, TurnDeadlineExceeded
+from it_copilot.agent.model_router import DeadlineModel, TurnDeadlineExceeded
 from it_copilot.agent.llm import is_model_unavailable
 from it_copilot.agent.model_router import MODEL_ERRORS, ModelRouter
 from it_copilot.agent.masking.redaction import redact
@@ -70,19 +68,15 @@ class _TurnBudget:
 
 
 class BaseAgent:
-    def __init__(self, llm, model, skill_manager=None, profile=None, *, router=None,
-                 spec=None):
-        from it_copilot.agent.registry import default_spec
-        self.spec = default_spec() if spec is None else spec
+    def __init__(self, llm, model, skill_manager=None, *, router=None):
+        from it_copilot.agent.spec import default_spec
+        self.spec = default_spec()
         self.name, self.system_prompt = self.spec.name, self.spec.system_prompt
         self.router = ModelRouter(model=model) if router is None else router
         if llm is not None:
             self.router.replace_models(llm)
         self.read_route, self.write_route = self.spec.routes.read, self.spec.routes.write
-        self.profile = profile or AgentProfile()
-        self._model = model
         self._skill_manager = skill_manager
-        self.stats = AgentStats()
         self._shared_tools = {}
         self._agent = None
         self.executor = ToolExecutor()
@@ -99,15 +93,7 @@ class BaseAgent:
     def get_tools(self):
         if "*" in self.spec.tools:
             return dict(self._shared_tools)
-        from it_copilot.agent.tooling.mcp_client import tool_alias
-        allowed = set()
-        for name in self.spec.tools:
-            if name.startswith("mcp:"):
-                server, tool = name[4:].split("/", 1)
-                allowed.add(tool_alias(server, tool))
-            else:
-                allowed.add(name)
-        return {name: tool for name, tool in self._shared_tools.items() if name in allowed}
+        return {name: tool for name, tool in self._shared_tools.items() if name in self.spec.tools}
 
     def set_shared_tools(self, tools):
         self._shared_tools = dict(tools or {})
@@ -163,11 +149,10 @@ class BaseAgent:
 
     async def _handle_scoped(self, req: Request) -> AgentResponse:
         t0 = req.started_at = time.monotonic()
-        self.stats.total += 1
         try:
             result = await self._call_llm(req)
         except Exception as ex:
-            ms = self._record(False, t0)
+            ms = (time.monotonic() - t0) * 1000
             logger.exception("agent LLM call failed")
             tools_used, tool_traces = getattr(ex, "tools_used", []), getattr(ex, "tool_traces", [])
             if isinstance(ex, ModelUnavailableError):
@@ -182,8 +167,7 @@ class BaseAgent:
             response.observability = self._observability(req)
             return self._observe(response, getattr(ex, "reason", "exception"))
         ok = result.status in {"success", "partial"}
-        self.stats.success += int(ok)
-        ms = self._record(ok, t0)
+        ms = (time.monotonic() - t0) * 1000
         return self._observe(AgentResponse(
             content=result.content, success=ok, confidence=req.intent_confidence, latency_ms=ms,
             escalate=self._needs_escalation(result.content), tools_used=result.tools_used, tool_traces=result.tool_traces,
@@ -202,11 +186,6 @@ class BaseAgent:
                 metrics.LLM_TOKENS.labels(model=response.observability["model"], direction=direction).inc(tokens)
         return response
 
-    def _record(self, success: bool, started: float) -> float:
-        ms = (time.monotonic() - started) * 1000
-        self.stats.total_ms += ms
-        self.stats.record(success, ms)
-        return ms
 
     async def _call_llm(self, req: Request) -> AgentCallResult:
         deps = AgentRunDeps(req)
@@ -414,4 +393,3 @@ class BaseAgent:
     @staticmethod
     def _needs_escalation(content: str) -> bool:
         return any(marker in content for marker in ESCALATION_MARKERS)
-

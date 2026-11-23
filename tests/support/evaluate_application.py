@@ -102,7 +102,7 @@ async def trial(http, state, case, repeat):
             if x.get("success")
         ]
         result["tools_called"] = used
-        # Jev 路径会与意图识别并行预取知识并附进本轮消息，Agent 不再调用检索工具；预取命中同样算知识证据。
+        # 与意图识别并行预取知识并附进本轮消息，Agent 不再调用检索工具；预取命中同样算知识证据。
         if (
             any(t["response"].get("knowledge_used") for t in result["turns"])
             and "search_knowledge_base" not in used

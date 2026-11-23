@@ -5,7 +5,7 @@ DB/server supplied by the caller. All SQLite files are temporary. An optional
 PostgreSQL database_url must be a newly created isolated database owned by the caller. Requests
 authenticate with dev-mode tokens (default caller: alice; pass ``headers=auth(...)``
 for approvers or other identities). No flush
-of a user database, external MCP connection, or notification webhook is performed.
+of a user database is performed.
 """
 
 import asyncio
@@ -37,9 +37,7 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
             "IT_COPILOT_BUILD_SHA": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip(),
             "IT_COPILOT_ENV": "development",
             "IT_COPILOT_SEED_DEMO_DOCS": "false",
-            "IT_COPILOT_MCP_ENABLED": "false",
             "FEISHU_APP_ID": "",
-            "IT_COPILOT_ALERT_WEBHOOK": "",
             "IT_COPILOT_TASK_CONTACTS": "{}",
             "IT_COPILOT_SMTP_HOST": "",
             "IT_COPILOT_AUTH_MODE": "dev",
@@ -53,10 +51,6 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
         }
         if redis_url:
             env["REDIS_URL"] = redis_url
-        if model is not None:
-            # An offline model substitute must cover every model path, regardless
-            # of the developer's .env or installed third-party credentials.
-            env.update(IT_INTENT_BACKEND="llm", IT_COPILOT_RERANK_BACKEND="llm")
         with patch.dict(os.environ, env):
             with ExitStack() as stack:
                 if not redis_url:
@@ -70,7 +64,9 @@ async def application(*, model=None, redis_url=None, documents=(), maintenance=F
                     # Same reason as the per-identity limit above: the demo tenant's own limit is off too (ADR 0035).
                     await state.run_db(state.tenants.set_quotas, "default", {"agent_turn": "off"}, actor="evaluation")
                     if agent_spec is not None:
-                        state.orchestrator.forced_spec = state.agent_registry.get(*agent_spec)
+                        spec = state.orchestrator.agent.spec
+                        if agent_spec != (spec.name, spec.version):
+                            raise KeyError(agent_spec)
                     if documents:
                         await state.kb.add_documents_async(list(documents), tenant="default")
                     if model is not None:

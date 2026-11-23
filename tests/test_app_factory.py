@@ -12,4 +12,3 @@ def test_dependencies_and_streams_belong_to_one_app():
     assert TestClient(second).get("/health").json()["lifecycle"] == "uninitialized"
     assert a.events is not b.events
     assert a.background_tasks is not b.background_tasks
-    assert first.state.mcp_mount is not second.state.mcp_mount

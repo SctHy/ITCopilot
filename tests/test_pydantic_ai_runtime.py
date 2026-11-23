@@ -9,7 +9,7 @@ from it_copilot.agent.agent_orchestrator import AgentOrchestrator
 from it_copilot.agent.intent.recognizer import IntentRecognizer
 from it_copilot.agent.intent.taxonomy import IntentCategory
 from it_copilot.agent.types import AgentCallError, Request
-from it_copilot.agent.tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import ToolManager
 from tests.conftest import with_read_tool
 
 
@@ -172,7 +172,7 @@ def test_rerank_and_rewrite_use_structured_output():
         return ModelResponse(parts=[ToolCallPart(name, {"response": ["VPN 认证失败", "  "]})])
 
     async def run():
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager._llm = FunctionModel(respond)
         ranked, reranked = await manager._rerank_with_status("vpn", ["a", "b", "c"], 2)
         assert reranked and ranked == ["c", "a"]
@@ -186,12 +186,11 @@ def test_rerank_invalid_index_falls_back_to_original_order():
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"response": [9]})])
 
     async def run():
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager._llm = FunctionModel(respond)
         assert await manager._rerank_with_status("vpn", ["a", "b", "c"], 2) == (["a", "b"], False)
 
     asyncio.run(run())
-
 
 
 def test_thinking_type_reaches_upstream_request(monkeypatch):
@@ -225,7 +224,7 @@ def test_thinking_type_reaches_upstream_request(monkeypatch):
 def _search_manager(rows):
     from it_copilot.agent.tooling.tool_manager import Tool
 
-    manager = MCPToolManager("sk-local")
+    manager = ToolManager("sk-local")
     calls = []
 
     async def knowledge(params, ctx=None):

@@ -7,8 +7,6 @@ import pytest
 os.environ.setdefault("IT_COPILOT_BUILD_SHA", "test-build")
 os.environ.setdefault("IT_COPILOT_AUTH_MODE", "dev")
 os.environ.setdefault("IT_COPILOT_ENV", "development")
-# 测试不连外部 Jev；需要时显式注入 JevClient。
-os.environ["IT_INTENT_BACKEND"] = "llm"
 # 普通离线单测不下载/启动本地模型；真实本地模型测试显式开启。
 os.environ.setdefault("IT_COPILOT_MASK_MODEL", "off")
 

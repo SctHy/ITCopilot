@@ -15,7 +15,7 @@ from it_copilot.agent.tooling.tool_spec import make_tool
 
 def _ctx(*turns):
     return MemoryContext(recent_messages=[Message(role=r, content=c, timestamp=datetime.now()) for r, c in turns],
-                         relevant_history=[], user_profile={}, summary="")
+                         relevant_history=[], summary="")
 
 
 def test_history_turns_truncate_assistant_deterministically_and_keep_user():
@@ -97,7 +97,7 @@ def test_history_keeps_a_short_record_of_tools_and_approvals():
                 metadata={"request_id": "r1", "tools": ["search_knowledge_base", "create_ticket"], "approval_id": "r1:approval"}),
         Message(role=MsgRole.USER, content="谢谢", timestamp=datetime.now()),
         Message(role=MsgRole.ASSISTANT, content="不客气。", timestamp=datetime.now(), metadata={"request_id": "r2", "tools": [], "approval_id": None}),
-    ], relevant_history=[], user_profile={}, summary="")
+    ], relevant_history=[], summary="")
     turns = ctx.history_turns()
     assert turns[1]["content"] == "已提交工单审批。\n[本轮工具：search_knowledge_base、create_ticket；已生成待审批 r1:approval]"
     assert turns[3]["content"] == "不客气。"

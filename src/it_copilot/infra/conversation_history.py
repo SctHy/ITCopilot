@@ -43,12 +43,13 @@ def record_exchange(db, principal: Principal, conv_id: str, request_id: str, cha
     meta = redact({key: response.get(key) for key in ASSISTANT_META if response.get(key) not in (None, [], "")})
     rows = [dict(role="user", content=redact_text(message), meta={}, created_at=now),
             dict(role="assistant", content=redact_text(response.get("response") or ""), meta=meta, created_at=now)]
-    insert = upsert(db, conversation_messages)
-    added = 0
-    for row in rows:
-        result = db.execute(insert.values(tenant=tenant, owner=owner, conv_id=conv_id, request_id=request_id, **row)
-                            .on_conflict_do_nothing(index_elements=["tenant", "owner", "request_id", "role"]))
-        added += result.rowcount or 0
+    insert = upsert(db, conversation_messages).values([
+        dict(tenant=tenant, owner=owner, conv_id=conv_id, request_id=request_id, **row) for row in rows
+    ])
+    inserted = db.execute(insert.on_conflict_do_nothing(
+        index_elements=["tenant", "owner", "request_id", "role"]
+    ).returning(conversation_messages.c.id))
+    added = len(inserted.all())
     if not added:
         return False
     head = upsert(db, conversations).values(tenant=tenant, owner=owner, conv_id=conv_id, channel=channel,

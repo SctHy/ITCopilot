@@ -152,7 +152,6 @@ class IntentEvaluator:
             "by_split": _group_accuracy(case_details, lambda item: [item["split"]] if item["split"] else []),
             "urgency_accuracy": _urgency_accuracy(case_details),
             "latency_s": _latency_summary([item["latency_s"] for item in case_details]),
-            **{k: v for k, v in metrics.items() if k.startswith("jev_")},
         }
 
 

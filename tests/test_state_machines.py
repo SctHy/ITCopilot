@@ -8,9 +8,6 @@ from tests.runtime import state
 from it_copilot.api.routes import chat as chat_routes
 from it_copilot.infra.events import InMemoryEventBus
 from it_copilot.infra.states import IllegalTransition, Machine
-from it_copilot.agent.memory.conversation_memory import MemoryContext, MemoryManager
-from it_copilot.infra.monitor.performance_monitor import ALERT, AlertManager, Condition
-from it_copilot.agent.tooling.mcp_client import CONNECTION
 from it_copilot.workflow.states import ACTION, APPROVAL, EXECUTION, GRANT, ActionStatus, ApprovalStatus, Execution, GrantStatus
 from it_copilot.workflow.store import WorkflowStore
 
@@ -30,7 +27,7 @@ def test_machine_rejects_undeclared_edges_and_allows_staying():
         Machine(Light, "a -> missing")
 
 
-@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT, CONNECTION, ALERT])
+@pytest.mark.parametrize("machine", [APPROVAL, EXECUTION, ACTION, GRANT])
 def test_every_state_is_reachable_from_the_initial_one(machine):
     initial = next(iter(machine.edges))
     seen, frontier = {initial}, [initial]
@@ -77,21 +74,3 @@ def test_stream_without_terminal_event_is_reported_abandoned(monkeypatch):
     chunks = asyncio.run(run())
     assert chunks[0].startswith("id:") and "event: status" in chunks[0]
     assert "event: error" in chunks[-1] and "stream_abandoned" in chunks[-1]
-
-
-def test_alert_resolves_only_after_clean_ticks():
-    alerts = AlertManager()
-    alerts.evaluate({"k": Condition("rule", "warning", "m", 1, 0)})
-    alerts.evaluate({})
-    assert alerts.firing["k"].clearing
-    alerts.evaluate({})
-    assert "k" not in alerts.firing and alerts.history[-1].state == "resolved"
-
-
-def test_profile_is_revised_not_accumulated():
-    profile = {}
-    for _ in range(3):  # the same revision again must not pile up
-        profile = MemoryManager._merge_profile(profile, MemoryManager._normalize_profile({"background": "研发部", "work": "GitLab"}))
-    profile = MemoryManager._merge_profile(profile, MemoryManager._normalize_profile({"background": "产品部"}))
-    text = MemoryContext([], [], profile, "").to_prompt_text()
-    assert text.count("GitLab") == 1 and "研发" not in text and "背景：产品部" in text

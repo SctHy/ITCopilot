@@ -23,7 +23,7 @@ LLM_TOKENS = Counter("it_copilot_llm_tokens_total", "LLM token 消耗（directio
 CACHE_LOOKUPS = Counter("it_copilot_cache_lookups_total", "应用内缓存查询（进程内，多进程不共享）", ["cache", "result"])
 AGENT_TOOL_CALLS = Counter("it_copilot_agent_tool_calls_total", "Agent 发起的工具调用", ["tool", "error_class"])
 
-# ── 工具治理层（MCPToolManager） ─────────────────────────────────────────────
+# ── 工具治理层（ToolManager） ─────────────────────────────────────────────
 TOOL_CALLS = Counter("it_copilot_tool_calls_total", "治理层工具调用结果", ["tool", "outcome"])
 TOOL_LATENCY = Histogram("it_copilot_tool_latency_seconds", "治理层工具执行耗时（不含缓存命中）", ["tool"], buckets=TOOL_LATENCY_BUCKETS)
 TOOL_CIRCUIT_STATE = Gauge("it_copilot_tool_circuit_state", "熔断状态：0=closed 1=half_open 2=open", ["tool"])
@@ -56,11 +56,6 @@ DISPATCH_LATENCY = Histogram("it_copilot_workflow_dispatch_latency_seconds", "Se
 # ── 实时事件流 ────────────────────────────────────────────────────────────────
 STREAM_FIRST_EVENT = Histogram("it_copilot_stream_first_event_seconds", "SSE 首个执行事件（非 started）距请求开始的延迟", buckets=TOOL_LATENCY_BUCKETS)
 
-# ── 外部 MCP 与监控自身 ───────────────────────────────────────────────────────
-MCP_SERVER_UP = Gauge("it_copilot_mcp_server_up", "外部 MCP 服务连接状态（1=connected）", ["server"])
-MCP_TOOLS = Gauge("it_copilot_mcp_tools", "外部 MCP 服务已注册的工具数", ["server"])
-ALERTS_FIRING = Gauge("it_copilot_alerts_firing", "进程内告警是否触发（1=firing）", ["alert", "severity"])
-SLO_BURN_RATE = Gauge("it_copilot_slo_burn_rate", "SLO 错误预算燃烧率", ["slo", "window"])
 
 # 模型出站脱敏：不记录原值、占位符、租户或会话标识。
 MODEL_MASK_REQUESTS = Counter("it_copilot_model_mask_requests_total", "出站脱敏结果", ["outcome"])

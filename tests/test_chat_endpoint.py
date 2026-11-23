@@ -12,9 +12,8 @@ from it_copilot.api import schemas
 from tests.runtime import state
 from it_copilot.api.routes import chat as chat_routes
 from tests.support.fake_model import scripted_model
-from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
 from tests.conftest import auth
-from it_copilot.agent.tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import ToolManager
 from tests.conftest import with_read_tool
 
 
@@ -35,16 +34,15 @@ def chat_client(monkeypatch):
     orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator._intent_recognizer.llm = model
     orchestrator.agent._llm = model
-    tool_manager = MCPToolManager("sk-local")
-    monitor = PerformanceMonitor(orchestrator, tool_manager)
-    for name, value in {"orchestrator": orchestrator, "memory": None, "tool_manager": tool_manager, "monitor": monitor}.items():
+    tool_manager = ToolManager("sk-local")
+    for name, value in {"orchestrator": orchestrator, "memory": None, "tool_manager": tool_manager}.items():
         monkeypatch.setattr(state, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
-    return TestClient(api.app, headers=auth("alice")), monitor
+    return TestClient(api.app, headers=auth("alice"))
 
 
-def test_chat_end_to_end_records_metrics_and_slo(chat_client):
-    http, monitor = chat_client
+def test_chat_end_to_end_records_metrics(chat_client):
+    http = chat_client
     before = sample("it_copilot_chat_requests_total", status="success", intent_group="network")
     agent_stage = sample("it_copilot_chat_stage_seconds_count", stage="agent") or 0
     response = http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-1"})
@@ -56,11 +54,10 @@ def test_chat_end_to_end_records_metrics_and_slo(chat_client):
     # 无记忆、无审批时只有 memory_context / intent / agent 三段。
     assert set(body["stage_ms"]) == {"memory_context", "intent", "agent"} and all(v >= 0 for v in body["stage_ms"].values())
     assert sample("it_copilot_chat_stage_seconds_count", stage="agent") == agent_stage + 1
-    assert monitor.slos["chat_availability"].window(300) == (1, 0)
 
 
 def test_chat_stream_end_to_end(chat_client):
-    http, _ = chat_client
+    http = chat_client
     with http.stream("POST", "/chat/stream", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-2"}) as response:
         text = "".join(response.iter_text())
     assert "event: tool" in text and "event: completed" in text and "event: error" not in text
@@ -71,7 +68,7 @@ def test_chat_stream_end_to_end(chat_client):
 def test_stream_request_key_binds_message_and_conversation(chat_client, monkeypatch):
     from it_copilot.infra.events import InMemoryEventBus
     monkeypatch.setattr(state, "events", InMemoryEventBus())
-    http, _ = chat_client
+    http = chat_client
     payload = {"message": "VPN 报错 VPN-691", "conv_id": "binding", "client_request_id": "bound-key"}
     first = http.post("/chat/stream", json=payload)
     assert first.status_code == 200 and "event: completed" in first.text
@@ -80,22 +77,12 @@ def test_stream_request_key_binds_message_and_conversation(chat_client, monkeypa
     assert http.post("/chat/stream", json={**payload, "conv_id": "changed"}).status_code == 409
 
 
-def test_monitor_endpoint_reports_live_state(chat_client):
-    http, monitor = chat_client
-    http.post("/chat", json={"message": "VPN 报错 VPN-691", "client_request_id": "e2e-3"})
-    monitor.tick()
-    body = http.get("/monitor").json()
-    assert body["agent"]["total"] >= 1 and body["agent"]["recent_success_rate"] == 1
-    assert body["monitor"]["status"] == "ok" and body["monitor"]["slos"][0]["requests_1h"] >= 1
-    assert body["mcp"] == {"enabled": False, "servers": []}
-
-
 def test_second_turn_reuses_employee_id_from_conversation_state(chat_client, monkeypatch):
     from it_copilot.agent.memory.conversation_memory import MemoryContext
 
     class FakeMemory:
         async def get_context(self, user_id, conv_id, query=""):
-            return MemoryContext([], [], {}, "", state={"intent_group": "access", "entities": {"employee_id": ["E1001"]}})
+            return MemoryContext([], [], "", state={"intent_group": "access", "entities": {"employee_id": ["E1001"]}})
 
         async def commit_turn(self, *args, **kwargs):
             pass
@@ -118,7 +105,7 @@ def test_login_employee_id_fills_the_slot_when_no_turn_provided_one(chat_client,
             self.entities = entities
 
         async def get_context(self, user_id, conv_id, query=""):
-            return MemoryContext([], [], {}, "", state={"intent_group": "access", "entities": self.entities})
+            return MemoryContext([], [], "", state={"intent_group": "access", "entities": self.entities})
 
         async def commit_turn(self, *args, **kwargs):
             pass

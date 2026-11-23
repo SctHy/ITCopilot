@@ -8,9 +8,8 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from it_copilot.agent.agent_orchestrator import AgentOrchestrator
-from it_copilot.agent.agent_stats import AgentStats
 from it_copilot.agent.types import Request
-from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
 from tests.conftest import with_read_tool
 
 
@@ -32,13 +31,6 @@ def orchestrator_with(model):
 
 # ── 统计窗口 ──────────────────────────────────────────────────────────────────
 
-def test_agent_stats_window_tracks_recent_success_and_latency():
-    stats = AgentStats()
-    assert stats.recent() == (0, 1., 0.)
-    stats.record(True, 100)
-    stats.record(False, 300)
-    assert stats.recent() == (2, .5, 200.)
-
 
 # ── Prometheus 指标 ───────────────────────────────────────────────────────────
 
@@ -55,7 +47,7 @@ def test_agent_metrics_record_status_tokens_and_tool_calls():
         model_name = orchestrator.router.config.routes[orchestrator.agent.write_route].candidates[0]
         before = (sample("it_copilot_agent_requests_total", **labels), sample("it_copilot_llm_tokens_total", model=model_name, direction="input"),
                   sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success"))
-        await orchestrator._execute(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001", tenant="default")))
+        await orchestrator.agent.handle(Request("查一下资产 DEV-1001", principal=SimpleNamespace(employee_id="1001", tenant="default")))
         assert sample("it_copilot_agent_requests_total", **labels) == before[0] + 1
         assert sample("it_copilot_llm_tokens_total", model=model_name, direction="input") == before[1] + 11
         assert sample("it_copilot_agent_tool_calls_total", tool="lookup_asset", error_class="success") == before[2] + 1
@@ -69,7 +61,7 @@ def test_agent_failure_reason_is_classified():
     async def run():
         orchestrator = orchestrator_with(FunctionModel(loop_forever))
         before = sample("it_copilot_agent_failures_total", reason="round_limit")
-        response = await orchestrator._execute(Request("VPN 状态"))
+        response = await orchestrator.agent.handle(Request("VPN 状态"))
         assert response.error_code == "round_limit"
         assert sample("it_copilot_agent_failures_total", reason="round_limit") == before + 1
     asyncio.run(run())
@@ -77,7 +69,7 @@ def test_agent_failure_reason_is_classified():
 
 def test_tool_manager_metrics_label_every_outcome():
     async def run():
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         schema = {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"], "additionalProperties": False}
 
         async def slow(params, ctx):
@@ -114,7 +106,7 @@ def test_metrics_endpoint_exposes_new_series():
 
     import tests.runtime
     text = TestClient(tests.runtime.app).get("/metrics").text
-    for name in ("it_copilot_agent_requests_total", "it_copilot_tool_calls_total", "it_copilot_intent_recognitions_total", "it_copilot_slo_burn_rate"):
+    for name in ("it_copilot_agent_requests_total", "it_copilot_tool_calls_total", "it_copilot_intent_recognitions_total"):
         assert name in text
 
 
@@ -133,7 +125,7 @@ def test_tracing_nests_agent_spans_under_chat_without_content():
     async def run():
         orchestrator = orchestrator_with(FunctionModel(respond))
         with telemetry.chat_span("trace-1"):
-            await orchestrator._execute(Request("我的员工号 E1001，VPN-691"))
+            await orchestrator.agent.handle(Request("我的员工号 E1001，VPN-691"))
 
     exporter = InMemorySpanExporter()
     provider = telemetry.setup_tracing(exporter)

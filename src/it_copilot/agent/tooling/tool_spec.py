@@ -1,8 +1,4 @@
-"""Agent 工具的声明：名称、JSON Schema、处理函数与执行属性。
-
-放在 tooling 层：本地工具（agents/tools.py）与外部 MCP 工具（tooling/mcp_client.py）都产出它，
-统一执行层（tooling/executor.py）消费它。
-"""
+"""内置工具的执行属性与参数约束。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +17,7 @@ class AgentToolSpec:
     handler: AgentToolHandler
     retry_safe: bool = True
     timeout_s: Optional[float] = None
-    # 处理函数内部已有熔断、重试与兜底（如经 MCPToolManager 的知识检索），执行层只保留总时限。
+    # 处理函数内部已有熔断、重试与兜底（如经 ToolManager 的知识检索），执行层只保留总时限。
     self_governed: bool = False
 
 

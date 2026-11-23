@@ -125,7 +125,6 @@ def test_standalone_processes_serve_probes_and_exit_on_sigterm(tmp_path, monkeyp
     monkeypatch.setenv("IT_COPILOT_REQUIRE_REDIS", "false")
     monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1")
     monkeypatch.setenv("IT_COPILOT_EMBED_WORKER", "false")
-    monkeypatch.setenv("IT_COPILOT_MCP_ENABLED", "false")
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
     monkeypatch.setenv("IT_COPILOT_GITEA_REPOS", "")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")

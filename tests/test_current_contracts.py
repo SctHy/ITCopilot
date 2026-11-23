@@ -3,8 +3,6 @@ import json
 
 import pytest
 
-from it_copilot.agent.checkpointing import decode, encode
-from it_copilot.agent.types import AgentResponse, Request
 from it_copilot.infra.events import StreamConflict, _binding
 from tests.support.evaluator import load_intent_cases
 
@@ -25,17 +23,6 @@ def test_missing_and_malformed_intent_dataset_fail(tmp_path):
     path.write_text("{broken")
     with pytest.raises(ValueError):
         load_intent_cases(str(path))
-
-
-def test_current_checkpoint_restores_output_state_and_requires_it():
-    original = Request("VPN", conversation_state={"stage": "after"})
-    saved = encode(AgentResponse("done", True), original)
-    resumed = Request("VPN", conversation_state={"stage": "before"})
-    assert decode(saved, resumed).content == "done"
-    assert resumed.conversation_state == {"stage": "after"}
-    del saved["conversation_state"]
-    with pytest.raises(KeyError, match="conversation_state"):
-        decode(saved, resumed)
 
 
 @pytest.mark.parametrize("raw", ["owner-only", '"owner-only"', '{"owner":"alice"}'])

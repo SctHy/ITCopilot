@@ -1,10 +1,7 @@
-"""记忆层的上下文开销：跨会话检索不重复当前会话、画像提炼节流、画像不转义中文。"""
+"""记忆层的上下文开销：跨会话检索、身份隔离与有界历史。"""
 import asyncio
-import json
 import tempfile
-from datetime import datetime
 
-import pytest
 import fakeredis.aioredis
 
 from it_copilot.agent.memory.conversation_memory import MemoryContext, MemoryManager
@@ -54,44 +51,6 @@ def test_episodic_recall_skips_the_current_conversation():
     assert len(hits) == 1 and "证书过期" in hits[0]
 
 
-def _push_turn(m, key, n):
-    return m._redis.lpush(key, json.dumps({"role": "user", "content": f"q{n}", "ts": datetime.now().isoformat()}),
-                          json.dumps({"role": "assistant", "content": f"a{n}", "ts": datetime.now().isoformat()}))
-
-
-
-
-
-
-def test_profile_in_prompt_keeps_chinese_readable():
-    ctx = MemoryContext(recent_messages=[], relevant_history=[], user_profile=MemoryManager._normalize_profile({"background": "研发部", "environment": "MacBook"}), summary="")
-    text = ctx.to_prompt_text()
-    assert "研发" in text and "\\u" not in text
-
-
-def test_profile_prompt_is_a_short_document():
-    stored = MemoryManager._normalize_profile({"background": "platform 组后端工程师，新入职", "work": "看 platform 代码，用 GitLab、Jira",
-                                               "environment": "公司配 MacBook Pro，手机 iPhone", "communication": "中文，回答简短"})
-    text = MemoryContext(recent_messages=[], relevant_history=[], user_profile=stored, summary="").to_prompt_text()
-    assert text == ("[用户画像]\n背景：platform 组后端工程师，新入职\n工作内容：看 platform 代码，用 GitLab、Jira\n"
-                    "设备与环境：公司配 MacBook Pro，手机 iPhone\n沟通偏好：中文，回答简短")
-
-
-def test_each_profile_field_is_capped():
-    stored = MemoryManager._normalize_profile({k: "很长" * 200 for k in ("background", "work", "environment", "communication")})
-    assert all(len(stored[k]) <= 80 for k in ("background", "work", "environment", "communication"))
-
-
-@pytest.mark.parametrize("version", [3, 4, 6, None])
-def test_profile_reader_rejects_unsupported_schema(version):
-    with pytest.raises(ValueError, match="Profile schema must be 5"):
-        MemoryManager._read_profile({"schema_version": version, "department": "platform"})
-
-
-def test_profile_reader_preserves_current_field_provenance():
-    profile = MemoryManager._normalize_profile({"background": "platform"}, updated_at=42, source_request_id="turn-1")
-    assert MemoryManager._read_profile(profile) == profile
-    assert MemoryManager._read_profile({}) == {}
 
 
 def test_history_window_trims_in_blocks_so_prefix_stays_cacheable():
@@ -99,7 +58,7 @@ def test_history_window_trims_in_blocks_so_prefix_stays_cacheable():
 
     def first(n):
         msgs = [Message(role=MsgRole.USER if i % 2 == 0 else MsgRole.ASSISTANT, content=f"m{i}") for i in range(n)]
-        turns = MemoryContext(recent_messages=msgs, relevant_history=[], user_profile={}, summary="").history_turns(limit=20)
+        turns = MemoryContext(recent_messages=msgs, relevant_history=[], summary="").history_turns(limit=20)
         assert len(turns) <= 20 and turns[0]["role"] == "user"
         return turns[0]["content"]
 

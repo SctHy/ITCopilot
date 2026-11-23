@@ -32,7 +32,7 @@ def http(store, monkeypatch):
     orchestrator = with_read_tool(AgentOrchestrator("sk-local"))
     orchestrator.agent._llm = orchestrator._intent_recognizer.llm = scripted_model(respond)
     for name, value in {"orchestrator": orchestrator, "workflow": store, "memory": None, "kb": None,
-                        "request_recall": None, "monitor": None, "events": InMemoryEventBus()}.items():
+                        "request_recall": None, "events": InMemoryEventBus()}.items():
         monkeypatch.setattr(state, name, value)
     monkeypatch.setenv("IT_INTENT_LLM_ENABLED", "true")
     return TestClient(api.app)

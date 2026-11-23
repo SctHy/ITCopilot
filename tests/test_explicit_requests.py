@@ -6,7 +6,6 @@ import pytest
 from it_copilot.agent.intent.explicit import explicit_access_systems, explicit_write_requests
 from it_copilot.agent.intent.recognizer import IntentRecognizer
 from it_copilot.agent.intent.taxonomy import IntentCategory
-from tests.test_phase2 import _FakeJev, _jev_answers
 
 
 @pytest.mark.parametrize("message,expected", [
@@ -41,7 +40,6 @@ def test_questions_refusals_and_deferrals_are_not_requests(message):
 def test_readonly_scope_overrides_inferred_writes_but_keeps_separate_explicit_request():
     async def run():
         recognizer = IntentRecognizer('test', model='test')
-        recognizer._jev = None
         recognizer._llm = lambda message, history: asyncio.sleep(0, result={
             'intent': IntentCategory.PERMISSION_REQUEST, 'confidence': .95, 'entities': {},
             '_llm_used': True, '_source': 'llm_tool_use', '_actions': {'create_ticket', 'request_access'}})
@@ -55,10 +53,9 @@ def test_readonly_scope_overrides_inferred_writes_but_keeps_separate_explicit_re
 
 
 def test_a_confident_single_intent_no_longer_drops_the_second_explicit_ask():
-    # Jev picks the first ask (vpn_issue) and scores no write action for the whole message.
     async def run():
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("vpn_issue", .95)))
-        recognizer._llm = lambda message, history: (_ for _ in ()).throw(AssertionError("no LLM call expected"))
+        recognizer = IntentRecognizer("test", model="test")
+        recognizer._llm = lambda message, history: asyncio.sleep(0, result={"intent": IntentCategory.VPN_ISSUE, "confidence": .95, "_actions": set()})
         result = await recognizer.recognize("我 VPN 连不上，报错 VPN-691；另外帮我申请 GitLab 只读权限，用 3 天。")
         assert result.intent == IntentCategory.VPN_ISSUE and result.requested_actions == frozenset({"request_access"})
         plain = await recognizer.recognize("VPN 报 VPN-691 是什么意思？")
@@ -68,7 +65,7 @@ def test_a_confident_single_intent_no_longer_drops_the_second_explicit_ask():
 
 def test_an_explicit_request_is_not_sent_back_for_vague_clarification():
     async def run():
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("other", .45)))
+        recognizer = IntentRecognizer("test", model="test")
         recognizer._llm = lambda message, history: asyncio.sleep(0, result={
             "intent": IntentCategory.OTHER, "confidence": .4, "entities": {}, "_llm_used": True, "_source": "llm_tool_use", "_actions": set()})
         explicit = await recognizer.recognize("工号1002，请发起密码重置申请；同时帮我查一下设备 DEV-011 的资产信息。")
@@ -96,12 +93,11 @@ def test_access_target_is_scoped_to_an_unambiguous_explicit_request(message, exp
     assert explicit_access_systems(message) == expected
 
 
-@pytest.mark.parametrize("backend", ["jev", "llm", "rules"])
+@pytest.mark.parametrize("backend", ["llm", "rules"])
 def test_permission_request_recovers_missing_system_but_still_requires_real_slots(monkeypatch, backend):
     async def run():
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("permission_request", .95)))
+        recognizer = IntentRecognizer("test", model="test")
         if backend == "llm":
-            recognizer._jev = None
             recognizer._llm = lambda message, history: asyncio.sleep(0, result={
                 "intent": IntentCategory.PERMISSION_REQUEST, "confidence": .95,
                 "entities": {}, "_llm_used": True, "_source": "llm_tool_use", "_actions": set()})
@@ -119,7 +115,8 @@ def test_permission_request_recovers_missing_system_but_still_requires_real_slot
 
 def test_business_intent_does_not_override_explicit_no_new_action():
     async def run():
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("permission_request", .95)))
+        recognizer = IntentRecognizer("test", model="test")
+        recognizer._llm = lambda *args: asyncio.sleep(0, result={"intent": IntentCategory.PERMISSION_REQUEST, "confidence": .95, "_actions": set()})
         result = await recognizer.recognize("总结一下今天已申请的权限")
         assert result.intent == IntentCategory.PERMISSION_REQUEST
         assert result.requested_actions == frozenset()
@@ -127,10 +124,8 @@ def test_business_intent_does_not_override_explicit_no_new_action():
 
 
 def test_classifier_keeps_earlier_user_request_across_topic_switches():
-    from it_copilot.agent.intent.taxonomy import jev_state
     history = [{"role": "user", "content": "GitLab reporter 权限，合并请求评审，先别提交"}]
     history += [{"role": "user", "content": f"无关话题 {i}"} for i in range(8)]
-    assert "GitLab reporter" in jev_state("可以提交了，按最开始的角色", history)
     recognizer = IntentRecognizer("test", model="test")
     assert recognizer._cache_key("提交", history) != recognizer._cache_key("提交", history[1:])
 

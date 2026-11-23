@@ -173,7 +173,7 @@ def test_streamed_prefix_is_reset_when_the_turn_deadline_expires(tmp_path):
 
 
 def test_timeout_at_deadline_releases_half_open_model_probe(tmp_path):
-    from it_copilot.agent.deadline_model import TurnDeadlineExceeded
+    from it_copilot.agent.model_router import TurnDeadlineExceeded
     from it_copilot.agent.tooling.tool_manager import CircuitState
 
     async def timeout_before_timer_runs(messages, info):

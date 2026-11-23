@@ -89,6 +89,7 @@ def test_a_user_refused_by_their_own_limit_does_not_spend_the_tenants_budget(ten
 def approve_access(store, tenant, n):
     """``n`` approved requests on distinct resources, so nothing serializes them but the queue order."""
     for i in range(n):
+        store.clock.t += 1  # Distinct due times define FIFO order on both database engines.
         requester = Principal(f"dev:u{i}", f"u{i}", "engineering", frozenset({"employee"}), str(3000 + i), tenant=tenant)
         pending = store.create(f"{tenant}-{i}", request_id=f"r-{tenant}-{i}", conv_id="c", principal=requester,
                                action_requests=[access(employee=str(3000 + i))])

@@ -11,13 +11,12 @@ _ROOT = str(pathlib.Path(__file__).resolve().parents[3])
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from it_copilot.infra.monitor.telemetry import trace_scope
 from it_copilot.infra.logging import configure_logging
 from it_copilot.api.container import AppContainer
 from it_copilot.api.deps import env_flag
-from it_copilot.api.routes import agents, memory, approvals, auth, chat, conversations, knowledge, ops
+from it_copilot.api.routes import memory, approvals, auth, chat, conversations, knowledge, ops
 from it_copilot.infra.env import env_float
 from it_copilot.infra.events import InMemoryEventBus, RedisEventBus
 from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
@@ -35,31 +34,16 @@ configure_logging("api")
 logger = logging.getLogger("it_copilot")
 
 
-async def _start_mcp_client(state: AppContainer):
-    """连接 config/mcp_servers.json 中启用的外部 MCP 服务；后台连接，不阻塞启动。"""
-    if not env_flag("IT_COPILOT_MCP_ENABLED"):
-        return None
-    from it_copilot.agent.tooling.mcp_client import StandardMCPClient, load_servers
-    configs = load_servers(pathlib.Path(os.getenv("IT_COPILOT_MCP_CONFIG", str(pathlib.Path(_ROOT) / "config/mcp_servers.json"))))
-    client = StandardMCPClient(state.tool_manager, configs, on_change=lambda: state.orchestrator.set_external_tools(client.agent_tools()))
-    await client.start(wait=False)
-    logger.info("external MCP client started: %s", [c.name for c in configs])
-    return client
-
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state = app.state.container
-    _mcp_mount = app.state.mcp_mount
     from it_copilot.agent.agent_orchestrator import AgentOrchestrator
+    from it_copilot.agent.spec import default_spec
     from it_copilot.agent.skill_loader import SkillManager
     from it_copilot.agent.memory.conversation_memory import MemoryManager
-    from it_copilot.infra.monitor.performance_monitor import PerformanceMonitor
     from it_copilot.infra.monitor.telemetry import setup_tracing, shutdown_tracing
     from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-    from it_copilot.agent.tooling.mcp_server import create_http_app, create_server
-    from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
+    from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
     from it_copilot.workflow.worker import ExecutionWorker, configured_store, database_url
 
     from it_copilot.infra.turn_records import build_sha
@@ -83,12 +67,11 @@ async def lifespan(app: FastAPI):
                     resources.push_async_callback(adapter.close)
             from it_copilot.infra.change_log import record_deploy
             await state.workflow.run_with_engine(record_deploy, sha)
-            from it_copilot.agent.registry import AgentRegistry, default_spec
             state.skills = SkillManager(str(pathlib.Path(_ROOT) / default_spec().skills.root), change_engine=state.workflow.engine)
             state.skills.load()
             from it_copilot.agent.model_router import ModelRouter
             model_router = ModelRouter(engine=state.workflow.engine)
-            state.tool_manager = MCPToolManager(**llm, router=model_router)
+            state.tool_manager = ToolManager(**llm, router=model_router)
             # 审批、执行与向量（知识库、记忆）同库：本地 SQLite，部署 PostgreSQL + pgvector。
             state.kb = KnowledgeBase(db_url)
 
@@ -100,10 +83,7 @@ async def lifespan(app: FastAPI):
                 cache_ttl=60, timeout_s=8, fallback=lambda p, c, e: {"items": [], "fallback": True, "error": e},
             ))
             state.orchestrator = AgentOrchestrator(**llm, skill_manager=state.skills, rag_tool_manager=state.tool_manager, router=model_router,
-                directory=state.workflow, knowledge_version=state.kb.collection_version, registry_factory=AgentRegistry)
-            state.agent_registry = state.orchestrator.registry
-            resources.push_async_callback(state.orchestrator.aclose)
-            state.orchestrator.start()
+                directory=state.workflow, knowledge_version=state.kb.collection_version)
             try:
                 state.memory = MemoryManager(redis_url=os.getenv("REDIS_URL", "redis://:it-copilot123@127.0.0.1:6379/0"), database_url=db_url, **llm, router=model_router)
                 resources.push_async_callback(state.memory.close)
@@ -131,16 +111,6 @@ async def lifespan(app: FastAPI):
             services.push_async_callback(state.retention.stop)
             if env_flag("IT_COPILOT_EMBED_WORKER") and env_flag("IT_COPILOT_RETENTION_ENABLED", "true"):
                 state.retention.start()
-            mcp_server = create_server(state.kb, state.tool_manager, tenant=os.getenv("IT_COPILOT_PLATFORM_TENANT", "default"))
-            _mcp_mount.app = create_http_app(mcp_server)
-            resources.callback(setattr, _mcp_mount, "app", None)
-            await resources.enter_async_context(mcp_server.session_manager.run())
-            state.mcp_client = await _start_mcp_client(state)
-            if state.mcp_client:
-                resources.push_async_callback(state.mcp_client.close)
-            state.monitor = PerformanceMonitor(state.orchestrator, state.tool_manager, state.mcp_client, workflow=state.workflow)
-            services.push_async_callback(state.monitor.stop)
-            await state.monitor.start()
             state.lifecycle.send("ready" if state.memory else "degrade")
             if dev_mode_allowed():
                 logger.warning("IT_COPILOT_AUTH_MODE=dev：使用本地演示身份签发 token，仅适用于开发与评测")
@@ -161,25 +131,10 @@ async def lifespan(app: FastAPI):
                     await asyncio.gather(*pending, return_exceptions=True)
 
 
-class _LazyMount:
-    """/mcp 挂载点：lifespan 完成前返回 503，之后转发给 MCP Streamable HTTP 应用。"""
-
-    def __init__(self):
-        self.app = None
-
-    async def __call__(self, scope, receive, send):
-        if self.app is None:
-            response = JSONResponse({"detail": "MCP server not ready"}, status_code=503)
-            return await response(scope, receive, send)
-        await self.app(scope, receive, send)
-
-
 def create_app(container: AppContainer | None = None) -> FastAPI:
-    _mcp_mount = _LazyMount()
 
     app = FastAPI(title="IT-Copilot", version="0.1.0", lifespan=lifespan)
     app.state.container = container if container is not None else AppContainer()
-    app.state.mcp_mount = _mcp_mount
     _cors_origins = os.getenv("IT_COPILOT_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     @app.middleware("http")
@@ -190,7 +145,6 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
             response.headers["X-Trace-Id"] = parent.split("-")[1]
             return response
 
-    app.mount("/mcp", _mcp_mount)
-    for module in (agents, memory, ops, auth, approvals, knowledge, chat, conversations):
+    for module in (memory, ops, auth, approvals, knowledge, chat, conversations):
         app.include_router(module.router)
     return app

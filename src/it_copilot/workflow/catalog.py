@@ -9,7 +9,6 @@ Everything else derives from this catalog instead of keeping its own list:
 - ``it_copilot.workflow.store`` uses ``reversible`` to decide whether a failed batch can be compensated.
 
 Adding a write tool therefore means adding one entry here plus its handler and policy rule.
-Order matters only for the intent questions (stable request shape for the Jev cache).
 """
 from __future__ import annotations
 

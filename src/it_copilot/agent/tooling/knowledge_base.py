@@ -4,9 +4,9 @@ RAG 知识库：文档切片写入应用数据库的向量表（core/vector_stor
 功能：
   1. 文档导入：将文本切片后写入向量表（本地中文 embedding 自动生成向量）
   2. 检索：vector / bm25 / hybrid 三种模式，按部门隔离
-  3. 与 MCP 工具框架集成：作为 knowledge_search 工具的真实 handler
+  3. 与 内置工具集成：作为 knowledge_search 工具的真实 handler
 
-memory/ 的情景记忆与用户画像在同一张表的不同 collection 里，互不干扰。
+memory/ 的情景记忆与知识文档在同一张表的不同 collection 里，互不干扰。
 """
 import asyncio
 import hashlib

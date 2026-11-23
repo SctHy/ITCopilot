@@ -28,7 +28,7 @@ from it_copilot.infra.session_revocation import SessionRevocations
 from tests.conftest import auth
 from tests.test_workflow import ALICE, ERIN, access
 from it_copilot.agent.tooling.knowledge_base import KNOWLEDGE_SEARCH_SCHEMA, KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
 
 MARK = "TENANT-A-7F3E"
 INTRUDERS = ("erin", "grace", "bob", "alice")   # it_admin, auditor, approver, owner's own subject
@@ -104,10 +104,9 @@ COVERED = {
 # Platform-wide by design today: no tenant data, or deployment-wide state. The note says which
 # plan phase makes them per tenant.
 PLATFORM = {
-    ("GET", "/admin/agents"): "Global version configuration; operator platform admin only",
     ("GET", "/readyz"): "process readiness", ("GET", "/livez"): "process liveness",
     ("GET", "/health"): "", ("GET", "/auth/config"): "", ("POST", "/auth/dev-token"): "dev mode only",
-    ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签", ("GET", "/monitor"): "阶段 5：全局计数",
+    ("GET", "/metrics"): "阶段 5：内网暴露、按租户打标签",
     ("GET", "/skills"): "", ("POST", "/skills/reload"): "仅运营方租户的平台管理员（ADR 0025）",
     ("POST", "/ops/retention/run"): "同上",
 }
@@ -119,7 +118,7 @@ def world(db_url, monkeypatch):  # noqa: F811
     workflow = WorkflowStore(db_url)
     monkeypatch.setenv("IT_COPILOT_SEED_DEMO_DOCS", "false")
     kb = KnowledgeBase(db_url)
-    tools = MCPToolManager("sk-local")
+    tools = ToolManager("sk-local")
 
     async def knowledge(params, ctx=None):
         return await kb.search_handler(params, ctx)
@@ -184,8 +183,6 @@ def test_every_route_is_classified():
     assert sum(map(len, groups)) == len(classified), "a route is classified twice"
     assert routes() - classified == set(), "new route: decide how it is tenant-isolated and classify it here"
     assert classified - routes() == set(), "classified route no longer exists"
-
-
 
 
 def test_no_route_reaches_another_tenants_objects(world):

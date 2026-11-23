@@ -122,34 +122,3 @@ export interface ChatMessage {
   approvalError?: string
   relatedApprovals?: RelatedApproval[]
 }
-
-export interface MonitorSlo {
-  name: string
-  target: number
-  burn_rate: Record<string, number>
-  requests_1h: number
-  bad_1h: number
-}
-
-export interface MonitorAlert {
-  key: string
-  severity: 'critical' | 'warning' | (string & {})
-  message: string
-  action?: string
-}
-
-export interface MonitorSummary {
-  status: 'ok' | 'degraded' | 'critical' | 'unknown' | (string & {})
-  slos: MonitorSlo[]
-  alerts: MonitorAlert[]
-  recent_resolved: unknown[]
-  last_tick: string | null
-}
-
-export interface MonitorData {
-  loaded?: boolean
-  agent: { model?: string; total?: number; recent_total?: number; recent_success_rate?: number; [key: string]: unknown }
-  tools: Record<string, { circuit_state: string }>
-  monitor: MonitorSummary | null
-  mcp: { servers: { name: string; state: string; tools: unknown[] }[] }
-}

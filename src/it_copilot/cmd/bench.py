@@ -230,6 +230,7 @@ def main():
         if name == "concurrency":
             for key, default in (("workers", 4), ("resources", 6), ("actions", 48)):
                 sub.add_argument("--" + key, type=positive, default=default)
+        if name in {"concurrency", "fault"}:
             sub.add_argument("--database-url")
         elif name == "sse":
             sub.add_argument("--clients", type=positive, default=24)

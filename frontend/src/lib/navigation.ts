@@ -1,4 +1,4 @@
-export const viewPaths = { chat: '/chat', knowledge: '/knowledge', approvals: '/approvals', evaluation: '/operations' } as const
+export const viewPaths = { chat: '/chat', knowledge: '/knowledge', approvals: '/approvals' } as const
 export type ViewId = keyof typeof viewPaths
 export interface AppSearch { code?: string; state?: string; session_state?: string; iss?: string; error?: string; error_description?: string }
 

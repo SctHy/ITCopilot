@@ -3,6 +3,7 @@
 每组都针对一个真实出过或容易出的错：编号误识别、无据声称、历史结构破坏、缓存串部门、
 并行预取把整轮拖垮、流式草稿与最终答案不一致等。随机用例用固定种子，结果可复现。
 """
+from it_copilot.agent.memory.recall import rank_memory_rows
 import asyncio
 import random
 import string
@@ -24,7 +25,7 @@ from it_copilot.agent.prompting import WITHDRAW_CLAIM, WRITE_CLAIM, _claims, his
 from it_copilot.agent.types import Request
 from tests.support.fake_model import scripted_model
 from it_copilot.agent.memory.conversation_memory import MemoryContext, Message, MsgRole
-from it_copilot.agent.tooling.tool_manager import MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import ToolManager, Tool
 from tests.conftest import with_read_tool
 
 # ── 编号抽取：对抗输入 ──────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ def test_history_messages_invariants_on_random_turn_sequences():
 
 def test_history_truncation_boundary_is_exact_and_deterministic():
     def turns(n):
-        ctx = MemoryContext([Message(MsgRole.USER, "q"), Message(MsgRole.ASSISTANT, "字" * n)], [], {}, "")
+        ctx = MemoryContext([Message(MsgRole.USER, "q"), Message(MsgRole.ASSISTANT, "字" * n)], [], "")
         return ctx.history_turns(assistant_chars=600)[1]["content"]
 
     assert turns(600) == "字" * 600                                  # 恰好等于上限不截断
@@ -137,7 +138,7 @@ def test_tool_cache_never_leaks_results_across_departments():
         calls.append(params["department"])
         return [f"{params['department']} 专属文档"]
 
-    manager = MCPToolManager("sk-local")
+    manager = ToolManager("sk-local")
     manager.register(Tool(name="knowledge_search", description="kb", handler=handler, cache_ttl=60,
                           schema={"type": "object", "properties": {"query": {"type": "string"}, "department": {"type": "string"}}}))
 
@@ -251,8 +252,7 @@ def test_device_ids_are_not_mistaken_for_error_codes(message, device, errors):
 
 def test_episodic_memory_drops_unrelated_rows_and_ranks_by_relevance():
     """深度评测：情景记忆原先没有相关度门槛，且只按重要度排序；老用户每轮都会带上无关旧对话。"""
-    from it_copilot.agent.memory.conversation_memory import MemoryManager
     results = {"documents": [["打印机排队", "VPN-691 认证失败", "GitLab 权限"]],
                "metadatas": [[{"importance": 0.9}, {"importance": 0.5}, {"importance": 0.5}]],
                "distances": [[0.9, 0.2, 0.55]]}
-    assert MemoryManager._rank_memory_rows(results, 1200) == ["VPN-691 认证失败", "GitLab 权限"]
+    assert rank_memory_rows(results, 1200) == ["VPN-691 认证失败", "GitLab 权限"]

@@ -1,3 +1,4 @@
+from it_copilot.agent.memory.recall import budget_texts
 import asyncio
 
 from it_copilot.agent.conversation_state import merge_state
@@ -5,7 +6,6 @@ from it_copilot.agent.intent.entities import extract_entities
 from it_copilot.agent.intent.recognizer import IntentRecognizer
 from it_copilot.agent.intent.taxonomy import IntentCategory, UrgencyLevel
 from tests.support.evaluator import load_intent_cases
-from it_copilot.agent.memory.conversation_memory import MemoryManager
 
 
 def test_state_tracks_entities_and_missing_slots():
@@ -16,24 +16,9 @@ def test_state_tracks_entities_and_missing_slots():
     assert state["turn_count"] == 1
 
 
-def test_profile_normalization_removes_sensitive_values():
-    profile = MemoryManager._normalize_profile({"background": "研发部后端", "work": "维护 GitLab；password=bad", "extra": "x" * 500})
-    assert profile["schema_version"] == 5 and profile["background"] == "研发部后端"
-    assert profile["work"] == "维护 GitLab；password=[REDACTED]"
-
-
-def test_memory_budget_and_profile_merge():
-    from it_copilot.agent.memory.conversation_memory import MemoryManager
-    values = MemoryManager._budget_texts(["a" * 300, "b" * 300, "c" * 300], 128)
+def test_memory_budget():
+    values = budget_texts(["a" * 300, "b" * 300, "c" * 300], 128)
     assert len(values) == 1
-    merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部", "work": "GitLab"}), MemoryManager._normalize_profile({"work": "GitLab 与 Jira"}))
-    assert merged["schema_version"] == 5 and merged["background"] == "研发部" and merged["work"] == "GitLab 与 Jira"
-
-
-def test_profile_revision_replaces_outdated_field():
-    from it_copilot.agent.memory.conversation_memory import MemoryManager
-    merged = MemoryManager._merge_profile(MemoryManager._normalize_profile({"background": "研发部"}), MemoryManager._normalize_profile({"background": "产品部"}))
-    assert merged["background"] == "产品部" and "研发" not in str(merged)
 
 
 def test_versioned_intent_suite_is_complete():
@@ -108,65 +93,6 @@ def test_followup_inheritance_keeps_specific_llm_intent():
     asyncio.run(run())
 
 
-def _jev_answers(intent, prob, urgency="normal", system="none", role="none"):
-    from it_copilot.agent.jev import JevResponse
-    return JevResponse(model="jev-1.14.0", usage={"input_tokens": 400, "output_tokens": 2}, answers={
-        "intent": {"choice": intent, "confidence": prob, "probabilities": {intent: prob}},
-        "urgency": {"choice": urgency, "probabilities": {urgency: .9}},
-        "system": {"choice": system, "probabilities": {system: .9}},
-        "role": {"choice": role, "probabilities": {role: .9}},
-    })
-
-
-class _FakeJev:
-    def __init__(self, response=None, error=None):
-        self.response, self.error, self.calls = response, error, []
-
-    async def ask(self, state, questions):
-        self.calls.append((state, questions))
-        if self.error:
-            raise self.error
-        return self.response
-
-
-def test_recognizer_accepts_confident_jev_and_fills_policy_slots():
-    async def run():
-        jev = _FakeJev(_jev_answers("permission_request", .95, system="GitLab", role="developer"))
-        recognizer = IntentRecognizer("test", model="test", jev=jev)
-        async def no_llm(message, history):
-            raise AssertionError("confident Jev answers must not call the LLM")
-        recognizer._llm = no_llm
-        result = await recognizer.recognize("工号 E1001 申请 GitLab developer 权限")
-        assert result.intent == IntentCategory.PERMISSION_REQUEST and result.recognition_source == "jev"
-        assert result.entities["system"] == ["GitLab"] and result.entities["role"] == ["developer"] and result.entities["employee_id"] == ["E1001"]
-        assert not result.clarification_needed and result.source_scores == {"jev": .95}
-        assert recognizer.metrics()["jev_accepted"] == 1
-    asyncio.run(run())
-
-
-def test_recognizer_escalates_low_confidence_or_failed_jev_to_llm():
-    async def run():
-        llm_result = {"intent": IntentCategory.PASSWORD_RESET, "confidence": .9, "urgency": UrgencyLevel.NORMAL, "entities": {}, "reasoning": "", "_llm_used": True, "_source": "llm_tool_use"}
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("account_unlock", .62)))
-        recognizer._llm = lambda message, history: asyncio.sleep(0, result=dict(llm_result))
-        low = await recognizer.recognize("mima wang le")
-        assert low.intent == IntentCategory.PASSWORD_RESET and low.recognition_source == "llm_tool_use"
-        assert low.source_scores == {"llm": .9, "jev": .62}
-        recognizer._jev = _FakeJev(error=TimeoutError())
-        failed = await recognizer.recognize("忘记密码了")
-        assert failed.intent == IntentCategory.PASSWORD_RESET
-        assert recognizer.metrics()["jev_escalated"] == 1 and recognizer.metrics()["jev_errors"] == 1
-    asyncio.run(run())
-
-
 def test_bare_employee_and_ticket_ids_are_extracted():
     entities = extract_entities("工号E10031，查一下 INC-1001 和 inc20240512")
     assert entities["employee_id"] == ["E10031"] and entities["ticket_id"] == ["INC-1001", "INC20240512"]
-
-
-def test_jev_path_reads_ids_from_history():
-    async def run():
-        recognizer = IntentRecognizer("test", model="test", jev=_FakeJev(_jev_answers("ticket_status", .9)))
-        result = await recognizer.recognize("这个单大概多久能处理", history=[{"role": "user", "content": "电脑蓝屏"}, {"role": "assistant", "content": "已为你创建工单 INC20240610。"}])
-        assert result.entities["ticket_id"] == ["INC20240610"] and not result.clarification_needed
-    asyncio.run(run())

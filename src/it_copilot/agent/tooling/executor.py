@@ -1,9 +1,9 @@
 """Single governance path for every tool an agent calls.
 
-Before this layer only knowledge search went through MCPToolManager; agent tools were
+Before this layer only knowledge search went through ToolManager; agent tools were
 invoked directly. Now each call gets:
 
-- a per-tool circuit breaker (shared with MCPToolManager's three-state implementation),
+- a per-tool circuit breaker (shared with ToolManager's three-state implementation),
 - a timeout (sync handlers run in a worker thread so the timeout can fire; the thread
   itself cannot be killed, which is why side-effecting tools are never retried),
 - retries for read-only tools only, with jittered backoff,

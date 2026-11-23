@@ -39,21 +39,8 @@ async def reload_skills(state: Container, principal: Principal = Depends(require
     return body
 
 
-@router.get("/monitor", dependencies=[Depends(current_principal)])
-async def monitor_status(state: Container):
-    """运行状态：Agent/工具实时统计 + 进程内监控（SLO 燃烧率、触发中的告警、处置建议）。"""
-    return {
-        "agent": state.orchestrator.get_stats() if state.orchestrator else {},
-        "tools": state.tool_manager.monitor_snapshot() if state.tool_manager else {},
-        "agent_tools": state.orchestrator.tool_executor.snapshot() if state.orchestrator else {},
-        "workflow": {"pending_actions": await state.workflow.actions.pending_work()} if state.workflow else None,
-        "monitor": state.monitor.summary() if state.monitor else None,
-        "mcp": state.mcp_client.summary() if state.mcp_client else {"enabled": False, "servers": []},
-    }
-
-
 @router.get("/metrics")
-async def prometheus_metrics():  # 不能命名为 metrics：会遮蔽上方导入的 it_copilot.infra.monitor.metrics 模块
+async def prometheus_metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

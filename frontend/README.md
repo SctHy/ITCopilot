@@ -1,6 +1,6 @@
 # IT-Copilot 前端
 
-React、TypeScript、TanStack Router 和 Query。侧栏提供私人对话历史、审批、知识库与运行状态。连接配置支持开发身份和 OIDC 登录。
+React、TypeScript、TanStack Router 和 Query。侧栏提供私人对话历史、审批与知识库。连接配置支持开发身份和 OIDC 登录。
 
 ```sh
 npm ci

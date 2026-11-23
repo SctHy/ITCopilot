@@ -5,5 +5,3 @@ rules: it_copilot.agent.prompting.AGENT_RULES
 tools: ["*"]
 skills: {root: skills/it_helpdesk, disclosure: full}
 routes: {read: agent_read, write: agent_write}
-serves: {intent_groups: ["*"]}
-tenants: ["*"]

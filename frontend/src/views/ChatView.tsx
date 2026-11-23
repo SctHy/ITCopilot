@@ -13,7 +13,7 @@ import { RequestInspector } from '../components/RequestInspector.tsx'
 import { TurnNavigator, turnsOf } from '../components/TurnNavigator.tsx'
 import { applyApprovalAction } from '../lib/approvalDecision.ts'
 import type { ChatSession } from '../lib/chatSession.ts'
-import type { Identity, MonitorData, Settings } from '../lib/types.ts'
+import type { Identity, Settings } from '../lib/types.ts'
 
 const prompts = [
   { label: 'VPN 连不上', hint: '检查网络、DNS 和客户端状态', text: 'VPN 连不上，错误码 VPN-691，应该怎么排查？', icon: <GlobeIcon /> },
@@ -22,10 +22,10 @@ const prompts = [
   { label: '查询工单', hint: '查看我提交过的工单和进度', text: '查询我的工单', icon: <TicketIcon /> }
 ]
 
-export function ChatView({ session, settings, identity, backendLabel, monitorData, onRefreshMonitor, onToast,
+export function ChatView({ session, settings, identity, backendLabel, onToast,
   panelOpen, panelDrawer, onPanelDrawerChange }: {
-  session: ChatSession; settings: Settings; identity: Identity | null; backendLabel: string; monitorData: MonitorData
-  onRefreshMonitor: () => void; onToast: (message: string) => void
+  session: ChatSession; settings: Settings; identity: Identity | null; backendLabel: string
+  onToast: (message: string) => void
   panelOpen: boolean; panelDrawer: boolean; onPanelDrawerChange: (open: boolean) => void
 }) {
   const state = useStore(session.state)
@@ -53,7 +53,7 @@ export function ChatView({ session, settings, identity, backendLabel, monitorDat
   }
 
   const inspector = (
-    <RequestInspector lastResponse={state.lastResponse} lastTrace={state.lastTrace} busy={state.busy} monitorData={monitorData} onRefresh={onRefreshMonitor} />
+    <RequestInspector lastResponse={state.lastResponse} lastTrace={state.lastTrace} busy={state.busy} />
   )
 
   return (

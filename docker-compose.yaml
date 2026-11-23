@@ -138,7 +138,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: it-copilot-api
     ports:
-      - "127.0.0.1:8001:8001"   # API 文档 /docs、/metrics，以及供 Claude Desktop 等客户端连接的 MCP 端点 /mcp/
+      - "127.0.0.1:8001:8001"   # API 文档 /docs、/metrics
     volumes:
       - api-data:/app/data
     depends_on:

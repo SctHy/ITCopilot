@@ -9,7 +9,7 @@ from tests.runtime import state
 from it_copilot.infra.retention import RetentionPolicy, RetentionSweeper
 from tests.conftest import auth
 from tests.test_api_admin import FakeKnowledgeBase
-from it_copilot.agent.tooling.tool_manager import MCPToolManager
+from it_copilot.agent.tooling.tool_manager import ToolManager
 from it_copilot.workflow.store import WorkflowStore
 
 
@@ -19,7 +19,7 @@ def http(db_url, monkeypatch):
     monkeypatch.setattr(state, "workflow", store)
     monkeypatch.setattr(state, "worker", None)
     monkeypatch.setattr(state, "kb", FakeKnowledgeBase())
-    monkeypatch.setattr(state, "tool_manager", MCPToolManager("sk-local"))
+    monkeypatch.setattr(state, "tool_manager", ToolManager("sk-local"))
     monkeypatch.setattr(state, "retention", RetentionSweeper(store.engine, RetentionPolicy()))
     return TestClient(api.app)
 

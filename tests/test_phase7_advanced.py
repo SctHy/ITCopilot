@@ -1,4 +1,5 @@
 """Offline Phase 7 boundary tests; no network or real model calls."""
+from it_copilot.agent.memory.recall import budget_texts
 import asyncio
 import os
 import tempfile
@@ -12,9 +13,8 @@ from it_copilot.agent.agent_orchestrator import AgentOrchestrator
 from it_copilot.agent.intent.recognizer import IntentRecognizer
 from it_copilot.agent.types import Request
 from it_copilot.agent.masking.redaction import redact
-from it_copilot.agent.memory.conversation_memory import MemoryManager
 from it_copilot.agent.tooling.knowledge_base import KnowledgeBase
-from it_copilot.agent.tooling.tool_manager import CircuitBreaker, CircuitState, MCPToolManager, Tool
+from it_copilot.agent.tooling.tool_manager import CircuitBreaker, CircuitState, ToolManager, Tool
 from it_copilot.workflow.approval import approval_summary
 
 
@@ -23,22 +23,9 @@ def test_redaction_removes_sensitive_keys(key):
     assert redact({key: "hidden"})[key] == "[REDACTED]"
 
 
-def test_memory_profile_merge_preserves_old_values():
-    old = MemoryManager._normalize_profile({"background": "研发部", "communication": "中文，简短"})
-    new = MemoryManager._normalize_profile({"background": "产品部"})
-    merged = MemoryManager._merge_profile(old, new)
-    # 修订版漏写的字段沿用旧值；写了的字段整句替换。
-    assert merged["communication"] == "中文，简短" and merged["background"] == "产品部"
-
-
 @pytest.mark.parametrize("texts,budget,expected", [(["a" * 100], 128, 1), (["a" * 100, "b" * 100], 128, 2), (["a" * 10, "b" * 10], 128, 2)])
 def test_memory_token_budget(texts, budget, expected):
-    assert len(MemoryManager._budget_texts(texts, budget)) == expected
-
-
-def test_memory_sensitive_profile_is_redacted():
-    profile = MemoryManager._normalize_profile({"work": "password=secret", "environment": "token abc123"})
-    assert profile["work"] == "password=[REDACTED]" and profile["environment"] == "token [REDACTED]"
+    assert len(budget_texts(texts, budget)) == expected
 
 
 @pytest.mark.usefixtures("default_tenant")
@@ -70,7 +57,7 @@ def test_circuit_breaker_half_open_recovers():
 
 def test_tool_schema_rejects_unknown_fields():
     async def run():
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager.register(Tool("lookup", "lookup", lambda p, c: p, {"type":"object","properties":{"q":{"type":"string"}},"additionalProperties":False,"required":["q"]}))
         result = await manager.call("lookup", {"q":"x", "unknown":1})
         assert not result.success and "Schema" in result.error
@@ -80,7 +67,7 @@ def test_tool_schema_rejects_unknown_fields():
 def test_tool_fallback_is_used_after_timeout():
     async def run():
         async def slow(p, c): await asyncio.sleep(.02)
-        manager = MCPToolManager("sk-local")
+        manager = ToolManager("sk-local")
         manager.register(Tool("slow", "slow", slow, {"type":"object"}, timeout_s=.001, fallback=lambda p,c,e: {"fallback":True}))
         result = await manager.call("slow", {})
         assert result.data["fallback"] is True
@@ -221,4 +208,3 @@ def test_chat_response_exposes_knowledge_used_flag_for_sse_dump():
     assert no_kb.knowledge_used is False
     assert with_kb.knowledge_used is True
     assert with_kb.model_dump()["knowledge_used"] is True
-
