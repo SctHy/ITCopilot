@@ -263,7 +263,8 @@ class AstrLinkGuard:
                 self.cache_hits += 1
             return value
 
-    def detect(self, text: str, *, deadline: float, use_cache: bool = True) -> tuple[Span, ...]:
+    def detect(self, text: str, *, deadline: float, use_cache: bool = True, supplement_names: bool = True) -> tuple[Span, ...]:
+        use_cache = use_cache and supplement_names
         import numpy as np
         if len(text) > 512000:
             raise LocalPIIError("AstrLink input exceeds local limit")
@@ -325,7 +326,8 @@ class AstrLinkGuard:
                 if accept_span(text, a, b, kind):
                     result.append(Span(a, b, kind, float(score)))
             # Strong role/surname context supplements model omissions without a threshold change.
-            result.extend(Span(a, b, kind, 1.0) for a, b, kind in chinese_name_spans(text))
+            if supplement_names:
+                result.extend(Span(a, b, kind, 1.0) for a, b, kind in chinese_name_spans(text))
             result = tuple(result)
             self.inferences += 1
             if use_cache and len(result) <= 4096:

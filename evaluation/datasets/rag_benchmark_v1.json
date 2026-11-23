@@ -1,0 +1,3341 @@
+{
+  "documents": [
+    {
+      "source": "finance/access-request-交接.md",
+      "title": "finance交接access-request",
+      "department": "finance",
+      "content": "财务共享中心内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/access-request-复核.md",
+      "title": "finance复核access-request",
+      "department": "finance",
+      "content": "财务共享中心内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/access-request-交接.md",
+      "title": "hr交接access-request",
+      "department": "hr",
+      "content": "人事运营组内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/access-request-复核.md",
+      "title": "hr复核access-request",
+      "department": "hr",
+      "content": "人事运营组内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/access-request-交接.md",
+      "title": "security交接access-request",
+      "department": "security",
+      "content": "安全运营组内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/access-request-复核.md",
+      "title": "security复核access-request",
+      "department": "security",
+      "content": "安全运营组内部记录。申请开发者资格时记录具体项目、两位审批人和截止日期。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/access-time-limited-grant-交接.md",
+      "title": "finance交接access-time-limited-grant",
+      "department": "finance",
+      "content": "财务共享中心内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/access-time-limited-grant-复核.md",
+      "title": "finance复核access-time-limited-grant",
+      "department": "finance",
+      "content": "财务共享中心内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/access-time-limited-grant-交接.md",
+      "title": "hr交接access-time-limited-grant",
+      "department": "hr",
+      "content": "人事运营组内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/access-time-limited-grant-复核.md",
+      "title": "hr复核access-time-limited-grant",
+      "department": "hr",
+      "content": "人事运营组内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/access-time-limited-grant-交接.md",
+      "title": "security交接access-time-limited-grant",
+      "department": "security",
+      "content": "安全运营组内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/access-time-limited-grant-复核.md",
+      "title": "security复核access-time-limited-grant",
+      "department": "security",
+      "content": "安全运营组内部记录。核对开通前的角色与本次新增角色，记录到期时应保留的原权限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/account-lockout-交接.md",
+      "title": "finance交接account-lockout",
+      "department": "finance",
+      "content": "财务共享中心内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/account-lockout-复核.md",
+      "title": "finance复核account-lockout",
+      "department": "finance",
+      "content": "财务共享中心内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/account-lockout-交接.md",
+      "title": "hr交接account-lockout",
+      "department": "hr",
+      "content": "人事运营组内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/account-lockout-复核.md",
+      "title": "hr复核account-lockout",
+      "department": "hr",
+      "content": "人事运营组内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/account-lockout-交接.md",
+      "title": "security交接account-lockout",
+      "department": "security",
+      "content": "安全运营组内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/account-lockout-复核.md",
+      "title": "security复核account-lockout",
+      "department": "security",
+      "content": "安全运营组内部记录。解锁前清点仍在使用旧密码自动登录的邮箱、手机和客户端。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/browser-issues-交接.md",
+      "title": "finance交接browser-issues",
+      "department": "finance",
+      "content": "财务共享中心内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/browser-issues-复核.md",
+      "title": "finance复核browser-issues",
+      "department": "finance",
+      "content": "财务共享中心内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/browser-issues-交接.md",
+      "title": "hr交接browser-issues",
+      "department": "hr",
+      "content": "人事运营组内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/browser-issues-复核.md",
+      "title": "hr复核browser-issues",
+      "department": "hr",
+      "content": "人事运营组内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/browser-issues-交接.md",
+      "title": "security交接browser-issues",
+      "department": "security",
+      "content": "安全运营组内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/browser-issues-复核.md",
+      "title": "security复核browser-issues",
+      "department": "security",
+      "content": "安全运营组内部记录。门户循环跳回登录页时记录站点 Cookie 状态和设备时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/common-error-codes-交接.md",
+      "title": "finance交接common-error-codes",
+      "department": "finance",
+      "content": "财务共享中心内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/common-error-codes-复核.md",
+      "title": "finance复核common-error-codes",
+      "department": "finance",
+      "content": "财务共享中心内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/common-error-codes-交接.md",
+      "title": "hr交接common-error-codes",
+      "department": "hr",
+      "content": "人事运营组内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/common-error-codes-复核.md",
+      "title": "hr复核common-error-codes",
+      "department": "hr",
+      "content": "人事运营组内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/common-error-codes-交接.md",
+      "title": "security交接common-error-codes",
+      "department": "security",
+      "content": "安全运营组内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/common-error-codes-复核.md",
+      "title": "security复核common-error-codes",
+      "department": "security",
+      "content": "安全运营组内部记录。记录 403 响应来源、实际身份和受限资源，区分凭据与路径原因。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/data-handling-交接.md",
+      "title": "finance交接data-handling",
+      "department": "finance",
+      "content": "财务共享中心内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/data-handling-复核.md",
+      "title": "finance复核data-handling",
+      "department": "finance",
+      "content": "财务共享中心内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/data-handling-交接.md",
+      "title": "hr交接data-handling",
+      "department": "hr",
+      "content": "人事运营组内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/data-handling-复核.md",
+      "title": "hr复核data-handling",
+      "department": "hr",
+      "content": "人事运营组内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/data-handling-交接.md",
+      "title": "security交接data-handling",
+      "department": "security",
+      "content": "安全运营组内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/data-handling-复核.md",
+      "title": "security复核data-handling",
+      "department": "security",
+      "content": "安全运营组内部记录。合同对外分享须登记网盘链接、密码交付方式及可读期限。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/disk-backup-交接.md",
+      "title": "finance交接disk-backup",
+      "department": "finance",
+      "content": "财务共享中心内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/disk-backup-复核.md",
+      "title": "finance复核disk-backup",
+      "department": "finance",
+      "content": "财务共享中心内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/disk-backup-交接.md",
+      "title": "hr交接disk-backup",
+      "department": "hr",
+      "content": "人事运营组内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/disk-backup-复核.md",
+      "title": "hr复核disk-backup",
+      "department": "hr",
+      "content": "人事运营组内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/disk-backup-交接.md",
+      "title": "security交接disk-backup",
+      "department": "security",
+      "content": "安全运营组内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/disk-backup-复核.md",
+      "title": "security复核disk-backup",
+      "department": "security",
+      "content": "安全运营组内部记录。盘点本地大文件同步状态，完成企业网盘备份后切换仅在线。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/dns-intranet-交接.md",
+      "title": "finance交接dns-intranet",
+      "department": "finance",
+      "content": "财务共享中心内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/dns-intranet-复核.md",
+      "title": "finance复核dns-intranet",
+      "department": "finance",
+      "content": "财务共享中心内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/dns-intranet-交接.md",
+      "title": "hr交接dns-intranet",
+      "department": "hr",
+      "content": "人事运营组内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/dns-intranet-复核.md",
+      "title": "hr复核dns-intranet",
+      "department": "hr",
+      "content": "人事运营组内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/dns-intranet-交接.md",
+      "title": "security交接dns-intranet",
+      "department": "security",
+      "content": "安全运营组内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/dns-intranet-复核.md",
+      "title": "security复核dns-intranet",
+      "department": "security",
+      "content": "安全运营组内部记录。留存门户解析结果，Windows 使用 ipconfig /flushdns 后复测。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/email-calendar-交接.md",
+      "title": "finance交接email-calendar",
+      "department": "finance",
+      "content": "财务共享中心内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/email-calendar-复核.md",
+      "title": "finance复核email-calendar",
+      "department": "finance",
+      "content": "财务共享中心内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/email-calendar-交接.md",
+      "title": "hr交接email-calendar",
+      "department": "hr",
+      "content": "人事运营组内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/email-calendar-复核.md",
+      "title": "hr复核email-calendar",
+      "department": "hr",
+      "content": "人事运营组内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/email-calendar-交接.md",
+      "title": "security交接email-calendar",
+      "department": "security",
+      "content": "安全运营组内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/email-calendar-复核.md",
+      "title": "security复核email-calendar",
+      "department": "security",
+      "content": "安全运营组内部记录。跨时区会议排查邀请是否发出，同时核对外部收件地址与当地时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/gitlab-jira-roles-交接.md",
+      "title": "finance交接gitlab-jira-roles",
+      "department": "finance",
+      "content": "财务共享中心内部记录。流水线查看需求应核对 reporter 角色是否足够。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/gitlab-jira-roles-复核.md",
+      "title": "finance复核gitlab-jira-roles",
+      "department": "finance",
+      "content": "财务共享中心内部记录。流水线查看需求应核对 reporter 角色是否足够。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/gitlab-jira-roles-交接.md",
+      "title": "hr交接gitlab-jira-roles",
+      "department": "hr",
+      "content": "人事运营组内部记录。流水线查看需求应核对 reporter 角色是否足够。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/gitlab-jira-roles-复核.md",
+      "title": "hr复核gitlab-jira-roles",
+      "department": "hr",
+      "content": "人事运营组内部记录。流水线查看需求应核对 reporter 角色是否足够。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/gitlab-jira-roles-交接.md",
+      "title": "security交接gitlab-jira-roles",
+      "department": "security",
+      "content": "安全运营组内部记录。流水线查看需求应核对 reporter 角色是否足够。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/gitlab-jira-roles-复核.md",
+      "title": "security复核gitlab-jira-roles",
+      "department": "security",
+      "content": "安全运营组内部记录。流水线查看需求应核对 reporter 角色是否足够。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/guest-wifi-交接.md",
+      "title": "finance交接guest-wifi",
+      "department": "finance",
+      "content": "财务共享中心内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/guest-wifi-复核.md",
+      "title": "finance复核guest-wifi",
+      "department": "finance",
+      "content": "财务共享中心内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/guest-wifi-交接.md",
+      "title": "hr交接guest-wifi",
+      "department": "hr",
+      "content": "人事运营组内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/guest-wifi-复核.md",
+      "title": "hr复核guest-wifi",
+      "department": "hr",
+      "content": "人事运营组内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/guest-wifi-交接.md",
+      "title": "security交接guest-wifi",
+      "department": "security",
+      "content": "安全运营组内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/guest-wifi-复核.md",
+      "title": "security复核guest-wifi",
+      "department": "security",
+      "content": "安全运营组内部记录。前台登记接待人和到访时间，再发放当天有效的访客网络帐号。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/lost-device-交接.md",
+      "title": "finance交接lost-device",
+      "department": "finance",
+      "content": "财务共享中心内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/lost-device-复核.md",
+      "title": "finance复核lost-device",
+      "department": "finance",
+      "content": "财务共享中心内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/lost-device-交接.md",
+      "title": "hr交接lost-device",
+      "department": "hr",
+      "content": "人事运营组内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/lost-device-复核.md",
+      "title": "hr复核lost-device",
+      "department": "hr",
+      "content": "人事运营组内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/lost-device-交接.md",
+      "title": "security交接lost-device",
+      "department": "security",
+      "content": "安全运营组内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/lost-device-复核.md",
+      "title": "security复核lost-device",
+      "department": "security",
+      "content": "安全运营组内部记录。资产遗失记录包括出租车行程、设备编号、丢失地点与发现时间。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/macos-common-交接.md",
+      "title": "finance交接macos-common",
+      "department": "finance",
+      "content": "财务共享中心内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/macos-common-复核.md",
+      "title": "finance复核macos-common",
+      "department": "finance",
+      "content": "财务共享中心内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/macos-common-交接.md",
+      "title": "hr交接macos-common",
+      "department": "hr",
+      "content": "人事运营组内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/macos-common-复核.md",
+      "title": "hr复核macos-common",
+      "department": "hr",
+      "content": "人事运营组内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/macos-common-交接.md",
+      "title": "security交接macos-common",
+      "department": "security",
+      "content": "安全运营组内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/macos-common-复核.md",
+      "title": "security复核macos-common",
+      "department": "security",
+      "content": "安全运营组内部记录。程序无响应时记录窗口和进程名，再按 Command + Option + Esc。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/meeting-room-av-交接.md",
+      "title": "finance交接meeting-room-av",
+      "department": "finance",
+      "content": "财务共享中心内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/meeting-room-av-复核.md",
+      "title": "finance复核meeting-room-av",
+      "department": "finance",
+      "content": "财务共享中心内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/meeting-room-av-交接.md",
+      "title": "hr交接meeting-room-av",
+      "department": "hr",
+      "content": "人事运营组内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/meeting-room-av-复核.md",
+      "title": "hr复核meeting-room-av",
+      "department": "hr",
+      "content": "人事运营组内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/meeting-room-av-交接.md",
+      "title": "security交接meeting-room-av",
+      "department": "security",
+      "content": "安全运营组内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/meeting-room-av-复核.md",
+      "title": "security复核meeting-room-av",
+      "department": "security",
+      "content": "安全运营组内部记录。有线投屏先核对电视输入源，再用 Win + P 选择复制。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/mfa-device-交接.md",
+      "title": "finance交接mfa-device",
+      "department": "finance",
+      "content": "财务共享中心内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/mfa-device-复核.md",
+      "title": "finance复核mfa-device",
+      "department": "finance",
+      "content": "财务共享中心内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/mfa-device-交接.md",
+      "title": "hr交接mfa-device",
+      "department": "hr",
+      "content": "人事运营组内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/mfa-device-复核.md",
+      "title": "hr复核mfa-device",
+      "department": "hr",
+      "content": "人事运营组内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/mfa-device-交接.md",
+      "title": "security交接mfa-device",
+      "department": "security",
+      "content": "安全运营组内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/mfa-device-复核.md",
+      "title": "security复核mfa-device",
+      "department": "security",
+      "content": "安全运营组内部记录。在旧设备仍可用时先绑定新验证器，测试成功后解除旧绑定。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/offboarding-transfer-交接.md",
+      "title": "finance交接offboarding-transfer",
+      "department": "finance",
+      "content": "财务共享中心内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/offboarding-transfer-复核.md",
+      "title": "finance复核offboarding-transfer",
+      "department": "finance",
+      "content": "财务共享中心内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/offboarding-transfer-交接.md",
+      "title": "hr交接offboarding-transfer",
+      "department": "hr",
+      "content": "人事运营组内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/offboarding-transfer-复核.md",
+      "title": "hr复核offboarding-transfer",
+      "department": "hr",
+      "content": "人事运营组内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/offboarding-transfer-交接.md",
+      "title": "security交接offboarding-transfer",
+      "department": "security",
+      "content": "安全运营组内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/offboarding-transfer-复核.md",
+      "title": "security复核offboarding-transfer",
+      "department": "security",
+      "content": "安全运营组内部记录。岗位变更日复核旧岗位专属权限并登记拟回收项。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/onboarding-交接.md",
+      "title": "finance交接onboarding",
+      "department": "finance",
+      "content": "财务共享中心内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/onboarding-复核.md",
+      "title": "finance复核onboarding",
+      "department": "finance",
+      "content": "财务共享中心内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/onboarding-交接.md",
+      "title": "hr交接onboarding",
+      "department": "hr",
+      "content": "人事运营组内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/onboarding-复核.md",
+      "title": "hr复核onboarding",
+      "department": "hr",
+      "content": "人事运营组内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/onboarding-交接.md",
+      "title": "security交接onboarding",
+      "department": "security",
+      "content": "安全运营组内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/onboarding-复核.md",
+      "title": "security复核onboarding",
+      "department": "security",
+      "content": "安全运营组内部记录。入职首日逐项检查企业邮箱、设备签收、远程接入和工单系统。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/password-mfa-交接.md",
+      "title": "finance交接password-mfa",
+      "department": "finance",
+      "content": "财务共享中心内部记录。通过企业身份平台完成多因素验证后再设置新口令。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/password-mfa-复核.md",
+      "title": "finance复核password-mfa",
+      "department": "finance",
+      "content": "财务共享中心内部记录。通过企业身份平台完成多因素验证后再设置新口令。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/password-mfa-交接.md",
+      "title": "hr交接password-mfa",
+      "department": "hr",
+      "content": "人事运营组内部记录。通过企业身份平台完成多因素验证后再设置新口令。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/password-mfa-复核.md",
+      "title": "hr复核password-mfa",
+      "department": "hr",
+      "content": "人事运营组内部记录。通过企业身份平台完成多因素验证后再设置新口令。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/password-mfa-交接.md",
+      "title": "security交接password-mfa",
+      "department": "security",
+      "content": "安全运营组内部记录。通过企业身份平台完成多因素验证后再设置新口令。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/password-mfa-复核.md",
+      "title": "security复核password-mfa",
+      "department": "security",
+      "content": "安全运营组内部记录。通过企业身份平台完成多因素验证后再设置新口令。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/peripherals-交接.md",
+      "title": "finance交接peripherals",
+      "department": "finance",
+      "content": "财务共享中心内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/peripherals-复核.md",
+      "title": "finance复核peripherals",
+      "department": "finance",
+      "content": "财务共享中心内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/peripherals-交接.md",
+      "title": "hr交接peripherals",
+      "department": "hr",
+      "content": "人事运营组内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/peripherals-复核.md",
+      "title": "hr复核peripherals",
+      "department": "hr",
+      "content": "人事运营组内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/peripherals-交接.md",
+      "title": "security交接peripherals",
+      "department": "security",
+      "content": "安全运营组内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/peripherals-复核.md",
+      "title": "security复核peripherals",
+      "department": "security",
+      "content": "安全运营组内部记录。外接屏黑屏时核对输入源并临时绕过扩展坞直连电脑。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/phishing-交接.md",
+      "title": "finance交接phishing",
+      "department": "finance",
+      "content": "财务共享中心内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/phishing-复核.md",
+      "title": "finance复核phishing",
+      "department": "finance",
+      "content": "财务共享中心内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/phishing-交接.md",
+      "title": "hr交接phishing",
+      "department": "hr",
+      "content": "人事运营组内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/phishing-复核.md",
+      "title": "hr复核phishing",
+      "department": "hr",
+      "content": "人事运营组内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/phishing-交接.md",
+      "title": "security交接phishing",
+      "department": "security",
+      "content": "安全运营组内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/phishing-复核.md",
+      "title": "security复核phishing",
+      "department": "security",
+      "content": "安全运营组内部记录。异常收款账户变更必须通过可信的第二渠道核验身份。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/printer-scanner-交接.md",
+      "title": "finance交接printer-scanner",
+      "department": "finance",
+      "content": "财务共享中心内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/printer-scanner-复核.md",
+      "title": "finance复核printer-scanner",
+      "department": "finance",
+      "content": "财务共享中心内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/printer-scanner-交接.md",
+      "title": "hr交接printer-scanner",
+      "department": "hr",
+      "content": "人事运营组内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/printer-scanner-复核.md",
+      "title": "hr复核printer-scanner",
+      "department": "hr",
+      "content": "人事运营组内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/printer-scanner-交接.md",
+      "title": "security交接printer-scanner",
+      "department": "security",
+      "content": "安全运营组内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/printer-scanner-复核.md",
+      "title": "security复核printer-scanner",
+      "department": "security",
+      "content": "安全运营组内部记录。安全打印记录任务提交时间及刷卡释放时刻，超时需重新提交。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/proxy-certificate-交接.md",
+      "title": "finance交接proxy-certificate",
+      "department": "finance",
+      "content": "财务共享中心内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/proxy-certificate-复核.md",
+      "title": "finance复核proxy-certificate",
+      "department": "finance",
+      "content": "财务共享中心内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/proxy-certificate-交接.md",
+      "title": "hr交接proxy-certificate",
+      "department": "hr",
+      "content": "人事运营组内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/proxy-certificate-复核.md",
+      "title": "hr复核proxy-certificate",
+      "department": "hr",
+      "content": "人事运营组内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/proxy-certificate-交接.md",
+      "title": "security交接proxy-certificate",
+      "department": "security",
+      "content": "安全运营组内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/proxy-certificate-复核.md",
+      "title": "security复核proxy-certificate",
+      "department": "security",
+      "content": "安全运营组内部记录。公共网络多站点证书异常应断开连接，切换可信网络验证。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/security-incident-交接.md",
+      "title": "finance交接security-incident",
+      "department": "finance",
+      "content": "财务共享中心内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/security-incident-复核.md",
+      "title": "finance复核security-incident",
+      "department": "finance",
+      "content": "财务共享中心内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/security-incident-交接.md",
+      "title": "hr交接security-incident",
+      "department": "hr",
+      "content": "人事运营组内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/security-incident-复核.md",
+      "title": "hr复核security-incident",
+      "department": "hr",
+      "content": "人事运营组内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/security-incident-交接.md",
+      "title": "security交接security-incident",
+      "department": "security",
+      "content": "安全运营组内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/security-incident-复核.md",
+      "title": "security复核security-incident",
+      "department": "security",
+      "content": "安全运营组内部记录。发现加密后缀和勒索说明时隔离网络，保留开机状态与现场。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/service-desk-escalation-交接.md",
+      "title": "finance交接service-desk-escalation",
+      "department": "finance",
+      "content": "财务共享中心内部记录。夜间大面积业务中断按 P1 呼叫值班人员。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/service-desk-escalation-复核.md",
+      "title": "finance复核service-desk-escalation",
+      "department": "finance",
+      "content": "财务共享中心内部记录。夜间大面积业务中断按 P1 呼叫值班人员。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/service-desk-escalation-交接.md",
+      "title": "hr交接service-desk-escalation",
+      "department": "hr",
+      "content": "人事运营组内部记录。夜间大面积业务中断按 P1 呼叫值班人员。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/service-desk-escalation-复核.md",
+      "title": "hr复核service-desk-escalation",
+      "department": "hr",
+      "content": "人事运营组内部记录。夜间大面积业务中断按 P1 呼叫值班人员。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/service-desk-escalation-交接.md",
+      "title": "security交接service-desk-escalation",
+      "department": "security",
+      "content": "安全运营组内部记录。夜间大面积业务中断按 P1 呼叫值班人员。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/service-desk-escalation-复核.md",
+      "title": "security复核service-desk-escalation",
+      "department": "security",
+      "content": "安全运营组内部记录。夜间大面积业务中断按 P1 呼叫值班人员。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/slow-computer-交接.md",
+      "title": "finance交接slow-computer",
+      "department": "finance",
+      "content": "财务共享中心内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/slow-computer-复核.md",
+      "title": "finance复核slow-computer",
+      "department": "finance",
+      "content": "财务共享中心内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/slow-computer-交接.md",
+      "title": "hr交接slow-computer",
+      "department": "hr",
+      "content": "人事运营组内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/slow-computer-复核.md",
+      "title": "hr复核slow-computer",
+      "department": "hr",
+      "content": "人事运营组内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/slow-computer-交接.md",
+      "title": "security交接slow-computer",
+      "department": "security",
+      "content": "安全运营组内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/slow-computer-复核.md",
+      "title": "security复核slow-computer",
+      "department": "security",
+      "content": "安全运营组内部记录。按 CPU 与内存占用排序，记录最耗资源的进程。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/software-license-交接.md",
+      "title": "finance交接software-license",
+      "department": "finance",
+      "content": "财务共享中心内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/software-license-复核.md",
+      "title": "finance复核software-license",
+      "department": "finance",
+      "content": "财务共享中心内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/software-license-交接.md",
+      "title": "hr交接software-license",
+      "department": "hr",
+      "content": "人事运营组内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/software-license-复核.md",
+      "title": "hr复核software-license",
+      "department": "hr",
+      "content": "人事运营组内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/software-license-交接.md",
+      "title": "security交接software-license",
+      "department": "security",
+      "content": "安全运营组内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/software-license-复核.md",
+      "title": "security复核software-license",
+      "department": "security",
+      "content": "安全运营组内部记录。收费工具先核对许可证归属、席位数量与采购预算部门。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/ticket-priority-sla-交接.md",
+      "title": "finance交接ticket-priority-sla",
+      "department": "finance",
+      "content": "财务共享中心内部记录。P2 影响范围、受理时间和首次响应时间需要登记。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/ticket-priority-sla-复核.md",
+      "title": "finance复核ticket-priority-sla",
+      "department": "finance",
+      "content": "财务共享中心内部记录。P2 影响范围、受理时间和首次响应时间需要登记。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/ticket-priority-sla-交接.md",
+      "title": "hr交接ticket-priority-sla",
+      "department": "hr",
+      "content": "人事运营组内部记录。P2 影响范围、受理时间和首次响应时间需要登记。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/ticket-priority-sla-复核.md",
+      "title": "hr复核ticket-priority-sla",
+      "department": "hr",
+      "content": "人事运营组内部记录。P2 影响范围、受理时间和首次响应时间需要登记。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/ticket-priority-sla-交接.md",
+      "title": "security交接ticket-priority-sla",
+      "department": "security",
+      "content": "安全运营组内部记录。P2 影响范围、受理时间和首次响应时间需要登记。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/ticket-priority-sla-复核.md",
+      "title": "security复核ticket-priority-sla",
+      "department": "security",
+      "content": "安全运营组内部记录。P2 影响范围、受理时间和首次响应时间需要登记。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/ticket-writing-交接.md",
+      "title": "finance交接ticket-writing",
+      "department": "finance",
+      "content": "财务共享中心内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/ticket-writing-复核.md",
+      "title": "finance复核ticket-writing",
+      "department": "finance",
+      "content": "财务共享中心内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/ticket-writing-交接.md",
+      "title": "hr交接ticket-writing",
+      "department": "hr",
+      "content": "人事运营组内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/ticket-writing-复核.md",
+      "title": "hr复核ticket-writing",
+      "department": "hr",
+      "content": "人事运营组内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/ticket-writing-交接.md",
+      "title": "security交接ticket-writing",
+      "department": "security",
+      "content": "安全运营组内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/ticket-writing-复核.md",
+      "title": "security复核ticket-writing",
+      "department": "security",
+      "content": "安全运营组内部记录。报修记录说明首次和最近发生时刻、受影响人数与已试操作。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/vpn-errors-交接.md",
+      "title": "finance交接vpn-errors",
+      "department": "finance",
+      "content": "财务共享中心内部记录。远程接入证书异常先核对时间和企业 VPN 地址。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/vpn-errors-复核.md",
+      "title": "finance复核vpn-errors",
+      "department": "finance",
+      "content": "财务共享中心内部记录。远程接入证书异常先核对时间和企业 VPN 地址。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/vpn-errors-交接.md",
+      "title": "hr交接vpn-errors",
+      "department": "hr",
+      "content": "人事运营组内部记录。远程接入证书异常先核对时间和企业 VPN 地址。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/vpn-errors-复核.md",
+      "title": "hr复核vpn-errors",
+      "department": "hr",
+      "content": "人事运营组内部记录。远程接入证书异常先核对时间和企业 VPN 地址。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/vpn-errors-交接.md",
+      "title": "security交接vpn-errors",
+      "department": "security",
+      "content": "安全运营组内部记录。远程接入证书异常先核对时间和企业 VPN 地址。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/vpn-errors-复核.md",
+      "title": "security复核vpn-errors",
+      "department": "security",
+      "content": "安全运营组内部记录。远程接入证书异常先核对时间和企业 VPN 地址。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/vpn-troubleshooting-交接.md",
+      "title": "finance交接vpn-troubleshooting",
+      "department": "finance",
+      "content": "财务共享中心内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/vpn-troubleshooting-复核.md",
+      "title": "finance复核vpn-troubleshooting",
+      "department": "finance",
+      "content": "财务共享中心内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/vpn-troubleshooting-交接.md",
+      "title": "hr交接vpn-troubleshooting",
+      "department": "hr",
+      "content": "人事运营组内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/vpn-troubleshooting-复核.md",
+      "title": "hr复核vpn-troubleshooting",
+      "department": "hr",
+      "content": "人事运营组内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/vpn-troubleshooting-交接.md",
+      "title": "security交接vpn-troubleshooting",
+      "department": "security",
+      "content": "安全运营组内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/vpn-troubleshooting-复核.md",
+      "title": "security复核vpn-troubleshooting",
+      "department": "security",
+      "content": "安全运营组内部记录。机场网络先完成门户认证，验证外网连通后再启动 VPN。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/wifi-network-交接.md",
+      "title": "finance交接wifi-network",
+      "department": "finance",
+      "content": "财务共享中心内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/wifi-network-复核.md",
+      "title": "finance复核wifi-network",
+      "department": "finance",
+      "content": "财务共享中心内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/wifi-network-交接.md",
+      "title": "hr交接wifi-network",
+      "department": "hr",
+      "content": "人事运营组内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/wifi-network-复核.md",
+      "title": "hr复核wifi-network",
+      "department": "hr",
+      "content": "人事运营组内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/wifi-network-交接.md",
+      "title": "security交接wifi-network",
+      "department": "security",
+      "content": "安全运营组内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/wifi-network-复核.md",
+      "title": "security复核wifi-network",
+      "department": "security",
+      "content": "安全运营组内部记录。同区多个工位无线故障时收集 SSID、时间窗口和影响范围。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "finance/windows-bsod-交接.md",
+      "title": "finance交接windows-bsod",
+      "department": "finance",
+      "content": "财务共享中心内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "finance/windows-bsod-复核.md",
+      "title": "finance复核windows-bsod",
+      "department": "finance",
+      "content": "财务共享中心内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "hr/windows-bsod-交接.md",
+      "title": "hr交接windows-bsod",
+      "department": "hr",
+      "content": "人事运营组内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "hr/windows-bsod-复核.md",
+      "title": "hr复核windows-bsod",
+      "department": "hr",
+      "content": "人事运营组内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。复核人将处理结论和证据编号记入部门台账。"
+    },
+    {
+      "source": "security/windows-bsod-交接.md",
+      "title": "security交接windows-bsod",
+      "department": "security",
+      "content": "安全运营组内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。交接时由当班负责人核对记录并通知接班人。"
+    },
+    {
+      "source": "security/windows-bsod-复核.md",
+      "title": "security复核windows-bsod",
+      "department": "security",
+      "content": "安全运营组内部记录。异常重启前拍照保存停止代码并记录刚接入的外设。复核人将处理结论和证据编号记入部门台账。"
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact_code-01",
+      "slice": "exact_code",
+      "query": "employee_id 字段填什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-request.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-request-交接.md",
+        "finance/access-request-复核.md",
+        "hr/access-request-交接.md",
+        "hr/access-request-复核.md",
+        "security/access-request-交接.md",
+        "security/access-request-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-01",
+      "slice": "semantic_paraphrase",
+      "query": "我能替同桌要个看代码的资格吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-request.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-request-交接.md",
+        "finance/access-request-复核.md",
+        "hr/access-request-交接.md",
+        "hr/access-request-复核.md",
+        "security/access-request-交接.md",
+        "security/access-request-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-01",
+      "slice": "composite_query",
+      "query": "替新人申请 GitLab developer 要找几个人签字？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-request.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-request-交接.md",
+        "finance/access-request-复核.md",
+        "hr/access-request-交接.md",
+        "hr/access-request-复核.md",
+        "security/access-request-交接.md",
+        "security/access-request-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-01",
+      "slice": "dept_isolation",
+      "query": "临时项目的开发者资格需要几人批准？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-request.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-request-交接.md",
+        "finance/access-request-复核.md",
+        "hr/access-request-交接.md",
+        "hr/access-request-复核.md",
+        "security/access-request-交接.md",
+        "security/access-request-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-02",
+      "slice": "exact_code",
+      "query": "GitLab 临时角色到期后会恢复哪个级别？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-time-limited-grant.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-time-limited-grant-交接.md",
+        "finance/access-time-limited-grant-复核.md",
+        "hr/access-time-limited-grant-交接.md",
+        "hr/access-time-limited-grant-复核.md",
+        "security/access-time-limited-grant-交接.md",
+        "security/access-time-limited-grant-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-02",
+      "slice": "semantic_paraphrase",
+      "query": "我本来就能看的东西到了日子也会被收走吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-time-limited-grant.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-time-limited-grant-交接.md",
+        "finance/access-time-limited-grant-复核.md",
+        "hr/access-time-limited-grant-交接.md",
+        "hr/access-time-limited-grant-复核.md",
+        "security/access-time-limited-grant-交接.md",
+        "security/access-time-limited-grant-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-02",
+      "slice": "composite_query",
+      "query": "临时获准操作 Jira 后管理员又手动调过，到期如何处理？",
+      "department": "engineering",
+      "relevant_sources": [
+        "access-time-limited-grant.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-time-limited-grant-交接.md",
+        "finance/access-time-limited-grant-复核.md",
+        "hr/access-time-limited-grant-交接.md",
+        "hr/access-time-limited-grant-复核.md",
+        "security/access-time-limited-grant-交接.md",
+        "security/access-time-limited-grant-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-02",
+      "slice": "dept_isolation",
+      "query": "临时授权结束后原先就有的角色还能保留吗？",
+      "department": "operations",
+      "relevant_sources": [
+        "access-time-limited-grant.md"
+      ],
+      "forbidden_sources": [
+        "finance/access-time-limited-grant-交接.md",
+        "finance/access-time-limited-grant-复核.md",
+        "hr/access-time-limited-grant-交接.md",
+        "hr/access-time-limited-grant-复核.md",
+        "security/access-time-limited-grant-交接.md",
+        "security/access-time-limited-grant-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-03",
+      "slice": "exact_code",
+      "query": "VPN 保存的旧密码会导致锁定吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "account-lockout.md"
+      ],
+      "forbidden_sources": [
+        "finance/account-lockout-交接.md",
+        "finance/account-lockout-复核.md",
+        "hr/account-lockout-交接.md",
+        "hr/account-lockout-复核.md",
+        "security/account-lockout-交接.md",
+        "security/account-lockout-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-03",
+      "slice": "semantic_paraphrase",
+      "query": "刚恢复进去没两分钟又被挡在门外怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "account-lockout.md"
+      ],
+      "forbidden_sources": [
+        "finance/account-lockout-交接.md",
+        "finance/account-lockout-复核.md",
+        "hr/account-lockout-交接.md",
+        "hr/account-lockout-复核.md",
+        "security/account-lockout-交接.md",
+        "security/account-lockout-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-03",
+      "slice": "composite_query",
+      "query": "我改密后手机邮箱还开着，解锁后又失败？",
+      "department": "engineering",
+      "relevant_sources": [
+        "account-lockout.md"
+      ],
+      "forbidden_sources": [
+        "finance/account-lockout-交接.md",
+        "finance/account-lockout-复核.md",
+        "hr/account-lockout-交接.md",
+        "hr/account-lockout-复核.md",
+        "security/account-lockout-交接.md",
+        "security/account-lockout-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-03",
+      "slice": "dept_isolation",
+      "query": "我的帐号每次解开很快又被锁住，该停掉哪些自动登录？",
+      "department": "sales",
+      "relevant_sources": [
+        "account-lockout.md"
+      ],
+      "forbidden_sources": [
+        "finance/account-lockout-交接.md",
+        "finance/account-lockout-复核.md",
+        "hr/account-lockout-交接.md",
+        "hr/account-lockout-复核.md",
+        "security/account-lockout-交接.md",
+        "security/account-lockout-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-04",
+      "slice": "exact_code",
+      "query": "Ctrl + F5 是什么操作？",
+      "department": "engineering",
+      "relevant_sources": [
+        "browser-issues.md"
+      ],
+      "forbidden_sources": [
+        "finance/browser-issues-交接.md",
+        "finance/browser-issues-复核.md",
+        "hr/browser-issues-交接.md",
+        "hr/browser-issues-复核.md",
+        "security/browser-issues-交接.md",
+        "security/browser-issues-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-04",
+      "slice": "semantic_paraphrase",
+      "query": "进了网页又被送回到刚才填名字的地方怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "browser-issues.md"
+      ],
+      "forbidden_sources": [
+        "finance/browser-issues-交接.md",
+        "finance/browser-issues-复核.md",
+        "hr/browser-issues-交接.md",
+        "hr/browser-issues-复核.md",
+        "security/browser-issues-交接.md",
+        "security/browser-issues-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-04",
+      "slice": "composite_query",
+      "query": "Edge 打开内部门户反复跳回登录页面？",
+      "department": "engineering",
+      "relevant_sources": [
+        "browser-issues.md"
+      ],
+      "forbidden_sources": [
+        "finance/browser-issues-交接.md",
+        "finance/browser-issues-复核.md",
+        "hr/browser-issues-交接.md",
+        "hr/browser-issues-复核.md",
+        "security/browser-issues-交接.md",
+        "security/browser-issues-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-04",
+      "slice": "dept_isolation",
+      "query": "内部门户一直跳回登录页，要清理哪些本地数据？",
+      "department": "engineering",
+      "relevant_sources": [
+        "browser-issues.md"
+      ],
+      "forbidden_sources": [
+        "finance/browser-issues-交接.md",
+        "finance/browser-issues-复核.md",
+        "hr/browser-issues-交接.md",
+        "hr/browser-issues-复核.md",
+        "security/browser-issues-交接.md",
+        "security/browser-issues-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-05",
+      "slice": "exact_code",
+      "query": "403 到底能说明什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "common-error-codes.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-05",
+      "slice": "semantic_paraphrase",
+      "query": "网站说它明白我的请求但就是不给看，该核对什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "common-error-codes.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-05",
+      "slice": "composite_query",
+      "query": "连上 VPN 仍然返回 403，可以直接申请提权吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "common-error-codes.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-05",
+      "slice": "dept_isolation",
+      "query": "收到 403 的同事应先核对哪个身份和资源？",
+      "department": "operations",
+      "relevant_sources": [
+        "common-error-codes.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-06",
+      "slice": "exact_code",
+      "query": "API 密钥可以写在工单里吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "data-handling.md"
+      ],
+      "forbidden_sources": [
+        "finance/data-handling-交接.md",
+        "finance/data-handling-复核.md",
+        "hr/data-handling-交接.md",
+        "hr/data-handling-复核.md",
+        "security/data-handling-交接.md",
+        "security/data-handling-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-06",
+      "slice": "semantic_paraphrase",
+      "query": "给合作方送资料怎么限制他们能看多久？",
+      "department": "engineering",
+      "relevant_sources": [
+        "data-handling.md"
+      ],
+      "forbidden_sources": [
+        "finance/data-handling-交接.md",
+        "finance/data-handling-复核.md",
+        "hr/data-handling-交接.md",
+        "hr/data-handling-复核.md",
+        "security/data-handling-交接.md",
+        "security/data-handling-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-06",
+      "slice": "composite_query",
+      "query": "不小心把客户合同发给错的人，企业网盘链接还能撤回吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "data-handling.md"
+      ],
+      "forbidden_sources": [
+        "finance/data-handling-交接.md",
+        "finance/data-handling-复核.md",
+        "hr/data-handling-交接.md",
+        "hr/data-handling-复核.md",
+        "security/data-handling-交接.md",
+        "security/data-handling-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-06",
+      "slice": "dept_isolation",
+      "query": "给合作伙伴分享一份限期可读的合同用什么渠道？",
+      "department": "sales",
+      "relevant_sources": [
+        "data-handling.md"
+      ],
+      "forbidden_sources": [
+        "finance/data-handling-交接.md",
+        "finance/data-handling-复核.md",
+        "hr/data-handling-交接.md",
+        "hr/data-handling-复核.md",
+        "security/data-handling-交接.md",
+        "security/data-handling-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-07",
+      "slice": "exact_code",
+      "query": "Docker 镜像太多能清吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "disk-backup.md"
+      ],
+      "forbidden_sources": [
+        "finance/disk-backup-交接.md",
+        "finance/disk-backup-复核.md",
+        "hr/disk-backup-交接.md",
+        "hr/disk-backup-复核.md",
+        "security/disk-backup-交接.md",
+        "security/disk-backup-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-07",
+      "slice": "semantic_paraphrase",
+      "query": "机器坏了以后我写的东西去哪里找？",
+      "department": "engineering",
+      "relevant_sources": [
+        "disk-backup.md"
+      ],
+      "forbidden_sources": [
+        "finance/disk-backup-交接.md",
+        "finance/disk-backup-复核.md",
+        "hr/disk-backup-交接.md",
+        "hr/disk-backup-复核.md",
+        "security/disk-backup-交接.md",
+        "security/disk-backup-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-07",
+      "slice": "composite_query",
+      "query": "系统盘快满了，团队网盘里的大文件能改成仅在线吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "disk-backup.md"
+      ],
+      "forbidden_sources": [
+        "finance/disk-backup-交接.md",
+        "finance/disk-backup-复核.md",
+        "hr/disk-backup-交接.md",
+        "hr/disk-backup-复核.md",
+        "security/disk-backup-交接.md",
+        "security/disk-backup-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-07",
+      "slice": "dept_isolation",
+      "query": "想把机上的大文件改成仅在线，怎么同时保证备份？",
+      "department": "engineering",
+      "relevant_sources": [
+        "disk-backup.md"
+      ],
+      "forbidden_sources": [
+        "finance/disk-backup-交接.md",
+        "finance/disk-backup-复核.md",
+        "hr/disk-backup-交接.md",
+        "hr/disk-backup-复核.md",
+        "security/disk-backup-交接.md",
+        "security/disk-backup-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-08",
+      "slice": "exact_code",
+      "query": "ipconfig /flushdns 有什么用？",
+      "department": "engineering",
+      "relevant_sources": [
+        "dns-intranet.md"
+      ],
+      "forbidden_sources": [
+        "finance/dns-intranet-交接.md",
+        "finance/dns-intranet-复核.md",
+        "hr/dns-intranet-交接.md",
+        "hr/dns-intranet-复核.md",
+        "security/dns-intranet-交接.md",
+        "security/dns-intranet-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-08",
+      "slice": "semantic_paraphrase",
+      "query": "上网看新闻没问题但公司网址总说找不到主机？",
+      "department": "engineering",
+      "relevant_sources": [
+        "dns-intranet.md"
+      ],
+      "forbidden_sources": [
+        "finance/dns-intranet-交接.md",
+        "finance/dns-intranet-复核.md",
+        "hr/dns-intranet-交接.md",
+        "hr/dns-intranet-复核.md",
+        "security/dns-intranet-交接.md",
+        "security/dns-intranet-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-08",
+      "slice": "composite_query",
+      "query": "出差用 8.8.8.8 时内部门户打不开怎么查？",
+      "department": "engineering",
+      "relevant_sources": [
+        "dns-intranet.md"
+      ],
+      "forbidden_sources": [
+        "finance/dns-intranet-交接.md",
+        "finance/dns-intranet-复核.md",
+        "hr/dns-intranet-交接.md",
+        "hr/dns-intranet-复核.md",
+        "security/dns-intranet-交接.md",
+        "security/dns-intranet-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-08",
+      "slice": "dept_isolation",
+      "query": "内部门户说找不到服务器，怎么清掉旧的解析记录？",
+      "department": "operations",
+      "relevant_sources": [
+        "dns-intranet.md"
+      ],
+      "forbidden_sources": [
+        "finance/dns-intranet-交接.md",
+        "finance/dns-intranet-复核.md",
+        "hr/dns-intranet-交接.md",
+        "hr/dns-intranet-复核.md",
+        "security/dns-intranet-交接.md",
+        "security/dns-intranet-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-09",
+      "slice": "exact_code",
+      "query": "25 MB 以上附件怎么发？",
+      "department": "engineering",
+      "relevant_sources": [
+        "email-calendar.md"
+      ],
+      "forbidden_sources": [
+        "finance/email-calendar-交接.md",
+        "finance/email-calendar-复核.md",
+        "hr/email-calendar-交接.md",
+        "hr/email-calendar-复核.md",
+        "security/email-calendar-交接.md",
+        "security/email-calendar-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-09",
+      "slice": "semantic_paraphrase",
+      "query": "我约的时间对方那边显示是半夜怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "email-calendar.md"
+      ],
+      "forbidden_sources": [
+        "finance/email-calendar-交接.md",
+        "finance/email-calendar-复核.md",
+        "hr/email-calendar-交接.md",
+        "hr/email-calendar-复核.md",
+        "security/email-calendar-交接.md",
+        "security/email-calendar-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-09",
+      "slice": "composite_query",
+      "query": "改密后手机 App 一直收不到公司邮件？",
+      "department": "engineering",
+      "relevant_sources": [
+        "email-calendar.md"
+      ],
+      "forbidden_sources": [
+        "finance/email-calendar-交接.md",
+        "finance/email-calendar-复核.md",
+        "hr/email-calendar-交接.md",
+        "hr/email-calendar-复核.md",
+        "security/email-calendar-交接.md",
+        "security/email-calendar-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-09",
+      "slice": "dept_isolation",
+      "query": "日历上约了国外客户，对方看不到邀请该查什么？",
+      "department": "sales",
+      "relevant_sources": [
+        "email-calendar.md"
+      ],
+      "forbidden_sources": [
+        "finance/email-calendar-交接.md",
+        "finance/email-calendar-复核.md",
+        "hr/email-calendar-交接.md",
+        "hr/email-calendar-复核.md",
+        "security/email-calendar-交接.md",
+        "security/email-calendar-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-10",
+      "slice": "exact_code",
+      "query": "reporter 能看 CI 结果吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "gitlab-jira-roles.md"
+      ],
+      "forbidden_sources": [
+        "finance/gitlab-jira-roles-交接.md",
+        "finance/gitlab-jira-roles-复核.md",
+        "hr/gitlab-jira-roles-交接.md",
+        "hr/gitlab-jira-roles-复核.md",
+        "security/gitlab-jira-roles-交接.md",
+        "security/gitlab-jira-roles-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-10",
+      "slice": "semantic_paraphrase",
+      "query": "我只需要给同事报个缺陷，给哪档身份合适？",
+      "department": "engineering",
+      "relevant_sources": [
+        "gitlab-jira-roles.md"
+      ],
+      "forbidden_sources": [
+        "finance/gitlab-jira-roles-交接.md",
+        "finance/gitlab-jira-roles-复核.md",
+        "hr/gitlab-jira-roles-交接.md",
+        "hr/gitlab-jira-roles-复核.md",
+        "security/gitlab-jira-roles-交接.md",
+        "security/gitlab-jira-roles-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-10",
+      "slice": "composite_query",
+      "query": "做测试要看流水线结果，GitLab readonly 够吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "gitlab-jira-roles.md"
+      ],
+      "forbidden_sources": [
+        "finance/gitlab-jira-roles-交接.md",
+        "finance/gitlab-jira-roles-复核.md",
+        "hr/gitlab-jira-roles-交接.md",
+        "hr/gitlab-jira-roles-复核.md",
+        "security/gitlab-jira-roles-交接.md",
+        "security/gitlab-jira-roles-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-10",
+      "slice": "dept_isolation",
+      "query": "只想看流水线结果，在 GitLab 选哪档角色？",
+      "department": "engineering",
+      "relevant_sources": [
+        "gitlab-jira-roles.md"
+      ],
+      "forbidden_sources": [
+        "finance/gitlab-jira-roles-交接.md",
+        "finance/gitlab-jira-roles-复核.md",
+        "hr/gitlab-jira-roles-交接.md",
+        "hr/gitlab-jira-roles-复核.md",
+        "security/gitlab-jira-roles-交接.md",
+        "security/gitlab-jira-roles-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-11",
+      "slice": "exact_code",
+      "query": "访客 Wi-Fi 有效多久？",
+      "department": "engineering",
+      "relevant_sources": [
+        "guest-wifi.md"
+      ],
+      "forbidden_sources": [
+        "finance/guest-wifi-交接.md",
+        "finance/guest-wifi-复核.md",
+        "hr/guest-wifi-交接.md",
+        "hr/guest-wifi-复核.md",
+        "security/guest-wifi-交接.md",
+        "security/guest-wifi-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-11",
+      "slice": "semantic_paraphrase",
+      "query": "来面试的人想用我的无线帐号，应该让他找谁？",
+      "department": "engineering",
+      "relevant_sources": [
+        "guest-wifi.md"
+      ],
+      "forbidden_sources": [
+        "finance/guest-wifi-交接.md",
+        "finance/guest-wifi-复核.md",
+        "hr/guest-wifi-交接.md",
+        "hr/guest-wifi-复核.md",
+        "security/guest-wifi-交接.md",
+        "security/guest-wifi-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-11",
+      "slice": "composite_query",
+      "query": "外包长期驻场能用访客 Wi-Fi 打开内部门户吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "guest-wifi.md"
+      ],
+      "forbidden_sources": [
+        "finance/guest-wifi-交接.md",
+        "finance/guest-wifi-复核.md",
+        "hr/guest-wifi-交接.md",
+        "hr/guest-wifi-复核.md",
+        "security/guest-wifi-交接.md",
+        "security/guest-wifi-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-11",
+      "slice": "dept_isolation",
+      "query": "临时来访人员需要上网，前台发的帐号能用到哪天？",
+      "department": "operations",
+      "relevant_sources": [
+        "guest-wifi.md"
+      ],
+      "forbidden_sources": [
+        "finance/guest-wifi-交接.md",
+        "finance/guest-wifi-复核.md",
+        "hr/guest-wifi-交接.md",
+        "hr/guest-wifi-复核.md",
+        "security/guest-wifi-交接.md",
+        "security/guest-wifi-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-12",
+      "slice": "exact_code",
+      "query": "P2 设备丢失要提供哪些信息？",
+      "department": "engineering",
+      "relevant_sources": [
+        "lost-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/lost-device-交接.md",
+        "finance/lost-device-复核.md",
+        "hr/lost-device-交接.md",
+        "hr/lost-device-复核.md",
+        "security/lost-device-交接.md",
+        "security/lost-device-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-12",
+      "slice": "semantic_paraphrase",
+      "query": "公司发的本子落在出租车上了先找谁？",
+      "department": "engineering",
+      "relevant_sources": [
+        "lost-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/lost-device-交接.md",
+        "finance/lost-device-复核.md",
+        "hr/lost-device-交接.md",
+        "hr/lost-device-复核.md",
+        "security/lost-device-交接.md",
+        "security/lost-device-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-12",
+      "slice": "composite_query",
+      "query": "出差丢了硬件令牌，报 P2 要准备资产编号吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "lost-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/lost-device-交接.md",
+        "finance/lost-device-复核.md",
+        "hr/lost-device-交接.md",
+        "hr/lost-device-复核.md",
+        "security/lost-device-交接.md",
+        "security/lost-device-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-12",
+      "slice": "dept_isolation",
+      "query": "电脑遗落在出租车里，报失要说明什么？",
+      "department": "sales",
+      "relevant_sources": [
+        "lost-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/lost-device-交接.md",
+        "finance/lost-device-复核.md",
+        "hr/lost-device-交接.md",
+        "hr/lost-device-复核.md",
+        "security/lost-device-交接.md",
+        "security/lost-device-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-13",
+      "slice": "exact_code",
+      "query": "Command + Option + Esc 怎么用？",
+      "department": "engineering",
+      "relevant_sources": [
+        "macos-common.md"
+      ],
+      "forbidden_sources": [
+        "finance/macos-common-交接.md",
+        "finance/macos-common-复核.md",
+        "hr/macos-common-交接.md",
+        "hr/macos-common-复核.md",
+        "security/macos-common-交接.md",
+        "security/macos-common-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-13",
+      "slice": "semantic_paraphrase",
+      "query": "苹果本上有个窗口彻底不动了怎么让它退出？",
+      "department": "engineering",
+      "relevant_sources": [
+        "macos-common.md"
+      ],
+      "forbidden_sources": [
+        "finance/macos-common-交接.md",
+        "finance/macos-common-复核.md",
+        "hr/macos-common-交接.md",
+        "hr/macos-common-复核.md",
+        "security/macos-common-交接.md",
+        "security/macos-common-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-13",
+      "slice": "composite_query",
+      "query": "Mac 提示无法验证开发者还可以安装吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "macos-common.md"
+      ],
+      "forbidden_sources": [
+        "finance/macos-common-交接.md",
+        "finance/macos-common-复核.md",
+        "hr/macos-common-交接.md",
+        "hr/macos-common-复核.md",
+        "security/macos-common-交接.md",
+        "security/macos-common-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-13",
+      "slice": "dept_isolation",
+      "query": "苹果电脑有个程序完全没反应，怎么强制退出？",
+      "department": "engineering",
+      "relevant_sources": [
+        "macos-common.md"
+      ],
+      "forbidden_sources": [
+        "finance/macos-common-交接.md",
+        "finance/macos-common-复核.md",
+        "hr/macos-common-交接.md",
+        "hr/macos-common-复核.md",
+        "security/macos-common-交接.md",
+        "security/macos-common-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-14",
+      "slice": "exact_code",
+      "query": "Win + P 选复制还是扩展？",
+      "department": "engineering",
+      "relevant_sources": [
+        "meeting-room-av.md"
+      ],
+      "forbidden_sources": [
+        "finance/meeting-room-av-交接.md",
+        "finance/meeting-room-av-复核.md",
+        "hr/meeting-room-av-交接.md",
+        "hr/meeting-room-av-复核.md",
+        "security/meeting-room-av-交接.md",
+        "security/meeting-room-av-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-14",
+      "slice": "semantic_paraphrase",
+      "query": "屋里两台笔记本开着语音大家都听见自己说两遍？",
+      "department": "engineering",
+      "relevant_sources": [
+        "meeting-room-av.md"
+      ],
+      "forbidden_sources": [
+        "finance/meeting-room-av-交接.md",
+        "finance/meeting-room-av-复核.md",
+        "hr/meeting-room-av-交接.md",
+        "hr/meeting-room-av-复核.md",
+        "security/meeting-room-av-交接.md",
+        "security/meeting-room-av-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-14",
+      "slice": "composite_query",
+      "query": "插好 HDMI 以后电视黑着，应该切哪个信号源？",
+      "department": "engineering",
+      "relevant_sources": [
+        "meeting-room-av.md"
+      ],
+      "forbidden_sources": [
+        "finance/meeting-room-av-交接.md",
+        "finance/meeting-room-av-复核.md",
+        "hr/meeting-room-av-交接.md",
+        "hr/meeting-room-av-复核.md",
+        "security/meeting-room-av-交接.md",
+        "security/meeting-room-av-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-14",
+      "slice": "dept_isolation",
+      "query": "会议室连好了线但电视无画面，怎么切换信号源？",
+      "department": "operations",
+      "relevant_sources": [
+        "meeting-room-av.md"
+      ],
+      "forbidden_sources": [
+        "finance/meeting-room-av-交接.md",
+        "finance/meeting-room-av-复核.md",
+        "hr/meeting-room-av-交接.md",
+        "hr/meeting-room-av-复核.md",
+        "security/meeting-room-av-交接.md",
+        "security/meeting-room-av-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-15",
+      "slice": "exact_code",
+      "query": "MFA 恢复码能用几次？",
+      "department": "engineering",
+      "relevant_sources": [
+        "mfa-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/mfa-device-交接.md",
+        "finance/mfa-device-复核.md",
+        "hr/mfa-device-交接.md",
+        "hr/mfa-device-复核.md",
+        "security/mfa-device-交接.md",
+        "security/mfa-device-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-15",
+      "slice": "semantic_paraphrase",
+      "query": "换新机后还能拿旧机点确认，怎么搬过去？",
+      "department": "engineering",
+      "relevant_sources": [
+        "mfa-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/mfa-device-交接.md",
+        "finance/mfa-device-复核.md",
+        "hr/mfa-device-交接.md",
+        "hr/mfa-device-复核.md",
+        "security/mfa-device-交接.md",
+        "security/mfa-device-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-15",
+      "slice": "composite_query",
+      "query": "旧手机摔坏且没有恢复码，怎么重新绑定 MFA？",
+      "department": "engineering",
+      "relevant_sources": [
+        "mfa-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/mfa-device-交接.md",
+        "finance/mfa-device-复核.md",
+        "hr/mfa-device-交接.md",
+        "hr/mfa-device-复核.md",
+        "security/mfa-device-交接.md",
+        "security/mfa-device-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-15",
+      "slice": "dept_isolation",
+      "query": "换了手机，旧手机还能确认推送，先绑定还是先解绑？",
+      "department": "sales",
+      "relevant_sources": [
+        "mfa-device.md"
+      ],
+      "forbidden_sources": [
+        "finance/mfa-device-交接.md",
+        "finance/mfa-device-复核.md",
+        "hr/mfa-device-交接.md",
+        "hr/mfa-device-复核.md",
+        "security/mfa-device-交接.md",
+        "security/mfa-device-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-16",
+      "slice": "exact_code",
+      "query": "离职后 VPN 何时停用？",
+      "department": "engineering",
+      "relevant_sources": [
+        "offboarding-transfer.md"
+      ],
+      "forbidden_sources": [
+        "finance/offboarding-transfer-交接.md",
+        "finance/offboarding-transfer-复核.md",
+        "hr/offboarding-transfer-交接.md",
+        "hr/offboarding-transfer-复核.md",
+        "security/offboarding-transfer-交接.md",
+        "security/offboarding-transfer-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-16",
+      "slice": "semantic_paraphrase",
+      "query": "换到另一个组了，以前能看的东西要交回吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "offboarding-transfer.md"
+      ],
+      "forbidden_sources": [
+        "finance/offboarding-transfer-交接.md",
+        "finance/offboarding-transfer-复核.md",
+        "hr/offboarding-transfer-交接.md",
+        "hr/offboarding-transfer-复核.md",
+        "security/offboarding-transfer-交接.md",
+        "security/offboarding-transfer-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-16",
+      "slice": "composite_query",
+      "query": "离职同事还能登录邮箱，需要开 P2 吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "offboarding-transfer.md"
+      ],
+      "forbidden_sources": [
+        "finance/offboarding-transfer-交接.md",
+        "finance/offboarding-transfer-复核.md",
+        "hr/offboarding-transfer-交接.md",
+        "hr/offboarding-transfer-复核.md",
+        "security/offboarding-transfer-交接.md",
+        "security/offboarding-transfer-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-16",
+      "slice": "dept_isolation",
+      "query": "同事转岗后之前岗位独有的资格谁来收回？",
+      "department": "engineering",
+      "relevant_sources": [
+        "offboarding-transfer.md"
+      ],
+      "forbidden_sources": [
+        "finance/offboarding-transfer-交接.md",
+        "finance/offboarding-transfer-复核.md",
+        "hr/offboarding-transfer-交接.md",
+        "hr/offboarding-transfer-复核.md",
+        "security/offboarding-transfer-交接.md",
+        "security/offboarding-transfer-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-17",
+      "slice": "exact_code",
+      "query": "HR 如何发起新员工开通？",
+      "department": "engineering",
+      "relevant_sources": [
+        "onboarding.md"
+      ],
+      "forbidden_sources": [
+        "finance/onboarding-交接.md",
+        "finance/onboarding-复核.md",
+        "hr/onboarding-交接.md",
+        "hr/onboarding-复核.md",
+        "security/onboarding-交接.md",
+        "security/onboarding-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-17",
+      "slice": "semantic_paraphrase",
+      "query": "下周第一次来公司要由谁提前给我准备电脑？",
+      "department": "engineering",
+      "relevant_sources": [
+        "onboarding.md"
+      ],
+      "forbidden_sources": [
+        "finance/onboarding-交接.md",
+        "finance/onboarding-复核.md",
+        "hr/onboarding-交接.md",
+        "hr/onboarding-复核.md",
+        "security/onboarding-交接.md",
+        "security/onboarding-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-17",
+      "slice": "composite_query",
+      "query": "第一天拿到电脑，Jira 和邮箱该怎么验收？",
+      "department": "engineering",
+      "relevant_sources": [
+        "onboarding.md"
+      ],
+      "forbidden_sources": [
+        "finance/onboarding-交接.md",
+        "finance/onboarding-复核.md",
+        "hr/onboarding-交接.md",
+        "hr/onboarding-复核.md",
+        "security/onboarding-交接.md",
+        "security/onboarding-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-17",
+      "slice": "dept_isolation",
+      "query": "新人第一天拿到电脑，邮件和基础权限怎么验收？",
+      "department": "operations",
+      "relevant_sources": [
+        "onboarding.md"
+      ],
+      "forbidden_sources": [
+        "finance/onboarding-交接.md",
+        "finance/onboarding-复核.md",
+        "hr/onboarding-交接.md",
+        "hr/onboarding-复核.md",
+        "security/onboarding-交接.md",
+        "security/onboarding-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-18",
+      "slice": "exact_code",
+      "query": "OTP 可以告诉服务台吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "password-mfa.md"
+      ],
+      "forbidden_sources": [
+        "finance/password-mfa-交接.md",
+        "finance/password-mfa-复核.md",
+        "hr/password-mfa-交接.md",
+        "hr/password-mfa-复核.md",
+        "security/password-mfa-交接.md",
+        "security/password-mfa-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-18",
+      "slice": "semantic_paraphrase",
+      "query": "那串用来进公司的秘密我想不起来了怎么换？",
+      "department": "engineering",
+      "relevant_sources": [
+        "password-mfa.md"
+      ],
+      "forbidden_sources": [
+        "finance/password-mfa-交接.md",
+        "finance/password-mfa-复核.md",
+        "hr/password-mfa-交接.md",
+        "hr/password-mfa-复核.md",
+        "security/password-mfa-交接.md",
+        "security/password-mfa-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-18",
+      "slice": "composite_query",
+      "query": "身份平台设了 12 位新密码仍不通过，复杂度怎么算？",
+      "department": "engineering",
+      "relevant_sources": [
+        "password-mfa.md"
+      ],
+      "forbidden_sources": [
+        "finance/password-mfa-交接.md",
+        "finance/password-mfa-复核.md",
+        "hr/password-mfa-交接.md",
+        "hr/password-mfa-复核.md",
+        "security/password-mfa-交接.md",
+        "security/password-mfa-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-18",
+      "slice": "dept_isolation",
+      "query": "忘了口令，要在哪里完成自助重置？",
+      "department": "sales",
+      "relevant_sources": [
+        "password-mfa.md"
+      ],
+      "forbidden_sources": [
+        "finance/password-mfa-交接.md",
+        "finance/password-mfa-复核.md",
+        "hr/password-mfa-交接.md",
+        "hr/password-mfa-复核.md",
+        "security/password-mfa-交接.md",
+        "security/password-mfa-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-19",
+      "slice": "exact_code",
+      "query": "USB 存储设备不能用怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "peripherals.md"
+      ],
+      "forbidden_sources": [
+        "finance/peripherals-交接.md",
+        "finance/peripherals-复核.md",
+        "hr/peripherals-交接.md",
+        "hr/peripherals-复核.md",
+        "security/peripherals-交接.md",
+        "security/peripherals-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-19",
+      "slice": "semantic_paraphrase",
+      "query": "桌面上第二块屏一直黑着，怎样判断是不是中间那块转接盒坏了？",
+      "department": "engineering",
+      "relevant_sources": [
+        "peripherals.md"
+      ],
+      "forbidden_sources": [
+        "finance/peripherals-交接.md",
+        "finance/peripherals-复核.md",
+        "hr/peripherals-交接.md",
+        "hr/peripherals-复核.md",
+        "security/peripherals-交接.md",
+        "security/peripherals-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-19",
+      "slice": "composite_query",
+      "query": "捡到一个 U 盘可以插公司电脑查失主吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "peripherals.md"
+      ],
+      "forbidden_sources": [
+        "finance/peripherals-交接.md",
+        "finance/peripherals-复核.md",
+        "hr/peripherals-交接.md",
+        "hr/peripherals-复核.md",
+        "security/peripherals-交接.md",
+        "security/peripherals-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-19",
+      "slice": "dept_isolation",
+      "query": "第二块屏幕黑着，怎样判断扩展坞有没有问题？",
+      "department": "engineering",
+      "relevant_sources": [
+        "peripherals.md"
+      ],
+      "forbidden_sources": [
+        "finance/peripherals-交接.md",
+        "finance/peripherals-复核.md",
+        "hr/peripherals-交接.md",
+        "hr/peripherals-复核.md",
+        "security/peripherals-交接.md",
+        "security/peripherals-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-20",
+      "slice": "exact_code",
+      "query": "Office 带宏附件能打开吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "phishing.md"
+      ],
+      "forbidden_sources": [
+        "finance/phishing-交接.md",
+        "finance/phishing-复核.md",
+        "hr/phishing-交接.md",
+        "hr/phishing-复核.md",
+        "security/phishing-交接.md",
+        "security/phishing-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-20",
+      "slice": "semantic_paraphrase",
+      "query": "有人冒充老板催我马上买礼品卡怎么核实？",
+      "department": "engineering",
+      "relevant_sources": [
+        "phishing.md"
+      ],
+      "forbidden_sources": [
+        "finance/phishing-交接.md",
+        "finance/phishing-复核.md",
+        "hr/phishing-交接.md",
+        "hr/phishing-复核.md",
+        "security/phishing-交接.md",
+        "security/phishing-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-20",
+      "slice": "composite_query",
+      "query": "财务收到修改收款账户的邮件，能直接回复确认吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "phishing.md"
+      ],
+      "forbidden_sources": [
+        "finance/phishing-交接.md",
+        "finance/phishing-复核.md",
+        "hr/phishing-交接.md",
+        "hr/phishing-复核.md",
+        "security/phishing-交接.md",
+        "security/phishing-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-20",
+      "slice": "dept_isolation",
+      "query": "有人冒充主管让改收款账户，怎样核实？",
+      "department": "operations",
+      "relevant_sources": [
+        "phishing.md"
+      ],
+      "forbidden_sources": [
+        "finance/phishing-交接.md",
+        "finance/phishing-复核.md",
+        "hr/phishing-交接.md",
+        "hr/phishing-复核.md",
+        "security/phishing-交接.md",
+        "security/phishing-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-21",
+      "slice": "exact_code",
+      "query": "PDF 可以解决打印乱码吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "printer-scanner.md"
+      ],
+      "forbidden_sources": [
+        "finance/printer-scanner-交接.md",
+        "finance/printer-scanner-复核.md",
+        "hr/printer-scanner-交接.md",
+        "hr/printer-scanner-复核.md",
+        "security/printer-scanner-交接.md",
+        "security/printer-scanner-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-21",
+      "slice": "semantic_paraphrase",
+      "query": "我去机器旁边怎么都看不到刚才送过去的纸？",
+      "department": "engineering",
+      "relevant_sources": [
+        "printer-scanner.md"
+      ],
+      "forbidden_sources": [
+        "finance/printer-scanner-交接.md",
+        "finance/printer-scanner-复核.md",
+        "hr/printer-scanner-交接.md",
+        "hr/printer-scanner-复核.md",
+        "security/printer-scanner-交接.md",
+        "security/printer-scanner-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-21",
+      "slice": "composite_query",
+      "query": "刷工卡后没找到打印任务，会超时吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "printer-scanner.md"
+      ],
+      "forbidden_sources": [
+        "finance/printer-scanner-交接.md",
+        "finance/printer-scanner-复核.md",
+        "hr/printer-scanner-交接.md",
+        "hr/printer-scanner-复核.md",
+        "security/printer-scanner-交接.md",
+        "security/printer-scanner-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-21",
+      "slice": "dept_isolation",
+      "query": "刷工卡之前一直没出纸，任务会不会过期？",
+      "department": "sales",
+      "relevant_sources": [
+        "printer-scanner.md"
+      ],
+      "forbidden_sources": [
+        "finance/printer-scanner-交接.md",
+        "finance/printer-scanner-复核.md",
+        "hr/printer-scanner-交接.md",
+        "hr/printer-scanner-复核.md",
+        "security/printer-scanner-交接.md",
+        "security/printer-scanner-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-22",
+      "slice": "exact_code",
+      "query": "Wi-Fi 下提示连接不是私密连接怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "proxy-certificate.md"
+      ],
+      "forbidden_sources": [
+        "finance/proxy-certificate-交接.md",
+        "finance/proxy-certificate-复核.md",
+        "hr/proxy-certificate-交接.md",
+        "hr/proxy-certificate-复核.md",
+        "security/proxy-certificate-交接.md",
+        "security/proxy-certificate-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-22",
+      "slice": "semantic_paraphrase",
+      "query": "每个网页都在警告有人可能偷看，我该先断开吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "proxy-certificate.md"
+      ],
+      "forbidden_sources": [
+        "finance/proxy-certificate-交接.md",
+        "finance/proxy-certificate-复核.md",
+        "hr/proxy-certificate-交接.md",
+        "hr/proxy-certificate-复核.md",
+        "security/proxy-certificate-交接.md",
+        "security/proxy-certificate-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-22",
+      "slice": "composite_query",
+      "query": "在酒店所有站点都报证书错，切手机热点有用吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "proxy-certificate.md"
+      ],
+      "forbidden_sources": [
+        "finance/proxy-certificate-交接.md",
+        "finance/proxy-certificate-复核.md",
+        "hr/proxy-certificate-交接.md",
+        "hr/proxy-certificate-复核.md",
+        "security/proxy-certificate-交接.md",
+        "security/proxy-certificate-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-22",
+      "slice": "dept_isolation",
+      "query": "酒店里访问所有网页都报证书不可信，能继续吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "proxy-certificate.md"
+      ],
+      "forbidden_sources": [
+        "finance/proxy-certificate-交接.md",
+        "finance/proxy-certificate-复核.md",
+        "hr/proxy-certificate-交接.md",
+        "hr/proxy-certificate-复核.md",
+        "security/proxy-certificate-交接.md",
+        "security/proxy-certificate-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-23",
+      "slice": "exact_code",
+      "query": "收到非本人 MFA 推送怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "security-incident.md"
+      ],
+      "forbidden_sources": [
+        "finance/security-incident-交接.md",
+        "finance/security-incident-复核.md",
+        "hr/security-incident-交接.md",
+        "hr/security-incident-复核.md",
+        "security/security-incident-交接.md",
+        "security/security-incident-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-23",
+      "slice": "semantic_paraphrase",
+      "query": "文件全改了奇怪的后缀还多了张要钱的纸条怎么办？",
+      "department": "engineering",
+      "relevant_sources": [
+        "security-incident.md"
+      ],
+      "forbidden_sources": [
+        "finance/security-incident-交接.md",
+        "finance/security-incident-复核.md",
+        "hr/security-incident-交接.md",
+        "hr/security-incident-复核.md",
+        "security/security-incident-交接.md",
+        "security/security-incident-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-23",
+      "slice": "composite_query",
+      "query": "看见勒索说明后开 P1 前要不要关机？",
+      "department": "engineering",
+      "relevant_sources": [
+        "security-incident.md"
+      ],
+      "forbidden_sources": [
+        "finance/security-incident-交接.md",
+        "finance/security-incident-复核.md",
+        "hr/security-incident-交接.md",
+        "hr/security-incident-复核.md",
+        "security/security-incident-交接.md",
+        "security/security-incident-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-23",
+      "slice": "dept_isolation",
+      "query": "文件被统一改了后缀还有勒索说明，要关机吗？",
+      "department": "operations",
+      "relevant_sources": [
+        "security-incident.md"
+      ],
+      "forbidden_sources": [
+        "finance/security-incident-交接.md",
+        "finance/security-incident-复核.md",
+        "hr/security-incident-交接.md",
+        "hr/security-incident-复核.md",
+        "security/security-incident-交接.md",
+        "security/security-incident-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-24",
+      "slice": "exact_code",
+      "query": "P1 晚上谁值班？",
+      "department": "engineering",
+      "relevant_sources": [
+        "service-desk-escalation.md"
+      ],
+      "forbidden_sources": [
+        "finance/service-desk-escalation-交接.md",
+        "finance/service-desk-escalation-复核.md",
+        "hr/service-desk-escalation-交接.md",
+        "hr/service-desk-escalation-复核.md",
+        "security/service-desk-escalation-交接.md",
+        "security/service-desk-escalation-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-24",
+      "slice": "semantic_paraphrase",
+      "query": "半夜公司业务停了还能找到人来处理吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "service-desk-escalation.md"
+      ],
+      "forbidden_sources": [
+        "finance/service-desk-escalation-交接.md",
+        "finance/service-desk-escalation-复核.md",
+        "hr/service-desk-escalation-交接.md",
+        "hr/service-desk-escalation-复核.md",
+        "security/service-desk-escalation-交接.md",
+        "security/service-desk-escalation-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-24",
+      "slice": "composite_query",
+      "query": "周末只有飞书机器人在线，紧急中断怎么升级？",
+      "department": "engineering",
+      "relevant_sources": [
+        "service-desk-escalation.md"
+      ],
+      "forbidden_sources": [
+        "finance/service-desk-escalation-交接.md",
+        "finance/service-desk-escalation-复核.md",
+        "hr/service-desk-escalation-交接.md",
+        "hr/service-desk-escalation-复核.md",
+        "security/service-desk-escalation-交接.md",
+        "security/service-desk-escalation-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-24",
+      "slice": "dept_isolation",
+      "query": "非工作时间出现大范围中断，怎样联系值班人员？",
+      "department": "sales",
+      "relevant_sources": [
+        "service-desk-escalation.md"
+      ],
+      "forbidden_sources": [
+        "finance/service-desk-escalation-交接.md",
+        "finance/service-desk-escalation-复核.md",
+        "hr/service-desk-escalation-交接.md",
+        "hr/service-desk-escalation-复核.md",
+        "security/service-desk-escalation-交接.md",
+        "security/service-desk-escalation-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-25",
+      "slice": "exact_code",
+      "query": "CPU 占用在 macOS 哪里看？",
+      "department": "engineering",
+      "relevant_sources": [
+        "slow-computer.md"
+      ],
+      "forbidden_sources": [
+        "finance/slow-computer-交接.md",
+        "finance/slow-computer-复核.md",
+        "hr/slow-computer-交接.md",
+        "hr/slow-computer-复核.md",
+        "security/slow-computer-交接.md",
+        "security/slow-computer-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-25",
+      "slice": "semantic_paraphrase",
+      "query": "我的机器突然做什么都慢半拍先看哪里？",
+      "department": "engineering",
+      "relevant_sources": [
+        "slow-computer.md"
+      ],
+      "forbidden_sources": [
+        "finance/slow-computer-交接.md",
+        "finance/slow-computer-复核.md",
+        "hr/slow-computer-交接.md",
+        "hr/slow-computer-复核.md",
+        "security/slow-computer-交接.md",
+        "security/slow-computer-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-25",
+      "slice": "composite_query",
+      "query": "系统盘剩余不到 10% 会让应用启动变慢吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "slow-computer.md"
+      ],
+      "forbidden_sources": [
+        "finance/slow-computer-交接.md",
+        "finance/slow-computer-复核.md",
+        "hr/slow-computer-交接.md",
+        "hr/slow-computer-复核.md",
+        "security/slow-computer-交接.md",
+        "security/slow-computer-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-25",
+      "slice": "dept_isolation",
+      "query": "机器越用越慢，想确认哪个程序占用最多资源？",
+      "department": "engineering",
+      "relevant_sources": [
+        "slow-computer.md"
+      ],
+      "forbidden_sources": [
+        "finance/slow-computer-交接.md",
+        "finance/slow-computer-复核.md",
+        "hr/slow-computer-交接.md",
+        "hr/slow-computer-复核.md",
+        "security/slow-computer-交接.md",
+        "security/slow-computer-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-26",
+      "slice": "exact_code",
+      "query": "VPN-691 对应什么排查步骤？",
+      "department": "engineering",
+      "relevant_sources": [
+        "common-error-codes.md",
+        "vpn-errors.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md",
+        "finance/vpn-errors-交接.md",
+        "finance/vpn-errors-复核.md",
+        "hr/vpn-errors-交接.md",
+        "hr/vpn-errors-复核.md",
+        "security/vpn-errors-交接.md",
+        "security/vpn-errors-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-26",
+      "slice": "semantic_paraphrase",
+      "query": "要用个按年收费的工具，谁出钱谁点头？",
+      "department": "engineering",
+      "relevant_sources": [
+        "software-license.md"
+      ],
+      "forbidden_sources": [
+        "finance/software-license-交接.md",
+        "finance/software-license-复核.md",
+        "hr/software-license-交接.md",
+        "hr/software-license-复核.md",
+        "security/software-license-交接.md",
+        "security/software-license-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-26",
+      "slice": "composite_query",
+      "query": "设计组需要新增收费软件，许可证按人还是设备分？",
+      "department": "engineering",
+      "relevant_sources": [
+        "software-license.md"
+      ],
+      "forbidden_sources": [
+        "finance/software-license-交接.md",
+        "finance/software-license-复核.md",
+        "hr/software-license-交接.md",
+        "hr/software-license-复核.md",
+        "security/software-license-交接.md",
+        "security/software-license-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-26",
+      "slice": "dept_isolation",
+      "query": "部门想采购目录里没有的付费工具，许可证归谁？",
+      "department": "operations",
+      "relevant_sources": [
+        "software-license.md"
+      ],
+      "forbidden_sources": [
+        "finance/software-license-交接.md",
+        "finance/software-license-复核.md",
+        "hr/software-license-交接.md",
+        "hr/software-license-复核.md",
+        "security/software-license-交接.md",
+        "security/software-license-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-27",
+      "slice": "exact_code",
+      "query": "P3 响应时限是多少？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-priority-sla.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-priority-sla-交接.md",
+        "finance/ticket-priority-sla-复核.md",
+        "hr/ticket-priority-sla-交接.md",
+        "hr/ticket-priority-sla-复核.md",
+        "security/ticket-priority-sla-交接.md",
+        "security/ticket-priority-sla-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-27",
+      "slice": "semantic_paraphrase",
+      "query": "只有我一个人做不了事但还能绕路，要排在哪档？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-priority-sla.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-priority-sla-交接.md",
+        "finance/ticket-priority-sla-复核.md",
+        "hr/ticket-priority-sla-交接.md",
+        "hr/ticket-priority-sla-复核.md",
+        "security/ticket-priority-sla-交接.md",
+        "security/ticket-priority-sla-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-27",
+      "slice": "composite_query",
+      "query": "全公司 VPN 断了，按 P1 多久要响应？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-priority-sla.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-priority-sla-交接.md",
+        "finance/ticket-priority-sla-复核.md",
+        "hr/ticket-priority-sla-交接.md",
+        "hr/ticket-priority-sla-复核.md",
+        "security/ticket-priority-sla-交接.md",
+        "security/ticket-priority-sla-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-27",
+      "slice": "dept_isolation",
+      "query": "整个团队都无法工作，P2 工单的响应时限是多少？",
+      "department": "sales",
+      "relevant_sources": [
+        "ticket-priority-sla.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-priority-sla-交接.md",
+        "finance/ticket-priority-sla-复核.md",
+        "hr/ticket-priority-sla-交接.md",
+        "hr/ticket-priority-sla-复核.md",
+        "security/ticket-priority-sla-交接.md",
+        "security/ticket-priority-sla-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-28",
+      "slice": "exact_code",
+      "query": "500 错误里的 request_id 要随工单一起提供吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "common-error-codes.md"
+      ],
+      "forbidden_sources": [
+        "finance/common-error-codes-交接.md",
+        "finance/common-error-codes-复核.md",
+        "hr/common-error-codes-交接.md",
+        "hr/common-error-codes-复核.md",
+        "security/common-error-codes-交接.md",
+        "security/common-error-codes-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-28",
+      "slice": "semantic_paraphrase",
+      "query": "我求助后总被追问当时在哪里和几个人遇到，该一次写哪些？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-writing.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-writing-交接.md",
+        "finance/ticket-writing-复核.md",
+        "hr/ticket-writing-交接.md",
+        "hr/ticket-writing-复核.md",
+        "security/ticket-writing-交接.md",
+        "security/ticket-writing-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-28",
+      "slice": "composite_query",
+      "query": "三楼东区打印机卡住，工单里除了截图还要什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-writing.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-writing-交接.md",
+        "finance/ticket-writing-复核.md",
+        "hr/ticket-writing-交接.md",
+        "hr/ticket-writing-复核.md",
+        "security/ticket-writing-交接.md",
+        "security/ticket-writing-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-28",
+      "slice": "dept_isolation",
+      "query": "间歇故障准备报修，如何把时间和影响写清楚？",
+      "department": "engineering",
+      "relevant_sources": [
+        "ticket-writing.md"
+      ],
+      "forbidden_sources": [
+        "finance/ticket-writing-交接.md",
+        "finance/ticket-writing-复核.md",
+        "hr/ticket-writing-交接.md",
+        "hr/ticket-writing-复核.md",
+        "security/ticket-writing-交接.md",
+        "security/ticket-writing-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-29",
+      "slice": "exact_code",
+      "query": "VPN 提示证书不受信任怎么处理？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-errors.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-errors-交接.md",
+        "finance/vpn-errors-复核.md",
+        "hr/vpn-errors-交接.md",
+        "hr/vpn-errors-复核.md",
+        "security/vpn-errors-交接.md",
+        "security/vpn-errors-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-29",
+      "slice": "semantic_paraphrase",
+      "query": "远程连回办公室总说凭据不对，之前明明能用？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-errors.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-errors-交接.md",
+        "finance/vpn-errors-复核.md",
+        "hr/vpn-errors-交接.md",
+        "hr/vpn-errors-复核.md",
+        "security/vpn-errors-交接.md",
+        "security/vpn-errors-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-29",
+      "slice": "composite_query",
+      "query": "出差连 VPN 一直超时，换手机热点能帮助定位吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-errors.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-errors-交接.md",
+        "finance/vpn-errors-复核.md",
+        "hr/vpn-errors-交接.md",
+        "hr/vpn-errors-复核.md",
+        "security/vpn-errors-交接.md",
+        "security/vpn-errors-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-29",
+      "slice": "dept_isolation",
+      "query": "远程接入证书不受信任，可以忽略提示继续连吗？",
+      "department": "operations",
+      "relevant_sources": [
+        "vpn-errors.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-errors-交接.md",
+        "finance/vpn-errors-复核.md",
+        "hr/vpn-errors-交接.md",
+        "hr/vpn-errors-复核.md",
+        "security/vpn-errors-交接.md",
+        "security/vpn-errors-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-30",
+      "slice": "exact_code",
+      "query": "VPN 客户端版本去哪检查？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-troubleshooting.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-troubleshooting-交接.md",
+        "finance/vpn-troubleshooting-复核.md",
+        "hr/vpn-troubleshooting-交接.md",
+        "hr/vpn-troubleshooting-复核.md",
+        "security/vpn-troubleshooting-交接.md",
+        "security/vpn-troubleshooting-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-30",
+      "slice": "semantic_paraphrase",
+      "query": "在机场怎么都进不了公司，先看能不能打开普通网站吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-troubleshooting.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-troubleshooting-交接.md",
+        "finance/vpn-troubleshooting-复核.md",
+        "hr/vpn-troubleshooting-交接.md",
+        "hr/vpn-troubleshooting-复核.md",
+        "security/vpn-troubleshooting-交接.md",
+        "security/vpn-troubleshooting-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-30",
+      "slice": "composite_query",
+      "query": "酒店需要网页认证，VPN 连接排查的先后顺序是什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "vpn-troubleshooting.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-troubleshooting-交接.md",
+        "finance/vpn-troubleshooting-复核.md",
+        "hr/vpn-troubleshooting-交接.md",
+        "hr/vpn-troubleshooting-复核.md",
+        "security/vpn-troubleshooting-交接.md",
+        "security/vpn-troubleshooting-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-30",
+      "slice": "dept_isolation",
+      "query": "机场无线需要网页认证，应在启动 VPN 前做什么？",
+      "department": "sales",
+      "relevant_sources": [
+        "vpn-troubleshooting.md"
+      ],
+      "forbidden_sources": [
+        "finance/vpn-troubleshooting-交接.md",
+        "finance/vpn-troubleshooting-复核.md",
+        "hr/vpn-troubleshooting-交接.md",
+        "hr/vpn-troubleshooting-复核.md",
+        "security/vpn-troubleshooting-交接.md",
+        "security/vpn-troubleshooting-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-31",
+      "slice": "exact_code",
+      "query": "SSID 排障要记录什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "wifi-network.md"
+      ],
+      "forbidden_sources": [
+        "finance/wifi-network-交接.md",
+        "finance/wifi-network-复核.md",
+        "hr/wifi-network-交接.md",
+        "hr/wifi-network-复核.md",
+        "security/wifi-network-交接.md",
+        "security/wifi-network-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-31",
+      "slice": "semantic_paraphrase",
+      "query": "这一排同事全都没法无线上网该找谁？",
+      "department": "engineering",
+      "relevant_sources": [
+        "wifi-network.md"
+      ],
+      "forbidden_sources": [
+        "finance/wifi-network-交接.md",
+        "finance/wifi-network-复核.md",
+        "hr/wifi-network-交接.md",
+        "hr/wifi-network-复核.md",
+        "security/wifi-network-交接.md",
+        "security/wifi-network-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-31",
+      "slice": "composite_query",
+      "query": "换过企业密码以后只有我的办公 Wi-Fi 连不上？",
+      "department": "engineering",
+      "relevant_sources": [
+        "wifi-network.md"
+      ],
+      "forbidden_sources": [
+        "finance/wifi-network-交接.md",
+        "finance/wifi-network-复核.md",
+        "hr/wifi-network-交接.md",
+        "hr/wifi-network-复核.md",
+        "security/wifi-network-交接.md",
+        "security/wifi-network-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-31",
+      "slice": "dept_isolation",
+      "query": "我和附近几个工位都连不上办公无线，报障要带什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "wifi-network.md"
+      ],
+      "forbidden_sources": [
+        "finance/wifi-network-交接.md",
+        "finance/wifi-network-复核.md",
+        "hr/wifi-network-交接.md",
+        "hr/wifi-network-复核.md",
+        "security/wifi-network-交接.md",
+        "security/wifi-network-复核.md"
+      ]
+    },
+    {
+      "id": "exact_code-32",
+      "slice": "exact_code",
+      "query": "IRQL_NOT_LESS_OR_EQUAL 要拍照吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "windows-bsod.md"
+      ],
+      "forbidden_sources": [
+        "finance/windows-bsod-交接.md",
+        "finance/windows-bsod-复核.md",
+        "hr/windows-bsod-交接.md",
+        "hr/windows-bsod-复核.md",
+        "security/windows-bsod-交接.md",
+        "security/windows-bsod-复核.md"
+      ]
+    },
+    {
+      "id": "semantic_paraphrase-32",
+      "slice": "semantic_paraphrase",
+      "query": "屏幕突然变蓝然后自己又开机了要留下什么？",
+      "department": "engineering",
+      "relevant_sources": [
+        "windows-bsod.md"
+      ],
+      "forbidden_sources": [
+        "finance/windows-bsod-交接.md",
+        "finance/windows-bsod-复核.md",
+        "hr/windows-bsod-交接.md",
+        "hr/windows-bsod-复核.md",
+        "security/windows-bsod-交接.md",
+        "security/windows-bsod-复核.md"
+      ]
+    },
+    {
+      "id": "composite_query-32",
+      "slice": "composite_query",
+      "query": "新接扩展坞后出现 MEMORY_MANAGEMENT，先拔设备吗？",
+      "department": "engineering",
+      "relevant_sources": [
+        "windows-bsod.md"
+      ],
+      "forbidden_sources": [
+        "finance/windows-bsod-交接.md",
+        "finance/windows-bsod-复核.md",
+        "hr/windows-bsod-交接.md",
+        "hr/windows-bsod-复核.md",
+        "security/windows-bsod-交接.md",
+        "security/windows-bsod-复核.md"
+      ]
+    },
+    {
+      "id": "dept_isolation-32",
+      "slice": "dept_isolation",
+      "query": "屏幕变蓝自动重启，停止代码需要怎样保存？",
+      "department": "operations",
+      "relevant_sources": [
+        "windows-bsod.md"
+      ],
+      "forbidden_sources": [
+        "finance/windows-bsod-交接.md",
+        "finance/windows-bsod-复核.md",
+        "hr/windows-bsod-交接.md",
+        "hr/windows-bsod-复核.md",
+        "security/windows-bsod-交接.md",
+        "security/windows-bsod-复核.md"
+      ]
+    }
+  ]
+}

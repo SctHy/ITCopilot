@@ -39,6 +39,29 @@ flowchart LR
 | 进程强杀故障恢复 | 2 次 `SIGKILL` 强杀 Worker + 1 轮正常对照。外部已生效场景通过查询真实状态命中 1 次，重复外部写入 0 次，3/3 全部恢复一致 |
 | SSE 断线重连与防重 | 24 个并发客户端补齐 480 条消息，0 丢失、0 重复。48 次同内容重复提交仅触发 24 次执行，24/24 次篡改参数返回 409，重连补齐 P99 为 102.235 ms |
 
+## 成体系消融评估（8 大实验，full 5 轮）
+
+各臂先预热，再取账本中的中位数。延迟单位为毫秒，成本单位为美元/会话，率值以小数表示。
+
+| 实验 | 对比顺序 | 实测中位数 | Gate |
+|---|---|---|---|
+| 混合检索 | BM25 → 向量 → RRF | all/recall@5：1 → 1 → 1 | PASS |
+| 调度唤醒 | 轮询 → NOTIFY | p95_ms：4096.35 → 90.1201 | PASS |
+| 公平队列 | 单 Worker，FIFO → 公平领取 | b_p95_ms：9580.86 → 214.399；jain：0.5 → 1 | PASS |
+| 故障恢复 | 盲重试 → 查询后重试 | duplicate_external_write_rate：0.5 → 0；final_consistency：0.75 → 1 | PASS |
+| 红队护栏 | 关闭 → 启用 | asr：1 → 0 | PASS |
+| PII 脱敏 | 规则 → 本地 INT8 → 混合 | f1：0.8 → 0.725664 → 1；p95_ms：0.0562498 → 1.84975 → 1.87983 | PASS |
+| 上下文 | 完整历史 → 分块加摘要 | input_tokens：89125.2 → 31278.2；prefix_hit_rate：0.920993 → 0.725109；cost_usd：0.00257033 → 0.0051924；anchor_retention：1 → 1 | PASS |
+| 模型路由 | 故障转移 → 故障转移加熔断 | p95_ms：36.8513 → 1.71071；failed_primary_calls：110 → 5 | PASS |
+
+BM25、向量与 RRF 的逐查询平均 Recall@5 分别为 0.9141、0.9297、0.9414。在部门隔离切片上，过滤前移使 Recall@5 从 0.7188 升至 1。BM25 内核的 P95 均值加速比为 10.59 倍。
+
+摘要减少了输入 token，同时降低前缀缓存命中率。按缓存读价和摘要输入输出计费后，单会话估算成本上升。混合脱敏在冻结工单集上提高了实体 F1，也增加了相对纯规则的冷文本处理延迟。路由实验使用本地故障模型，成本与缓存指标均来自离线估算。
+
+[完整指标与区间](evaluation/report.md) · [离线图表](evaluation/report.html) · [原始账本](evaluation/baseline.json)
+
+配置专用 PostgreSQL 的 `EVAL_DATABASE_URL` 后，运行 `make eval-all EVAL_ARGS="--database-url $EVAL_DATABASE_URL"`。临时库启动与门禁命令见[复现说明](docs/benchmarks.md)。
+
 ## 快速开始
 
 先复制环境变量文件，填入大模型服务的地址、模型名和 API Key，再用 Docker Compose 一键启动：
