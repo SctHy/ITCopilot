@@ -9,7 +9,7 @@ function Step({ icon, title, text, done, active }: { icon: ReactNode; title: str
     <li className="relative flex gap-2.5 pb-3.5 last:pb-0">
       <span className="absolute top-6 bottom-0 left-[9.5px] w-px bg-border" aria-hidden="true" />
       <span className={`relative z-10 grid size-5 shrink-0 place-items-center rounded-md border bg-card [&>svg]:size-3 ${
-        done ? 'border-border text-foreground' : active ? 'border-ring text-foreground' : 'border-border text-muted'}`}>
+        done ? 'border-border text-foreground' : active ? 'border-ring text-foreground' : 'border-border text-muted-foreground'}`}>
         {icon}
       </span>
       <div className="min-w-0">
@@ -22,15 +22,15 @@ function Step({ icon, title, text, done, active }: { icon: ReactNode; title: str
 
 function Metric({ label, value, tone = '' }: { label: string; value: ReactNode; tone?: string }) {
   return (
-    <div className="py-2">
+    <div className="rounded-lg border bg-secondary/65 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-[15px] tabular-nums ${tone}`}>{value}</p>
     </div>
   )
 }
 
-export function RequestInspector({ lastResponse, lastTrace, busy }: {
-  lastResponse: Record<string, any> | null; lastTrace: Record<string, any> | null; busy: boolean
+export function RequestInspector({ lastResponse, lastTrace, policyVersion, busy }: {
+  lastResponse: Record<string, any> | null; lastTrace: Record<string, any> | null; policyVersion?: string; busy: boolean
 }) {
   const done = !!lastResponse && !busy
   const calls: any[] = lastTrace?.trace?.toolCalls || []
@@ -55,6 +55,11 @@ export function RequestInspector({ lastResponse, lastTrace, busy }: {
           <Metric label="响应耗时" value={lastResponse ? <>{Math.round(Number(lastResponse.latencyMs) || 0).toLocaleString()}<small className="ml-0.5 text-[13px] font-normal text-muted-foreground">ms</small></> : '—'} />
           <Metric label="意图置信度" value={lastResponse ? formatPercent(lastResponse.intentConfidence) : '—'} />
         </div>
+        {(lastResponse?.raw?.trace_id || lastResponse?.approvalId || policyVersion) && <dl className="mt-4 space-y-2 border-t pt-3 text-xs text-muted-foreground">
+          {lastResponse?.raw?.trace_id && <div><dt>Trace ID</dt><dd className="mt-1 break-all font-mono text-foreground">{lastResponse.raw.trace_id}</dd></div>}
+          {policyVersion && <div><dt>策略版本</dt><dd className="mt-1 font-mono text-foreground">{policyVersion}</dd></div>}
+          {lastResponse?.approvalId && <div><dt>关联审批</dt><dd className="mt-1 break-all font-mono text-foreground">{lastResponse.approvalId}</dd></div>}
+        </dl>}
         {lastTrace?.trace && (
           <Collapse className="mt-3" triggerClassName="" panelClassName="grid gap-2 pt-2" trigger={<><span className="flex items-center gap-2 text-xs text-muted-foreground">{calls.length} 个工具调用</span></>}>
                 {calls.map((call, index) => (
@@ -63,7 +68,7 @@ export function RequestInspector({ lastResponse, lastTrace, busy }: {
                       <code className="font-semibold">{call.tool_name}</code>
                       <span className="text-muted-foreground">{call.latency_ms ?? '—'} ms</span>
                     </div>
-                    <Mono>{formatJson(call.input || {})}</Mono>
+                    <p className="mb-1 text-xs text-muted-foreground">工具输入（脱敏记录）</p><Mono>{formatJson(call.input || {})}</Mono>
                   </div>
                 ))}
                 {!calls.length && <p className="text-[13px] text-muted-foreground">{lastTrace.trace.toolsUsed?.length ? lastTrace.trace.toolsUsed.join(' · ') : '本次没有记录到工具输入。'}</p>}

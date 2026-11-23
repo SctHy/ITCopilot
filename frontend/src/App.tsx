@@ -97,8 +97,7 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
   const [chatsLimit, setChatsLimit] = useState(30)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelDrawer, setPanelDrawer] = useState(false)
-  const [dark, setDark] = useState(() => localStorage.getItem(THEME_KEY) === 'dark' ||
-    (!localStorage.getItem(THEME_KEY) && window.matchMedia?.('(prefers-color-scheme: dark)').matches))
+  const [dark, setDark] = useState(() => localStorage.getItem(THEME_KEY) !== 'light')
 
   const currentBackend = backendMeta(settings.backend, settings)
   // Pages keyed by connection + identity remount (and drop their data) whenever either changes.
@@ -206,9 +205,9 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center justify-between px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between px-4">
         <button type="button" onClick={() => navigate('chat')} className="flex items-center text-left" aria-label="IT-Copilot 首页">
-          <span className="text-[15px] font-semibold tracking-tight">IT-Copilot</span>
+          <span className="brand-mark mr-2" aria-hidden="true" /><span className="text-base font-semibold tracking-tight">IT-Copilot</span>
         </button>
         <Hint label={<>新对话</>}><Button type="button" size="icon" variant="ghost" aria-label="新对话" onClick={newConversation}><SquarePenIcon className="size-4" /></Button></Hint>
       </div>
@@ -226,9 +225,9 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
           )
         })}
       </SidebarMenu></nav>
-      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+      <div className="mt-5 border-t pt-5 flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <span className="text-sm font-medium">对话记录</span>
+          <span className="text-xs font-medium text-muted-foreground">对话记录</span>
         </div>
         <div className="flex flex-col gap-2 px-3 pb-2">
           <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-2.5 text-muted-foreground focus-within:border-ring">
@@ -269,11 +268,11 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
           <FileTextIcon className="size-4" />API 文档<ExternalLinkIcon className="ml-auto size-3" />
         </a>
         <button type="button" onClick={() => setConnectionOpen(true)} aria-label="当前用户与会话配置"
-          className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent/60">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-xs font-medium">{userInitial}</span>
+          className="flex items-center gap-2.5 rounded-xl border bg-card surface-edge px-3 py-3 text-left transition-colors hover:bg-accent/60">
+          <span className="relative grid size-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-medium">{userInitial}{identity && <i className="absolute bottom-0 right-0 size-2 rounded-full bg-success ring-2 ring-card" />}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm leading-tight">{identity?.username || '未登录'}</span>
-            <span className="block truncate text-xs leading-tight text-muted-foreground">{identity ? `${identity.department} · ${formatRoles(identity.roles)}` : '点击登录'}</span>
+            <span className="block truncate text-xs leading-tight text-muted-foreground">{identity ? <>{identity.department} <span className="inline-block rounded-full border bg-secondary px-1.5">{formatRoles(identity.roles)}</span></> : '点击登录'}</span>
           </span>
           <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
         </button>
@@ -308,8 +307,8 @@ function AppWorkspace({ runtime, identity }: { runtime: ReturnType<typeof create
             <span className="truncate font-medium">{activeView === 'chat' && chatState.messages.length ? (chatState.messages[0]?.content.slice(0, 40) || currentView.label) : currentView.label}</span>
           </div>
           <div className="flex items-center gap-1">
-            <Hint label={<>{health.ok ? `${currentBackend.label} 服务 · ${currentBackend.baseUrl}` : health.detail || health.label}</>}><span className="mr-2 inline-flex h-7 cursor-default items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs text-muted-foreground">
-                <span className={`size-1.5 rounded-full ${health.ok ? 'bg-success' : health.label === '未检查' ? 'bg-muted' : 'bg-destructive'}`} />
+            <Hint label={<>{health.ok ? `${currentBackend.label} 服务 · ${currentBackend.baseUrl}` : health.detail || health.label}</>}><span className="inline-flex h-6 shrink-0 cursor-default items-center gap-1.5 rounded-full border bg-card px-2 text-xs text-muted-foreground">
+                <span className={`size-1.5 rounded-full ${health.ok ? 'bg-success ring-2 ring-success/15' : health.label === '未检查' ? 'bg-muted' : 'bg-destructive'}`} />
                 {statusText}
               </span></Hint>
             {activeView === 'chat' && (

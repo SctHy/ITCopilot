@@ -1,9 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="python-api-url" content="" />
+    <script>
+      try {
+        document.documentElement.classList.toggle('dark', localStorage.getItem('it-copilot.theme') !== 'light')
+      } catch { /* Keep the default dark canvas when storage is unavailable. */ }
+    </script>
+    <style>html { background: #fafafa; color-scheme: light } html.dark { background: #09090b; color-scheme: dark }</style>
     <title>IT-Copilot · 企业 IT 服务台</title>
     <meta name="description" content="IT-Copilot 企业 IT 服务台" />
   </head>

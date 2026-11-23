@@ -7,7 +7,7 @@ import type { ChatResponse, StreamEventHandler } from '../api/chat.ts'
 import type { ApprovalItem, ChatMessage, RelatedApproval, Settings } from './types.ts'
 
 export interface ChatTransport {
-  stream(type: string, settings: Settings, message: string, onEvent: StreamEventHandler): Promise<ChatResponse>
+  stream(type: string, settings: Settings, message: string, onEvent: StreamEventHandler, options?: { signal: AbortSignal }): Promise<ChatResponse>
   trace(type: string, settings: Settings, requestId: string): Promise<Record<string, any> | null>
   /** Fill in an approval card attached to a reply (mutates the card's approval/busy/error fields). */
   loadApproval(card: ApprovalItem): Promise<void>
@@ -24,6 +24,8 @@ export interface ChatSessionState {
 
 export interface ChatSession {
   state: ChatSessionState
+  readonly receiving: boolean
+  stopReceiving(): void
   send(): Promise<void>
   /** Start a new conversation: drops messages and the conversation id. */
   clear(): void
@@ -70,6 +72,7 @@ export function replyMeta(response: ChatResponse): string {
 export function createChatSession(settings: Settings, requestState: RequestState, transport: ChatTransport,
   hooks: { persist(): void; onReply?(): unknown } ): ChatSession {
   const state = reactive<ChatSessionState>({ messages: [], draft: '', busy: false, streamStatus: '', lastResponse: null, lastTrace: null })
+  let subscription: AbortController | undefined
   let sequence = 0
   const createId = () => `message-${Date.now()}-${++sequence}`
   const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -92,6 +95,8 @@ export function createChatSession(settings: Settings, requestState: RequestState
     const request = requestState.begin('chat')
     state.busy = true
     state.streamStatus = ''
+    const controller = new AbortController()
+    subscription = controller
     const answerDraft = createAnswerDraft(state.messages, createId)
     try {
       if (!settings.conversationId) {
@@ -100,11 +105,14 @@ export function createChatSession(settings: Settings, requestState: RequestState
       }
       const response = await transport.stream(request.backend, { ...request.settings, conversationId: settings.conversationId }, content, (event, data) => {
         // 执行过程中实时到达的事件（不是完成后回放）。
-        if (!request.isCurrent()) return
+        if (controller.signal.aborted || !request.isCurrent()) return
         if (answerDraft.onEvent(event, data)) return
         state.streamStatus = streamLabels[event]?.(data) || state.streamStatus
-      })
+      }, { signal: controller.signal })
+      controller.signal.throwIfAborted()
       if (!request.isCurrent()) return
+      subscription = undefined
+      state.streamStatus = '正在整理运行详情'
       if (response.conversationId && !settings.conversationId) {
         settings.conversationId = response.conversationId
         hooks.persist()
@@ -131,8 +139,13 @@ export function createChatSession(settings: Settings, requestState: RequestState
     } catch (error) {
       if (!request.isCurrent()) return
       answerDraft.remove()
-      state.messages.push({ id: createId(), role: 'assistant', content: errorMessage(error), meta: '请求失败', error: true })
+      if (controller.signal.aborted) {
+        state.messages.push({ id: createId(), role: 'assistant', content: '已停止接收回复。再次发送相同问题可续接原请求。' })
+      } else {
+        state.messages.push({ id: createId(), role: 'assistant', content: errorMessage(error), meta: '请求失败', error: true })
+      }
     } finally {
+      if (subscription === controller) subscription = undefined
       if (request.isCurrent()) {
         state.busy = false
         state.streamStatus = ''
@@ -141,6 +154,8 @@ export function createChatSession(settings: Settings, requestState: RequestState
   }
 
   function reset() {
+    subscription?.abort()
+    subscription = undefined
     requestState.invalidate()
     state.busy = false
     state.streamStatus = ''
@@ -173,5 +188,9 @@ export function createChatSession(settings: Settings, requestState: RequestState
     hooks.persist()
   }
 
-  return { state, send, clear, reset, open }
+  return {
+    state, send, clear, reset, open,
+    get receiving() { return !!subscription },
+    stopReceiving() { subscription?.abort() },
+  }
 }

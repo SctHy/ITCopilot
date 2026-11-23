@@ -42,7 +42,7 @@ export function ApprovalsView({ settings, identity, onApproval }: {
       <PageHeader title="审批"
         description="审批人看到全部待审批申请，员工只看到本人的申请。Agent 起草的申请需申请人确认提交后才进入审批。批准后由执行器写入目标系统，到期自动回收。"
         actions={<Button type="button" variant="secondary" aria-busy={loading} onClick={() => result.refetch()} disabled={loading || deciding}><RefreshCwIcon className="size-4" />刷新</Button>} />
-      <Tabs value={filter} onValueChange={value => setFilter(String(value))} className="mb-5">
+      <Tabs value={filter} onValueChange={value => setFilter(String(value))} className="mb-5 max-w-full overflow-x-auto pb-1">
         <TabsList aria-label="审批状态筛选">
           {filters.map(option => <TabsTrigger key={option.id} value={option.id} disabled={deciding}>{option.label}</TabsTrigger>)}
         </TabsList>

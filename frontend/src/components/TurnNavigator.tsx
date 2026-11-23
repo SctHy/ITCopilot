@@ -45,7 +45,7 @@ export function TurnNavigator({ turns, scrollRef }: { turns: Turn[]; scrollRef: 
     const container = scrollRef.current
     const element = container?.querySelector<HTMLElement>(`[data-message-id="${turn.messageId}"]`)
     if (container && element) {
-      container.scrollTo({ top: element.offsetTop - 24, behavior: 'smooth' })
+      container.scrollTo({ top: element.offsetTop - 24, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
     }
   }
 

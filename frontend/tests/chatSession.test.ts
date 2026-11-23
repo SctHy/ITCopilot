@@ -89,3 +89,19 @@ test('opening a stored conversation restores its messages and continues under it
   await chat.send()
   assert.equal(sent, 'conv-9')
 })
+
+test('stopping reception removes the streaming draft and releases the composer', async () => {
+  const { chat } = session(async (_type, _settings, _content, emit, options) => {
+    emit('answer_delta', { delta: '临时回复' })
+    return new Promise((_resolve, reject) => options!.signal.addEventListener('abort', () => reject(options!.signal.reason)))
+  })
+  chat.state.draft = '检查 VPN'
+  const sending = chat.send()
+  assert.equal(chat.receiving, true)
+  chat.stopReceiving()
+  await sending
+  assert.equal(chat.receiving, false)
+  assert.equal(chat.state.busy, false)
+  assert.deepEqual(chat.state.messages.map(message => message.role), ['user', 'assistant'])
+  assert.match(chat.state.messages.at(-1)!.content, /已停止接收/)
+})

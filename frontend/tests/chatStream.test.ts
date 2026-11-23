@@ -82,3 +82,17 @@ test('terminal event returns without waiting for transport EOF', async () => {
   assert.equal((await requestChatStream('python', settings, 'terminal')).response, 'done')
   assert.equal(cancelled, true)
 })
+
+test('stopping a subscription skips reconnect and preserves the idempotency key', () =>
+  withFetch([
+    sse(['1', 'status', { request_id: 'stopped' }]),
+    sse(['2', 'completed', { request_id: 'stopped', response: 'done' }])
+  ], async calls => {
+    const controller = new AbortController()
+    await assert.rejects(requestChatStream('python', settings, 'stop-recovery', () => controller.abort(), {
+      signal: controller.signal
+    }), { name: 'AbortError' })
+    assert.equal(calls.length, 1)
+    await requestChatStream('python', settings, 'stop-recovery')
+    assert.equal(JSON.parse(calls[0]!.body).client_request_id, JSON.parse(calls[1]!.body).client_request_id)
+  }))

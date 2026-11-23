@@ -191,9 +191,9 @@ export function KnowledgeView({ requestState, identity, onToast, onStatus }: {
         <Panel className="mt-5" title="文档管理" icon={<FileTextIcon />}
           actions={<Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => loadDocs()}><RefreshCwIcon className="size-3.5" />刷新</Button>}>
           {!docs.length ? <p className="text-sm text-muted-foreground">知识库中还没有文档。</p> : (
-            <ul className="divide-y divide-border">
+            <ul className="grid gap-2">
               {docs.map(doc => (
-                <li key={doc.document_id} className="flex items-center justify-between gap-3 py-3">
+                <li key={doc.document_id} className="flex items-center justify-between gap-3 rounded-lg border bg-secondary/45 px-3 py-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{doc.title}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">

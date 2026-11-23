@@ -2,7 +2,8 @@ import { Button } from '@/components/ui/button'
 import { CopyIcon, CpuIcon, WrenchIcon } from 'lucide-react'
 import { ApprovalCard } from './ApprovalCard.tsx'
 import { Collapse, Hint, Mono, StatusChip } from './ui.tsx'
-import { formatBody, formatJson } from '../lib/format.ts'
+import { MarkdownMessage } from './MarkdownMessage.tsx'
+import { formatJson } from '../lib/format.ts'
 import type { ApprovalDecision, ApprovalItem, ChatMessage as Message, Identity } from '../lib/types.ts'
 
 export type ApprovalHandler = (target: ApprovalItem, decision?: ApprovalDecision, note?: string) => void
@@ -24,7 +25,7 @@ export function ChatMessage({ item, identity, backendLabel, userInitial, onAppro
   if (item.role === 'user') {
     return (
       <article className="fade-up flex justify-end" data-user={userInitial}>
-        <div className="max-w-[85%] rounded-xl bg-accent px-4 py-2.5 text-[15px] leading-7">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md border bg-message-surface surface-edge px-4 py-2.5 text-[15px] leading-7">
           <p className="prose-reply">{item.content}</p>
         </div>
       </article>
@@ -35,12 +36,12 @@ export function ChatMessage({ item, identity, backendLabel, userInitial, onAppro
     <article className="fade-up group min-w-0">
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>{backendLabel.toLowerCase()} agent</span>
+          <BotAvatar /><span>{backendLabel.toLowerCase()} agent</span>
           {item.meta && !item.error && <span className="truncate">· {item.meta}</span>}
           {item.error && <StatusChip tone="danger">请求失败</StatusChip>}
         </div>
         <div className={`text-[15px] leading-7 ${item.error ? 'rounded-lg border border-border bg-card px-3.5 py-2.5 text-destructive-foreground' : ''}`}>
-          <p className="prose-reply">{formatBody(item.content)}</p>
+          {item.error ? <p className="prose-reply">{item.content}</p> : <MarkdownMessage text={item.content} />}
           {item.approvalId && (
             <ApprovalCard approval={item.approval} busy={item.approvalBusy} error={item.approvalError} identity={identity}
               onAction={(decision, note) => onApproval(item as ApprovalItem, decision, note)} />

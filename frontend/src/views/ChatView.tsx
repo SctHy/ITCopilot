@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Sheet, SheetDescription, SheetHeader, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { ArrowUpIcon, GlobeIcon, KeyRoundIcon, RouteIcon, ShieldIcon, TicketIcon } from 'lucide-react'
+import { ArrowUpIcon, GlobeIcon, KeyRoundIcon, RouteIcon, SquareIcon, ShieldIcon, TicketIcon } from 'lucide-react'
 import { useStore } from '../hooks/useStore.ts'
 import { ChatMessage } from '../components/ChatMessage.tsx'
 import { RequestInspector } from '../components/RequestInspector.tsx'
@@ -39,7 +39,7 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
   // Follow the conversation: scroll when a message is added, while a reply streams, and when it finishes.
   useEffect(() => {
     const list = listRef.current
-    if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
+    if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'auto' })
   }, [state.messages.length, state.busy, lastContent])
 
   function usePrompt(text: string) {
@@ -53,7 +53,7 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
   }
 
   const inspector = (
-    <RequestInspector lastResponse={state.lastResponse} lastTrace={state.lastTrace} busy={state.busy} />
+    <RequestInspector lastResponse={state.lastResponse} lastTrace={state.lastTrace} policyVersion={state.messages.at(-1)?.approval?.policy_version} busy={state.busy} />
   )
 
   return (
@@ -62,16 +62,16 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto" role="log" aria-label="IT 服务台对话" aria-live="polite" aria-busy={state.busy}>
           <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-5 sm:px-8">
             {!hasMessages ? (
-              <div className="flex flex-1 flex-col justify-end gap-6 pt-10 pb-6">
+              <div className="flex flex-1 flex-col justify-center gap-7 py-8 sm:py-14">
                 <div>
-                  <h1 className="text-2xl font-semibold tracking-tight">需要处理什么 IT 问题？</h1>
-                  <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">描述问题或申请。Agent 会检索知识、诊断并起草变更；真正的变更需人工审批后由系统执行，到期自动回收。</p>
+                  <span className="brand-mark mb-4" aria-hidden="true" /><h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">需要处理什么 IT 问题？</h1>
+                  <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">描述故障，或选择一项 IT 服务。涉及权限的变更会先交给你确认。</p>
                 </div>
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   {prompts.map(prompt => (
                     <button key={prompt.label} type="button" onClick={() => usePrompt(prompt.text)}
-                      className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-ring hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
-                      <span className="mt-0.5 text-muted-foreground [&>svg]:size-4">{prompt.icon}</span>
+                      className="surface-edge group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-ring hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-lg border bg-secondary text-muted-foreground group-hover:text-foreground [&>svg]:size-4">{prompt.icon}</span>
                       <span className="min-w-0">
                         <span className="block text-sm font-medium">{prompt.label}</span>
                         <span className="mt-0.5 block text-[13px] text-muted-foreground">{prompt.hint}</span>
@@ -90,9 +90,9 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
                 {state.busy && (
                   <div className="fade-up flex items-center gap-2.5 text-[13px] text-muted-foreground" role="status">
                     <span className="flex gap-1">
-                      <i className="typing-dot size-1.5 rounded-full bg-muted" />
-                      <i className="typing-dot size-1.5 rounded-full bg-muted" />
-                      <i className="typing-dot size-1.5 rounded-full bg-muted" />
+                      <i className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                      <i className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                      <i className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
                     </span>
                     {state.streamStatus || '正在处理问题'}
                   </div>
@@ -104,7 +104,7 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
 
         <div className="mx-auto w-full max-w-[760px] px-5 pb-4 sm:px-8">
           <form onSubmit={event => { event.preventDefault(); session.send() }}
-            className="rounded-2xl border bg-card px-3 pt-3 pb-2.5 shadow-xs/5 transition-colors focus-within:border-ring/60">
+            className="rounded-2xl border bg-card px-3 pt-3 pb-2.5 surface-edge transition-colors focus-within:border-ring focus-within:bg-popover">
             <textarea aria-label="员工 IT 问题" value={state.draft} onChange={event => { state.draft = event.target.value }} rows={2}
               placeholder="描述你遇到的 IT 问题，或想办理的申请…" ref={composerRef}
               className="field-sizing-content max-h-60 min-h-12 w-full resize-none bg-transparent px-1.5 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
@@ -113,12 +113,17 @@ export function ChatView({ session, settings, identity, backendLabel, onToast,
               <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground"><RouteIcon className="size-3.5" />自动路由</span>
               <div className="flex items-center gap-2.5">
                 <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-                  <KbdGroup><Kbd>⌘</Kbd><Kbd>Enter</Kbd></KbdGroup>发送
+                  <KbdGroup><Kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'}</Kbd><Kbd>Enter</Kbd></KbdGroup>发送
                 </span>
-                <Button size="icon" type="submit" className="size-9 rounded-full" aria-label={state.busy ? '处理中' : '发送'}
-                  aria-busy={state.busy} disabled={state.busy || !state.draft.trim()}>
-                  <ArrowUpIcon className="size-4" />
-                </Button>
+                {state.busy && session.receiving ? (
+                  <Button key="stop" size="icon" type="button" className="size-9 rounded-full" aria-label="停止接收回复" onClick={session.stopReceiving}>
+                    <SquareIcon className="size-3 fill-current" />
+                  </Button>
+                ) : (
+                  <Button key="send" size="icon" type="submit" className="size-9 rounded-full" aria-label={state.busy ? '处理中' : '发送'} aria-busy={state.busy} disabled={state.busy || !state.draft.trim()}>
+                    <ArrowUpIcon className="size-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </form>

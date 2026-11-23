@@ -4,13 +4,11 @@ import { ChevronDownIcon, CircleAlertIcon, InfoIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { Select, SelectItem, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
@@ -53,7 +51,13 @@ const toneDot: Record<Tone, string> = { default: 'bg-muted-foreground/60', accen
 
 export function StatusChip({ tone = 'default', children }: { tone?: Tone; children: ReactNode; size?: 'sm' | 'md' }) {
   return (
-    <Badge variant="outline" className="gap-1.5 bg-card font-normal text-foreground">
+    <Badge variant="outline" className={cn('gap-1.5 font-normal', {
+      default: 'bg-secondary text-muted-foreground',
+      accent: 'border-info/20 bg-info/10 text-info',
+      success: 'border-success/20 bg-success/10 text-success',
+      warning: 'border-warning/20 bg-warning/10 text-warning',
+      danger: 'border-destructive/20 bg-destructive/10 text-destructive',
+    }[tone])}>
       <span className={cn('size-1.5 rounded-full', toneDot[tone])} />{children}
     </Badge>
   )
@@ -173,15 +177,6 @@ export function MultiSelectInput({ label, values, onChange, options, placeholder
   )
 }
 
-export function CheckInput({ isSelected, onChange, children, isDisabled }: { isSelected: boolean; onChange: (value: boolean) => void; children: ReactNode; isDisabled?: boolean }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm">
-      <Checkbox checked={isSelected} onCheckedChange={checked => onChange(checked === true)} disabled={isDisabled} />
-      {children}
-    </label>
-  )
-}
-
 export function Mono({ children }: { children: ReactNode }) {
   return <pre className="code-block">{children}</pre>
 }
@@ -225,22 +220,5 @@ export function Collapse({ trigger, children, open, onOpenChange, defaultOpen, c
       </CollapsibleTrigger>
       <CollapsibleContent className={panelClassName}>{children}</CollapsibleContent>
     </Collapsible>
-  )
-}
-
-/** A labelled progress indicator with business status colors. */
-export function Gauge({ value, label, valueText, tone = 'default', className = '' }: {
-  value: number; label?: ReactNode; valueText?: ReactNode; tone?: 'default' | 'success' | 'warning' | 'danger'; className?: string
-}) {
-  return (
-    <div className={cn('flex w-full flex-col gap-1.5', className)}>
-      {(label || valueText) && (
-        <div className="flex items-center justify-between gap-2 text-sm">
-          <span className="text-muted-foreground">{label}</span>
-          <span className="text-xs tabular-nums">{valueText}</span>
-        </div>
-      )}
-      <Progress value={Math.max(0, Math.min(100, value))} aria-label={typeof label === 'string' ? label : '进度'} className={cn('[&_[data-slot=progress-indicator]]:bg-current', { default: 'text-primary', success: 'text-success', warning: 'text-warning', danger: 'text-destructive' }[tone])} />
-    </div>
   )
 }

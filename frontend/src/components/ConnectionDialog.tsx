@@ -53,7 +53,7 @@ export function ConnectionDialog({ isOpen, onOpenChange, initial, backendLabel, 
             <TextInput label="服务地址" value={draft.endpoint} onChange={endpoint => setDraft({ ...draft, endpoint })} isRequired
               placeholder="http://127.0.0.1:8001" description="使用代理路径或完整的 HTTP / HTTPS 地址。" />
 
-            <section className="rounded-xl border bg-muted/40 p-4">
+            <section className="surface-edge rounded-xl border bg-card p-4">
               <p className="mb-3 font-medium text-muted-foreground text-xs">当前身份</p>
               <div className="flex items-center gap-3">
                 <Avatar className="size-9"><AvatarFallback>{(identity?.username || '?').slice(0, 1).toUpperCase()}</AvatarFallback></Avatar>

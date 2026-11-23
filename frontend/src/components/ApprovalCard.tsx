@@ -29,7 +29,7 @@ export function ApprovalCard({ approval, busy = false, error = '', identity, all
   approval?: Approval | null; busy?: boolean; error?: string; identity?: Identity | null; allowClarification?: boolean; onAction: ApprovalAction
 }) {
   return (
-    <div className="mt-3 flex flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-card-foreground" data-state={busy ? 'loading' : error ? 'failed' : approval ? 'ready' : 'unloaded'}>
+    <div className="mt-3 flex flex-col gap-2.5 rounded-xl border bg-card surface-edge p-4 text-card-foreground" data-state={busy ? 'loading' : error ? 'failed' : approval ? 'ready' : 'unloaded'}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="grid size-7 place-items-center rounded-lg bg-accent text-accent-foreground"><ShieldCheckIcon className="size-4" /></span>
@@ -62,9 +62,10 @@ function ApprovalBody({ approval, identity, busy, allowClarification, onAction }
   return (
     <>
       <p className="text-[13px] leading-relaxed text-muted-foreground">{meta.join(' · ')}</p>
+      {approval.payload_hash && <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>冻结参数</span><code className="rounded-full border bg-secondary px-2 py-1 break-all">{approval.payload_hash}</code></div>}
       {!!approval.conflicts?.length && <p className="text-[13px] text-warning-foreground">同一资源还有 {approval.conflicts.length} 个在途申请</p>}
       {(approval.action_requests || []).map((action, index) => (
-        <div key={index} className="rounded-md bg-card-secondary px-3 py-2.5">
+        <div key={index} className="rounded-lg border bg-secondary px-3 py-2.5">
           <p className="mb-1.5 text-[13px] font-medium">{actionLabels[action.tool_name] || action.tool_name}</p>
           <Facts items={Object.entries(action.arguments || {}).map(([key, value]) => [fieldLabels[key] || key, String(value)])} />
         </div>
@@ -113,6 +114,7 @@ function ApprovalActions({ approval, identity, busy, allowClarification, onActio
   const permissions = approvalPermissions(approval, identity)
   const steps = [...(approval.results || []), ...(approval.revocations || [])]
   const reviews = steps.filter(step => ['manual_review', 'unknown'].includes(step.status) || step.drifted)
+  const audit = permissions.canReconcile ? approval.audit?.filter(entry => entry.detail?.reason) : undefined
   const confirmThen = (action: ApprovalDecision, message: string) => { if (window.confirm(message)) onAction(action) }
   const choices = [
     ['retry', '重新入队', '执行器将先回查，再决定是否重试。'],
@@ -140,17 +142,22 @@ function ApprovalActions({ approval, identity, busy, allowClarification, onActio
         {permissions.canRelease && (
           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => confirmThen('release', '确认现在归还这项限时权限？归还后如需使用要重新申请。')}>提前归还权限</Button>
         )}
-        {permissions.canReconcile && reviews.map(step => <fieldset key={step.operation_id}>
-          <legend>{actionLabels[step.action || ''] || step.action} · {step.operation_id.slice(0, 8)}</legend>
-          {choices.filter(([mode]) => step.status !== 'cancelled' || mode !== 'retry').map(([resolution, label, hint]) => <Button key={resolution} type="button" size="sm" variant="outline"
+        {permissions.canReconcile && reviews.map(step => <fieldset key={step.operation_id} className="flex w-full flex-wrap gap-2 rounded-lg border border-warning/20 bg-warning/5 p-3">
+          <legend className="px-1 font-mono text-xs text-warning">{actionLabels[step.action || ''] || step.action} · {step.operation_id.slice(0, 8)}</legend>
+          {choices.filter(([mode]) => step.status !== 'cancelled' || mode !== 'retry').map(([resolution, label, hint]) => <Button key={resolution} type="button" size="sm" variant={resolution === 'mark_resolved' ? 'ghost' : 'outline'}
             disabled={busy || step.version === undefined} onClick={() => {
               const reason = window.prompt(hint + ' 请填写处置原因（进入审计）。')?.trim()
               if (reason && step.version !== undefined) onAction({resolution, operation_id: step.operation_id, version: step.version, reason})
             }}>{label}</Button>)}
         </fieldset>)}
-        {permissions.canReconcile && approval.audit?.filter(entry => entry.detail?.reason).map((entry, index) => <p key={index}>{entry.actor} · {entry.event} · {entry.detail?.reason}</p>)}
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => onAction()}><RefreshCwIcon className="size-3.5" />刷新状态</Button>
       </div>
+      {!!audit?.length && <ol aria-label="处置记录" className="ml-1 border-l pl-4 text-xs text-muted-foreground">
+        {audit.map((entry, index) => <li key={index} className="relative pb-2 last:pb-0 before:absolute before:top-1.5 before:-left-[19px] before:size-[5px] before:rounded-full before:bg-muted-foreground">
+          <strong className="text-foreground">{entry.actor}</strong> · <code>{entry.event}</code>
+          <p className="mt-0.5 break-words">{entry.detail?.reason}</p>
+        </li>)}
+      </ol>}
       {approval.status === 'draft' && permissions.reason && <p className="text-[13px] text-muted-foreground">{permissions.reason}</p>}
       {approval.status === 'pending' && permissions.reason && !permissions.canWithdraw && <p className="text-[13px] text-muted-foreground">{permissions.reason}</p>}
     </div>

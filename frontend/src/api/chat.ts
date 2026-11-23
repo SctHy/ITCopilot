@@ -61,16 +61,17 @@ export async function requestChat(type: string, settings: Settings, message: str
 // 生命周期：连接 → 读事件 →（断线且已拿到 request_id：续读，最多 maxResumes 次）→ completed | error。
 // 订阅超时不证明执行已停止；retry_same_request 时保留幂等键，重新发送续接原执行。
 export async function requestChatStream(type: string, settings: Settings, message: string,
-  onEvent: StreamEventHandler = () => {}, { maxResumes = 3 } = {}): Promise<ChatResponse> {
+  onEvent: StreamEventHandler = () => {}, { maxResumes = 3, signal }: { maxResumes?: number; signal?: AbortSignal } = {}): Promise<ChatResponse> {
   const baseUrl = backendMeta(type, settings).baseUrl
   const attemptKey = attemptKeyFor(type, settings, message)
+  const subscriptionSignal = () => signal ? AbortSignal.any([signal, AbortSignal.timeout(180000)]) : AbortSignal.timeout(180000)
   const payload = buildChatPayload(settings, message, attemptKey)
   const flow = machine(STREAM, 'opening')
   const state: { requestId: string; lastEventId: string; completed: any; failed: any } = { requestId: '', lastEventId: '', completed: null, failed: null }
   try {
     let response = await fetch(`${baseUrl}/chat/stream`, {
       method: 'POST', headers: authHeaders(settings, { 'Content-Type': 'application/json', Accept: 'text/event-stream' }),
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(180000)
+      body: JSON.stringify(payload), signal: subscriptionSignal()
     })
     for (let resumes = 0; ; resumes++) {
       if (!response.ok) {
@@ -91,7 +92,7 @@ export async function requestChatStream(type: string, settings: Settings, messag
           return !state.completed && !state.failed
         })
       } catch (error) {
-        if (!state.requestId || resumes >= maxResumes) throw error
+        if (signal?.aborted || !state.requestId || resumes >= maxResumes) throw error
       }
       if (state.completed) {
         flow.send('complete')
@@ -108,10 +109,11 @@ export async function requestChatStream(type: string, settings: Settings, messag
         throw new Error(`${state.failed.status_code || ''} ${state.failed.detail || '请求失败'}`.trim())
       }
       if (!state.requestId || resumes >= maxResumes) throw new Error('流式响应未完成；再次发送将续接原请求')
+      signal?.throwIfAborted()
       flow.send('resume')
       onEvent('resumed', { request_id: state.requestId, last_event_id: state.lastEventId })
       response = await fetch(`${baseUrl}/chat/stream/${encodeURIComponent(state.requestId)}`, {
-        headers: authHeaders(settings, { Accept: 'text/event-stream', 'Last-Event-ID': state.lastEventId }), signal: AbortSignal.timeout(180000)
+        headers: authHeaders(settings, { Accept: 'text/event-stream', 'Last-Event-ID': state.lastEventId }), signal: subscriptionSignal()
       })
     }
   } catch (error) {
