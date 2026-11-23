@@ -30,7 +30,7 @@ jobs:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
           activate-environment: true
-      - run: uv pip install -e . --group dev
+      - run: uv sync --locked --active
       - name: Install isolated Redis test runtime
         run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: python scripts/dev.py check --profile backend
@@ -64,7 +64,7 @@ jobs:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
           activate-environment: true
-      - run: uv pip install -e . --group dev
+      - run: uv sync --locked --active
       # Same migrations, CAS/lease and vector-store tests as SQLite, against PostgreSQL + pgvector.
       - run: python scripts/dev.py check --profile postgres
       - name: Backup and restore with real PostgreSQL and Redis
@@ -96,7 +96,7 @@ jobs:
           python-version: "3.14"
           # runner 的系统 Python 受 PEP 668 保护，不能 --system 安装；装进激活的 venv。
           activate-environment: true
-      - run: uv pip install -e . --group dev
+      - run: uv sync --locked --active
       - name: Start Keycloak and Gitea
         run: |
           docker run -d --name kc -p 8180:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \

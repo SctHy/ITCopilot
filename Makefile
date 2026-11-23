@@ -17,3 +17,8 @@ lint:
 	.venv/bin/ruff check src tests
 frontend-check:
 	cd frontend && npm run check
+
+.PHONY: bench bench-concurrency bench-fault bench-sse
+bench: bench-concurrency bench-fault bench-sse
+bench-concurrency bench-fault bench-sse:
+	.venv/bin/python -m it_copilot.cmd.bench $(@:bench-%=%) $(BENCH_ARGS)

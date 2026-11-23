@@ -1,1 +1,1 @@
-项目开发约定见 [AGENTS.md](AGENTS.md)，运行命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+项目开发约定和验证命令见 [AGENTS.md](AGENTS.md)。

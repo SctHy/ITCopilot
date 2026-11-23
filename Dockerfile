@@ -16,16 +16,16 @@ WORKDIR /app
 ARG BUILD_SHA
 ENV IT_COPILOT_BUILD_SHA=${BUILD_SHA}
 
-COPY requirements.txt ./
-RUN uv pip install --system -r requirements.txt
+COPY pyproject.toml uv.lock ./
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv PATH="/opt/venv/bin:$PATH"
+RUN uv sync --locked --no-dev --no-install-project
 
 # data/ 不进入构建上下文（.dockerignore）；运行时数据目录需在切换到非 root 用户前创建并授权。
 RUN mkdir -p /app/data && chown -R app:app /app/data
 
 # 构建期预下载 embedding 模型（与 it_copilot.agent.embedding 默认值一致），避免首次请求时在线下载导致超时。
-COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app src ./src
-RUN uv pip install --system --no-deps -e .
+RUN uv sync --locked --no-dev
 
 USER app
 RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('jinaai/jina-embeddings-v2-base-zh').embed(['预热']))"

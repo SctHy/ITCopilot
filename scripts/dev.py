@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
-import gzip
 import importlib.metadata
 import json
 import os
@@ -25,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = Path("output/dev-workflow")
 TOOL = "it-copilot-dev-v1"
 ENTRY_DOCS = (
-    "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "README.md", "docs/README.md",
-    "docs/adr/README.md", ".github/pull_request_template.md",
+    "AGENTS.md", "CLAUDE.md", "README.md", "docs/benchmarks.md",
+    ".github/pull_request_template.md",
 )
 POSTGRES_TESTS = (
     "current_schema",
@@ -295,7 +294,7 @@ def inventory(root):
     texts = []
     owned = set(git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").decode().split("\0")) - {""}
     for name in sorted(owned | set(docs)):
-        if name.startswith(("docs/archive/", "evaluation/fixtures/", "evaluation/evidence/", "evaluation/reports/")):
+        if name.startswith(("evaluation/fixtures/", "evaluation/evidence/", "evaluation/reports/")):
             continue
         path = root / name
         if path.suffix in (".md", ".py", ".json", ".yaml", ".yml", ".toml") and path.is_file() and path.stat().st_size <= 2_000_000:
@@ -307,17 +306,13 @@ def inventory(root):
                 (name in text or path.name in text)]
         rows.append({"path": name, "tracked": name in tracked, "bytes": path.stat().st_size,
                      "text_references": refs, "action": "review_only"})
-    index_path = root / "docs/archive/2026-11-16-file-index.json.gz"
-    index = json.loads(gzip.decompress(index_path.read_bytes())) if index_path.is_file() else {}
-    packages = [{"name": name, **info, "present": (root / info["path"]).is_file()}
-                for name, info in index.get("packages", {}).items()]
     fixture_path = root / "tests/support/fixtures/manifest.json"
     fixtures = json.loads(fixture_path.read_text()) if fixture_path.is_file() else {}
     inputs = [{"name": name, **info, "present": (fixture_path.parent / info["path"]).is_file()}
               for name, info in fixtures.get("inputs", {}).items()]
     return {"broken_document_links": broken_links(root, docs), "reports": rows,
-            "evidence_packages": packages, "frozen_inputs": inputs,
-            "limitations": "Current-text references are advisory; historical indexes are excluded. Local packages/inputs are absent in a fresh clone. No files are deleted."}
+            "frozen_inputs": inputs,
+            "limitations": "Current-text references are advisory. Local inputs are absent in a fresh clone. No files are deleted."}
 
 
 def evaluation_files(directory):
