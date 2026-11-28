@@ -39,6 +39,8 @@ Thumbs.db
 
 # 大型原始评测留在本地；CI 必需的候选资格摘要随配置交付。
 evaluation/reports/*
+!evaluation/reports/devsuite_abc_results.json
+!evaluation/reports/devsuite_abc_report.md
 !evaluation/reports/routing/
 evaluation/reports/routing/*
 !evaluation/reports/routing/*__*.json

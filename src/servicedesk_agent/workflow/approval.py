@@ -19,7 +19,8 @@ def approval_summary(tool_names, message):
 
 def approval_from_traces(traces, message):
     requests = [
-        {"tool_name": t["tool_name"], "arguments": t["input"]}
+        {"tool_name": t["tool_name"], "arguments": (
+            t["output"]["request"] if t["tool_name"] == "propose_access_repair" else t["input"])}
         for t in traces
         if t.get("success") and t.get("tool_name") in UNSAFE_TOOLS
     ]

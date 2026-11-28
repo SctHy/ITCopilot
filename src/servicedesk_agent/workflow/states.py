@@ -20,6 +20,7 @@ class ApprovalStatus(StrEnum):
 class Execution(StrEnum):
     """Derived from the approval's apply actions on every settle (``_refresh_execution``)."""
     NOT_EXECUTED = "not_executed"
+    WAITING_RESOURCE = "waiting_resource"
     QUEUED = "queued"
     EXECUTING = "executing"
     SUCCEEDED = "succeeded"
@@ -54,7 +55,8 @@ APPROVAL = Machine(ApprovalStatus, """
 EXECUTION = Machine(Execution, """
     not_executed  -> queued
     queued        -> executing | failed           # failed: the policy cancelled every action before it started
-    executing     -> succeeded | failed | manual_review
+    waiting_resource -> executing | failed
+    executing     -> waiting_resource | succeeded | failed | manual_review
     manual_review -> succeeded | executing | failed           # operator requeue | operator closed it by hand
 """)
 

@@ -1,11 +1,14 @@
 ---
 name: access-support
 description: 密码、MFA、解锁与权限申请
-keywords: [密码, 解锁, MFA, 验证码, 权限, GitLab, VPN账号]
+keywords: [密码, 解锁, MFA, 验证码, 权限, GitLab, VPN账号, DevSuite]
 intent_groups: [access]
-write_tools: [request_access, reset_password, unlock_account]
+write_tools: [request_access, reset_password, unlock_account, propose_access_repair]
 ---
 - 申请字段以工具参数为准；SOP 里工具没有的字段（项目空间、审批人）不追问，用户给了就写进 reason。有效期是可选参数 duration_hours，用户指定时换算为小时传入，未指定时省略，由策略使用默认值。
 - 只读用 readonly；管理员等不支持的角色如实说明，不换成其他角色申请。
 - 用户只是咨询或要求跳过审批时，不调用写工具。
 - 演示环境：审批通过后只改演示数据，真实账号由身份平台核验本人后处理。
+- DevSuite 申请和无法访问时先查本人账户、许可证与组、库存及服务健康。已有有效权限直接说明。服务故障走工单，账户锁定先解锁。缺证或过期走许可证审批；仅在有效范围匹配且缺组时，经本人明确要求创建修复草稿。
+- 用户明确指定了诊断条件和后续动作时，先核对本人目录或健康检查结果。条件成立且参数齐全，直接起草对应动作，把观测证据写入工单；草稿由用户在卡片确认。账户停用可转交 IT 管理员，不能自行恢复或授权。仅要求排查时说明处理选项并等待选择。
+- 追问用途、范围或期限后，用户补齐所问字段即继续其原申请；沿用用户已给的其他字段。

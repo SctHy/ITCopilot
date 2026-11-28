@@ -77,6 +77,11 @@ class AccessPolicy:
             if hours > rule["max_hours"]:
                 raise PolicyViolation(f"{system}/{role} 最长可申请 {rule['max_hours']} 小时")
             args.update(system=system, role=role, duration_hours=hours)
+        elif name == "propose_access_repair":
+            args["system"], args["role"] = args["system"].casefold(), args["role"].casefold()
+            if (args["system"] != "devsuite" or self.max_hours("devsuite", args["role"]) is None
+                    or name not in self.data.get("actions", {}) or set(args) != {"employee_id", "system", "role"}):
+                raise PolicyViolation("repair_scope_denied：仅可恢复本人已获授权的 DevSuite 访问组")
         elif name == "lock_device":
             args["device_id"] = args["device_id"].upper()  # asset tags are matched exactly downstream
         return {"tool_name": name, "arguments": args}
@@ -93,6 +98,8 @@ class AccessPolicy:
 
     def check_requester(self, action: Dict[str, Any], requester_employee_id: Optional[str], requester_roles) -> None:
         target = action["arguments"]["employee_id"]
+        if action["arguments"].get("system") == "devsuite" and target != requester_employee_id:
+            raise PolicyViolation("self_only：DevSuite 仅允许为本人操作")
         if target == requester_employee_id or self.on_behalf_roles.intersection(requester_roles):
             return
         raise PolicyViolation("只能为本人账号提交申请；代他人申请需由 IT 管理员发起")

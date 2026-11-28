@@ -41,7 +41,7 @@ class LocalDirectoryAdapter:
         return await self.database.run(self.directory.current_level, employee_id, system)
 
     async def observe(self, action_id: str, action: Dict[str, Any]) -> bool:
-        return await self.database.run(self.directory.observe, action_id)
+        return await self.database.run(self.directory.observe, action_id, action)
 
     async def apply(self, action_id: str, action: Dict[str, Any]) -> Dict[str, Any]:
         return await self.database.run(self.directory.apply, action_id, action)

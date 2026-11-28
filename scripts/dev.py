@@ -28,7 +28,7 @@ ENTRY_DOCS = (
     ".github/pull_request_template.md",
 )
 POSTGRES_TESTS = (
-    "current_schema",
+    "current_schema", "devsuite_workflow",
     "workflow", "vector_store", "policy_revalidation",
     "isolation_and_history",
     "tenancy", "tenant_scope", "tenant_isolation", "tenant_quotas", "overlapping_grants",

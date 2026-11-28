@@ -14,7 +14,7 @@ from pydantic_ai.usage import RunUsage
 from pydantic_ai import Agent
 from pydantic_ai.output import ToolOutput
 
-from servicedesk_agent.agent.intent.explicit import explicit_access_systems, explicit_write_requests, readonly_requested
+from servicedesk_agent.agent.intent.explicit import access_reason_reply, explicit_access_systems, explicit_write_requests, readonly_requested
 from servicedesk_agent.agent.intent.entities import clean_entities, extract_entities, merge_entities
 from servicedesk_agent.agent.intent.taxonomy import (
     CATEGORY_GUIDE,
@@ -146,6 +146,8 @@ class IntentRecognizer:
         missing = self._missing_slots(intent, entities)
         low_confidence = confidence < self._clarify_threshold
         explicit = explicit_write_requests(message)
+        if access_reason_reply(message, history):
+            explicit |= {"request_access"}
         # An explicitly stated request is not a vague message: asking "请补充具体问题" would block it.
         # Fields the request actually lacks are still in ``missing``.
         if low_confidence and not missing and not explicit:
@@ -215,6 +217,9 @@ class IntentRecognizer:
 confidence 是 0 到 1 的数字且为必填：明确的 IT 意图通常填 0.80-0.95；greeting/chitchat/out_of_scope 也必须填合理值，建议 0.80-0.95；绝对不能留空、填 null 或填 0。
 {CATEGORY_GUIDE}
 结合历史解析“最开始那个”等指代；历史里的助手建议不等于用户办理意愿。查询进度、总结已有申请不属于新的写操作。
+用户要求“检查后，若条件成立则办理”的，将条件对应的操作列入 requested_actions；由执行助手在诊断后核对条件。
+用户明确要求把故障移交人工处理并记录诊断证据时，若需要新工单，操作为 create_ticket。查询或补充既有工单不等于新建。
+上一轮用户已申请且助手正在追问缺失字段时，本轮回答该字段属于续办同一申请。若用户撤回、改为咨询、要求暂缓或只问进度，不续办。
 用户消息：{message}
 历史：{json.dumps(history[-20:] if history else [], ensure_ascii=False)}"""
         self._metrics["llm_calls"] += 1

@@ -92,6 +92,12 @@ class ApprovalRepo(ApprovalQueries):
             with (nullcontext(connection) if connection is not None else self.store.transaction()) as db:
                 existing = db.execute(select(approvals.c.payload_hash).where(approvals.c.id == approval_id)).scalar()
                 if existing is None:
+                    from servicedesk_agent.workflow import devsuite
+                    for action in frozen_actions:
+                        if action["tool_name"] == "propose_access_repair":
+                            employee = principal.employee_id
+                            devsuite.repair_check(devsuite.employee_status(db, principal.tenant, employee),
+                                devsuite.access(db, principal.tenant, employee, now), action["arguments"]["role"])
                     db.execute(insert(approvals).values(traceparent=traceparent(),
                         id=approval_id, request_id=request_id, conv_id=conv_id, requester=principal.subject, requester_name=principal.username,
                         requester_employee_id=principal.employee_id, department=principal.department, tenant=principal.tenant,

@@ -83,7 +83,37 @@ def reset_password(req, args):
     return _pending(req, args, "reset_password")
 
 
+def _devsuite_identity(req, args):
+    from servicedesk_agent.workflow.policy import PolicyViolation
+    principal = getattr(req, "principal", None)
+    if not principal or not principal.employee_id or args.get("employee_id", principal.employee_id) != principal.employee_id:
+        raise PolicyViolation("self_only：DevSuite 操作需使用本人登录身份")
+    return principal
+
+
+def diagnosis(req, args, directory, tool):
+    from servicedesk_agent.workflow.policy import load_policy
+    principal = _devsuite_identity(req, {})
+    if str(args.get("software", "devsuite")).casefold() != "devsuite":
+        raise ValueError("仅支持 DevSuite")
+    result = directory.devsuite_diagnosis(tool, principal.employee_id, principal.tenant)
+    if tool == "check_license_inventory":
+        result["max_hours"] = {role: rule["max_hours"] for role, rule in
+                               load_policy().data["systems"]["devsuite"]["roles"].items()}
+    return result
+
+
+def propose_access_repair(req, args, directory):
+    from servicedesk_agent.workflow.devsuite import repair_check
+    principal = _devsuite_identity(req, args)
+    repair_check(diagnosis(req, {}, directory, "check_employee_status"),
+                 diagnosis(req, {}, directory, "check_software_access"), args["role"].casefold())
+    return _pending(req, {**args, "employee_id": principal.employee_id, "system": "devsuite"}, "propose_access_repair")
+
+
 def request_access(req, args):
+    if str(args.get("system", "")).strip().casefold() == "devsuite":
+        args = {**args, "employee_id": _devsuite_identity(req, args).employee_id}
     return _pending(req, args, "request_access")
 
 
@@ -136,13 +166,25 @@ def build_shared_rag_tools(tool_manager) -> ToolSet:
 
 # ── Agent 工具集 ──────────────────────────────────────────────────────────────
 
-def agent_tools(directory=lambda: None) -> ToolSet:
+def agent_tools(directory=lambda: None, *, include_devsuite=True) -> ToolSet:
     """directory：返回员工记录查询对象（WorkflowStore）的函数，在服务启动装配完成后赋值。"""
     access_schema = {**_strings("employee_id", "reason"),
-        "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN"]},
-        "role": {"type": "string", "enum": ["readonly", "reporter", "developer"], "description": "readonly 表示只读。候选角色是否适用于该系统由工具实时策略校验，SOP 举例不是完整角色列表；不得把管理员等其他角色换成这里的角色"},
-        "duration_hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "有效期（小时）；用户没说就省略"}}
+        "system": {"type": "string", "enum": ["GitLab", "Jira", "VPN", "DevSuite"]},
+        "role": {"type": "string", "enum": ["readonly", "reporter", "developer", "standard", "pro"], "description": "readonly 表示只读。候选角色是否适用于该系统由工具实时策略校验，SOP 举例不是完整角色列表；不得把管理员等其他角色换成这里的角色"},
+        "duration_hours": {"type": "integer", "minimum": 1, "maximum": 720, "description": "有效期（小时）；用户没说就省略"}}
+    devsuite_tools = _toolset(
+        *(make_tool(name, description, _strings("software", "employee_id"),
+                    lambda req, args, name=name: diagnosis(req, args, directory(), name))
+          for name, description in (("check_employee_status", "查询本人账户启用、锁定状态和部门"),
+                                    ("check_software_access", "查询本人 DevSuite 许可证及对应组成员关系"),
+                                    ("check_license_inventory", "查询 DevSuite 席位和策略时限"),
+                                    ("check_service_health", "查询 DevSuite 生产环境健康状态"))),
+        make_tool("propose_access_repair", "申请恢复本人有效 DevSuite 许可证对应的访问组",
+                  _strings("role"), lambda req, args: propose_access_repair(req, args, directory()),
+                  required=["role"], retry_safe=False),
+    ) if include_devsuite else {}
     tools = _toolset(
+        *devsuite_tools.values(),
         make_tool("lookup_asset", "查询本人名下设备的资产信息与锁定状态，asset_id 如 DEV-1001；不传 asset_id 时列出本人名下全部设备。",
                   _strings("asset_id"), lambda req, args: lookup_asset(req, args, directory())),
         make_tool("query_ticket", "查询本人名下已创建的工单；不传 ticket_id 时列出全部。", _strings("ticket_id"),
@@ -156,7 +198,8 @@ def agent_tools(directory=lambda: None) -> ToolSet:
                   _strings("title", "description", "priority"), create_ticket, required=["title", "description"], retry_safe=False),
     )
     writes = {name for name, spec in tools.items() if not spec.retry_safe}
-    if writes != WRITE_TOOLS:
+    expected = WRITE_TOOLS if devsuite_tools else WRITE_TOOLS - {"propose_access_repair"}
+    if writes != expected:
         # 写工具列表只以 servicedesk_agent.workflow.actions 为准；不一致时直接启动失败，避免写工具绕过审批检查。
-        raise RuntimeError(f"写工具与 servicedesk_agent.workflow.actions 不一致：{sorted(writes ^ WRITE_TOOLS)}")
+        raise RuntimeError(f"写工具与 servicedesk_agent.workflow.actions 不一致：{sorted(writes ^ expected)}")
     return tools

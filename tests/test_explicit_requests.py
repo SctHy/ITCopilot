@@ -135,3 +135,39 @@ def test_multiple_systems_with_reasons_are_an_explicit_permission_request():
     assert explicit_write_requests(message) == {"request_access"}
     # Two targets remain two targets; do not invent a single default system.
     assert explicit_access_systems(message) == []
+
+
+@pytest.mark.parametrize("original,answer,allowed", [
+    ("请为我申请 Jira reporter 权限。", "理由为排查回归。", True),
+    ("请为我申请 Jira reporter 权限。", "不要提交。", False),
+    ("如何申请 Jira reporter 权限？", "用途为版本管理。", False),
+    ("申请 Jira reporter 权限，等我确认。", "用途为版本管理。", False),
+])
+def test_purpose_continues_only_a_requested_application(original, answer, allowed):
+    from servicedesk_agent.agent.intent.explicit import access_reason_reply
+    history = [dict(role="user", content=original), dict(role="assistant", content="请说明申请用途。")]
+    assert access_reason_reply(answer, history) is allowed
+
+
+def test_renewal_needs_observed_expiry_for_same_system():
+    from types import SimpleNamespace
+    from servicedesk_agent.agent.base_agent import BaseAgent
+    from servicedesk_agent.agent.tooling.executor import WriteGuardBlocked
+    from servicedesk_agent.agent.types import Request
+
+    msg = "如果许可证过期，请续期。"
+    req = Request(message=msg, allowed_writes=explicit_write_requests(msg))
+    args = {"system": "devsuite"}
+    for expired, system in [(True, "other"), (False, "devsuite"), (True, "devsuite")]:
+        trace = dict(tool_name="check_software_access", success=True, output=dict(expired=expired, software=system))
+        call = BaseAgent._guard_unsafe_tool(req, "request_access", args, [trace])
+        if expired and system == "devsuite":
+            asyncio.run(call)
+        else:
+            with pytest.raises(WriteGuardBlocked):
+                asyncio.run(call)
+    req = Request(message="建工单", principal=SimpleNamespace(employee_id="1002"),
+                  conversation_state={"missing_fields": ["employee_id"]})
+    asyncio.run(BaseAgent._guard_unsafe_tool(req, "create_ticket", {}))
+    with pytest.raises(WriteGuardBlocked):
+        asyncio.run(BaseAgent._guard_unsafe_tool(req, "unlock_account", {}))

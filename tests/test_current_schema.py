@@ -36,7 +36,7 @@ def test_fresh_schema_contains_current_tables_and_constraints(db_url):
         resource = indexes["uq_actions_resource_executing"]
         assert resource["unique"] and resource["column_names"] == ["resource_key"]
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0017"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0018"
             assert db.execute(select(tenants.c.id, tenants.c.status)).all() == [("default", "active")]
             if engine.dialect.name == "postgresql":
                 assert db.execute(text("SELECT policyname FROM pg_policies WHERE schemaname = current_schema()")).all() == []

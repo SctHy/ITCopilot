@@ -60,7 +60,7 @@ class WorkflowStore:
         self.approvals = ApprovalRepo(self)
         self.actions = ActionQueue(self)
         self.grants = GrantLedger(self)
-        self.directory = DirectoryRepo(self.database)
+        self.directory = DirectoryRepo(self.database, clock)
         self.directory._seed()
 
     @property

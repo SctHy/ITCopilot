@@ -197,7 +197,15 @@ def main(argv=None):
     report.add_argument("--baseline", type=Path)
     report.add_argument("--md", type=Path)
     report.add_argument("--html", type=Path)
+    abc = sub.add_parser("devsuite-abc")
+    abc.add_argument("--driver", choices=("offline", "live"), default="offline")
+    abc.add_argument("--repeats", type=positive, default=3)
+    abc.add_argument("--concurrency", type=positive, default=6)
+    abc.add_argument("--output-dir", type=Path)
     args = parser.parse_args(argv)
+    if args.suite == "devsuite-abc":
+        from servicedesk_agent.eval.devsuite_abc import command
+        return command(args)
     if args.suite in ("diff", "report"):
         try:
             return postprocess(args)

@@ -31,7 +31,7 @@ import uuid
 from typing import Any, Callable, Dict, Optional
 
 from servicedesk_agent.workflow.adapters import AdapterRegistry
-from servicedesk_agent.workflow.adapters.base import AmbiguousError, PermanentError, TransientError, rank, target_level
+from servicedesk_agent.workflow.adapters.base import AmbiguousError, PermanentError, ResourceExhausted, TransientError, rank, target_level
 from servicedesk_agent.infra.monitor.telemetry import trace_scope
 from servicedesk_agent.infra.logging import action_fields
 from servicedesk_agent.infra import admin_audit
@@ -337,6 +337,11 @@ class ExecutionWorker:
                     await self.store.actions.save_result(action, result)
                 spec = {"tool_name": "revoke_access", "arguments": {**action["arguments"], "restore_to": restore}}
             flow.send("apply")
+            if action["tool_name"] in {"assign_license", "add_access_group"}:
+                reason = await self.store.run(self.store.devsuite_block, action)
+                if reason:
+                    raise PermanentError(reason)
+                spec["lease"] = (action["lease_owner"], action["version"])
             action["effect_started"] = True
             result.update(await adapter.apply(action["id"], spec))
             flow.send("verify")
@@ -353,13 +358,24 @@ class ExecutionWorker:
         except LeaseLost:
             flow.send("lost")
             logger.warning("lease lost for action %s; another worker owns it", action["id"])
+        except ResourceExhausted as exc:
+            flow.send("fail")
+            await self._settle(self.store.actions.retry_later, action, ActionStatus.QUEUED, str(exc), 60, waiting_resource=True)
         except PermanentError as exc:
             flow.send("fail")
-            await self._settle(self.store.actions.fail, action, str(exc))
-            await self._emit(action, "action_failed", error=str(exc))
+            # An issued license survives a rejected group write. Preserve that step for
+            # an audited operator retry, which observes and rechecks authorization.
+            partial = action["tool_name"] == "add_access_group" and action["seq"] > 0
+            status = ActionStatus.MANUAL_REVIEW if partial else ActionStatus.FAILED
+            await self._settle(self.store.actions.fail, action, str(exc), status=status)
+            await self._emit(action, "action_manual_review" if partial else "action_failed", error=str(exc))
         except TransientError as exc:
             flow.send("fail")
             if action["attempts"] >= self.max_attempts:
+                if action["tool_name"] == "add_access_group":
+                    await self._settle(self.store.actions.fail, action, str(exc), status=ActionStatus.MANUAL_REVIEW)
+                    await self._emit(action, "action_manual_review")
+                    return
                 await self._settle(self.store.actions.fail, action, f"重试 {action['attempts']} 次仍失败：{exc}")
                 await self._emit(action, "action_failed", error=str(exc))
             else:

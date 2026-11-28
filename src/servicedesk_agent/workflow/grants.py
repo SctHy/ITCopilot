@@ -191,6 +191,19 @@ class GrantLedger(Repository):
                     detail={"to": policy.version, "system": grant["system"], "role": grant["role"], "expires_at": _iso(expires_at)})
         return outcome
 
+    def devsuite_block(self, action):
+        from servicedesk_agent.workflow.catalog import execution_steps
+        from servicedesk_agent.workflow.repository import action_id
+        with schema.read(self.store.engine) as db:
+            row = db.execute(select(approvals).where(approvals.c.id == action["approval_id"])).mappings().one()
+        steps = list(execution_steps(row["payload"]["action_requests"]))
+        seq = action["seq"]
+        if (row["status"] != "approved" or row["policy_version"] != self.store.policy.version
+                or action["id"] != action_id(row["id"], row["payload_hash"], seq)
+                or seq >= len(steps) or steps[seq] != {"tool_name": action["tool_name"], "arguments": action["arguments"]}):
+            return "审批版本或冻结参数已变化，请重新申请"
+        return None
+
     def policy_block(self, approval_id: str) -> Optional[str]:
         """Checked by the worker right before an approval's first effect."""
         with schema.read(self.store.engine) as db:

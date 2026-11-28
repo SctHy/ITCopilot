@@ -30,6 +30,7 @@ WRITE_ACTIONS: Dict[str, WriteAction] = {a.name: a for a in (
     WriteAction("request_access", "申请或开通系统权限", ("employee_id", "system", "role", "reason"), "high", True),
     WriteAction("reset_password", "重置密码", ("employee_id",), "high", False),
     WriteAction("unlock_account", "解锁账号", ("employee_id",), "high", False),
+    WriteAction("propose_access_repair", "修复 DevSuite 访问组", ("employee_id", "system", "role"), "high", False),
     WriteAction("lock_device", "远程锁定丢失或被盗的设备", ("employee_id", "device_id", "reason"), "high", False),
 )}
 
@@ -40,8 +41,19 @@ def risk_of(names) -> str:
     return "high" if any(WRITE_ACTIONS[n].risk == "high" for n in names if n in WRITE_ACTIONS) else "medium"
 
 
+def execution_steps(requests):
+    for request in requests:
+        name, args = request["tool_name"], request["arguments"]
+        if args.get("system") == "devsuite" and name in {"request_access", "propose_access_repair"}:
+            if name == "request_access":
+                yield {"tool_name": "assign_license", "arguments": args}
+            yield {"tool_name": "add_access_group", "arguments": args}
+        else:
+            yield request
+
+
 def resource_key(tenant: str, tool_name: str, arguments: dict) -> str:
-    if tool_name in {"request_access", "revoke_access"}:
+    if tool_name in {"request_access", "revoke_access", "propose_access_repair", "assign_license", "add_access_group"}:
         return f"{tenant}:access:{arguments['employee_id']}:{arguments['system']}"
     if tool_name in {"reset_password", "unlock_account"}:
         return f"{tenant}:account:{arguments['employee_id']}"

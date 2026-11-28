@@ -336,6 +336,43 @@ directory_devices = Table(
     PrimaryKeyConstraint("tenant", "id", name="pk_directory_devices"),
 )
 
+directory_software_inventory = Table(
+    "directory_software_inventory", metadata,
+    Column("tenant", String(80), primary_key=True),
+    Column("software", String(64), primary_key=True),
+    Column("total_seats", Integer, nullable=False),
+    Column("available_seats", Integer, nullable=False),
+)
+
+directory_licenses = Table(
+    "directory_licenses", metadata,
+    Column("tenant", String(80), primary_key=True),
+    Column("employee_id", String(64), primary_key=True),
+    Column("software", String(64), primary_key=True),
+    Column("scope", String(40), nullable=False),
+    Column("active", Integer, nullable=False),
+    Column("expires_at", Float, nullable=False),
+    Column("operation_id", String(64), nullable=False),
+)
+
+directory_access_groups = Table(
+    "directory_access_groups", metadata,
+    Column("tenant", String(80), primary_key=True),
+    Column("software", String(64), primary_key=True),
+    Column("group_name", String(64), primary_key=True),
+    Column("employee_id", String(64), primary_key=True),
+    Column("operation_id", String(64), nullable=False),
+)
+
+directory_service_health = Table(
+    "directory_service_health", metadata,
+    Column("tenant", String(80), primary_key=True),
+    Column("software", String(64), primary_key=True),
+    Column("env", String(64), primary_key=True),
+    Column("status", String(40), nullable=False),
+    Column("message", Text, nullable=False),
+)
+
 # Effects applied by the local adapter, keyed by action id: makes retries idempotent.
 directory_effects = Table(
     "directory_effects", metadata,

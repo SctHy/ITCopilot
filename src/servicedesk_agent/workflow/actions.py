@@ -20,7 +20,7 @@ from servicedesk_agent.infra.db import (
 from servicedesk_agent.infra.tenant_context import tenant_scope
 from servicedesk_agent.workflow.catalog import WRITE_ACTIONS as WRITE_ACTIONS
 from servicedesk_agent.workflow.catalog import WRITE_TOOLS as WRITE_TOOLS
-from servicedesk_agent.workflow.catalog import resource_key
+from servicedesk_agent.workflow.catalog import execution_steps, resource_key
 from servicedesk_agent.workflow.catalog import risk_of as risk_of
 from servicedesk_agent.workflow.repository import (
     ApprovalForbidden,
@@ -44,9 +44,10 @@ from servicedesk_agent.workflow.states import (
 class ActionTransactions(Repository):
     def _enqueue(self, db, row, now) -> None:
         rows = []
+        steps = list(execution_steps(row["payload"]["action_requests"]))
         with tenant_scope(row["tenant"]):  # route to the owning tenant's adapters, whoever decided (ADR 0025)
-            routes = [self.store.route(action) for action in row["payload"]["action_requests"]]
-        for seq, action in enumerate(row["payload"]["action_requests"]):
+            routes = [self.store.route(action) for action in steps]
+        for seq, action in enumerate(steps):
             key = action_id(row["id"], row["payload_hash"], seq)
             rows.append({
                 "id": key, "traceparent": traceparent(), "tenant": row["tenant"], "approval_id": row["id"], "seq": seq, "kind": "apply",
@@ -249,6 +250,9 @@ class ActionTransactions(Repository):
             return None  # another worker won the CAS
         if row["kind"] == "apply" and row["seq"] == 0 and row["attempts"] == 0:
             db.execute(update(approvals).where(approvals.c.id == row["approval_id"], approvals.c.execution == Execution.QUEUED).values(execution=Execution.EXECUTING))
+        if row["tool_name"] == "assign_license":
+            db.execute(update(approvals).where(approvals.c.id == row["approval_id"],
+                approvals.c.execution == Execution.WAITING_RESOURCE).values(execution=Execution.EXECUTING))
         self.store._audit(db, row["approval_id"], f"{row['kind']}_started", worker_id, action_id=row["id"], detail={"attempt": row["attempts"] + 1, "previous": row["status"]})
         return {**row, "traceparent": parent, "prev_status": row["status"], "status": ActionStatus.EXECUTING,
                 "attempts": row["attempts"] + 1, "version": row["version"] + 1, "lease_owner": worker_id}
@@ -318,10 +322,14 @@ class ActionTransactions(Repository):
             self.store._audit(db, action["approval_id"], event, action["lease_owner"], action_id=action["id"], detail=result)
             self._refresh_execution(db, action["approval_id"])
 
-    def retry_later(self, action: Dict[str, Any], status: str, error: str, delay_s: float) -> None:
+    def retry_later(self, action: Dict[str, Any], status: str, error: str, delay_s: float, *, waiting_resource=False) -> None:
         """status=queued for transient failures, unknown when the outcome must be reconciled first."""
         with self.store.transaction() as db:
             self._action_cas(db, action, status=status, error=error[:500], not_before=self.store.clock() + delay_s, lease_owner=None, lease_until=None)
+            if waiting_resource:
+                EXECUTION.check(Execution.EXECUTING, Execution.WAITING_RESOURCE)
+                db.execute(update(approvals).where(approvals.c.id == action["approval_id"],
+                    approvals.c.execution == Execution.EXECUTING).values(execution=Execution.WAITING_RESOURCE))
             self.store.notifier.publish(db, action["id"])
             self.store._audit(db, action["approval_id"], f"{action['kind']}_{status}", action["lease_owner"], action_id=action["id"], detail={"error": error[:500]})
 

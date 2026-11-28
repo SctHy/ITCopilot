@@ -21,7 +21,7 @@ async def test_migrated_queue_skips_locked_work_and_never_claims_twice(db_url):
                 "employee_id": "1001", "title": employee, "description": "test"}}])
             store.decide(employee, "approved", BOB, pending["payload_hash"])
         with store.engine.begin() as blocker:
-            assert blocker.execute(text("select version_num from alembic_version")).scalar_one() == "0017"
+            assert blocker.execute(text("select version_num from alembic_version")).scalar_one() == "0018"
             locked = blocker.execute(select(actions.c.id).order_by(actions.c.not_before).limit(1).with_for_update()).scalar_one()
             batches = await asyncio.wait_for(asyncio.gather(*[
                 store.actions.claim(str(i), 60, 1) for i in range(4)]), 3)

@@ -12,7 +12,7 @@ approval_ttl_hours: 72
 # requester sees and confirms (card button or replying "确认") before approvers are asked. The
 # Agent chose the arguments; this catches a wrong device, role or duration before it costs an
 # approver's time. Unconfirmed drafts expire after confirmation_ttl_hours.
-requester_confirmation: [request_access, reset_password, unlock_account, lock_device]
+requester_confirmation: [request_access, reset_password, unlock_account, lock_device, propose_access_repair]
 confirmation_ttl_hours: 24
 
 # Employees may only request changes for their own employee_id; IT admins may
@@ -24,6 +24,10 @@ on_behalf_roles: [it_admin]
 approver_roles: [approver, it_admin]
 
 systems:
+  devsuite:
+    roles:
+      standard: {approvals: 1, default_hours: 720, max_hours: 720}
+      pro: {approvals: 2, default_hours: 336, max_hours: 336}
   gitlab:
     roles:
       readonly:  {approvals: 1, default_hours: 24, max_hours: 168}
@@ -42,6 +46,7 @@ systems:
 role_aliases: {read: readonly, "只读": readonly}
 
 actions:
+  propose_access_repair: {approvals: 1}
   reset_password: {approvals: 1}
   unlock_account: {approvals: 1}
   create_ticket:  {approvals: 1}

@@ -34,6 +34,10 @@ class PermanentError(AdapterError):
     pass
 
 
+class ResourceExhausted(AdapterError):
+    """No license seat is available for this approved request."""
+
+
 class TransientError(AdapterError):
     pass
 

@@ -25,6 +25,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from servicedesk_agent.agent.masking.model_masking import current_session
 from servicedesk_agent.agent.memory.context_budget import BudgetedModel, ContextTooLong
 from servicedesk_agent.agent.conversation_state import blocking_slots
+from servicedesk_agent.agent.intent.explicit import renewal_on_expiry
 from servicedesk_agent.agent.intent.taxonomy import WRITE_ACTIONS
 from servicedesk_agent.agent.prompting import (
     AGENT_RULES,
@@ -369,7 +370,7 @@ class BaseAgent:
                 raise WriteGuardBlocked(f"本次处理不提供 {spec.name}")
             self._validate_tool_input(spec, args)
             if not spec.retry_safe or spec.name in WRITE_ACTIONS:
-                await self._guard_unsafe_tool(req, spec.name, args)
+                await self._guard_unsafe_tool(req, spec.name, args, deps.traces)
             result = await self.executor.run(spec, req, args)
             deps.used.append(spec.name)
         except Exception as ex:
@@ -391,12 +392,19 @@ class BaseAgent:
         return result
 
     @staticmethod
-    async def _guard_unsafe_tool(req: Request, name: str, args: Dict[str, Any]) -> None:
+    async def _guard_unsafe_tool(req: Request, name: str, args: Dict[str, Any], traces=()) -> None:
         """校验写操作意图和必填参数，先占用本轮调用名额，再执行写权限检查。"""
         if req.allowed_writes is not None and name in WRITE_ACTIONS and name not in req.allowed_writes:
             # 意图识别判断用户这一轮没有要求这项操作：挡住主动提交，而不是从工具列表里拿掉（保持前缀缓存）。
             raise WriteGuardBlocked("用户这一轮没有要求办理这项操作；需要的话先向用户确认")
         missing_slots = (req.conversation_state or {}).get("missing_fields") or []
+        if name == "request_access" and renewal_on_expiry(req.message):
+            access = next((t["output"] for t in reversed(traces) if t["success"] and t["tool_name"] == "check_software_access"), {})
+            if access.get("expired") is not True or str(access.get("software")).casefold() != str(args.get("system")).casefold():
+                raise WriteGuardBlocked("需先核实所申请系统的本人许可证已过期")
+        if name == "create_ticket" and getattr(req.principal, "employee_id", None):
+            # 工单由 _pending 绑定已验证的登录工号，即使排障主意图需要显式核验身份。
+            missing_slots = [slot for slot in missing_slots if slot != "employee_id"]
         missing_slots = blocking_slots(name, missing_slots)
         if missing_slots:
             raise WriteGuardBlocked("缺少必要信息，暂不执行写操作：" + ", ".join(missing_slots))

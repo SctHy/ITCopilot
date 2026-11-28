@@ -12,6 +12,7 @@ GROUP_REQUIREMENTS = {"access": ["employee_id"], "network": ["error_code"], "end
 
 TOOL_SLOTS = {
     "query_ticket": {"ticket_id"},
+    "propose_access_repair": {"role"},
     "lock_device": {"employee_id", "device_id", "reason"},
     "unlock_account": {"employee_id"},
     "reset_password": {"employee_id"},
